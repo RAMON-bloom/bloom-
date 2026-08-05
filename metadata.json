@@ -1,0 +1,6 @@
+{
+  "name": "bloom採用管理",
+  "description": "bloom採用管理",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

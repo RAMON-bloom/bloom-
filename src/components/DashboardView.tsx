@@ -1,0 +1,880 @@
+import React, { useState } from 'react';
+import { useATS } from '../context/ATSContext';
+import { SelectionPhase } from '../types';
+import { 
+  BarChart, 
+  Bar, 
+  LineChart,
+  Line,
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  ResponsiveContainer, 
+  Cell, 
+  CartesianGrid, 
+  Legend 
+} from 'recharts';
+import { 
+  BarChart3, 
+  TrendingUp, 
+  Users, 
+  CheckCircle2, 
+  Award, 
+  Sparkles, 
+  Building2, 
+  Filter,
+  Star,
+  Layers,
+  ArrowUpRight,
+  ShieldCheck,
+  Calendar,
+  Briefcase,
+  UserCheck,
+  ArrowRight,
+  MessageSquare,
+  BarChart2,
+  LineChart as LineChartIcon,
+  Check,
+  ChevronRight
+} from 'lucide-react';
+
+export const DashboardView: React.FC = () => {
+  const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId } = useATS();
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [trendMetric, setTrendMetric] = useState<'referrals' | 'acceptances' | 'both'>('referrals');
+  const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
+  const [matrixDisplayMode, setMatrixDisplayMode] = useState<'both' | 'count' | 'rate'>('both');
+
+  // Filter candidates for metrics
+  const displayCandidates = selectedMonth === 'ALL'
+    ? candidates
+    : candidates.filter((c) => c.appliedMonth === selectedMonth);
+
+  // Total KPIs
+  const totalApps = displayCandidates.length;
+  const activeCandidates = displayCandidates.filter((c) => !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length;
+  const offerCount = displayCandidates.filter((c) => ['OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)).length;
+  const acceptCount = displayCandidates.filter((c) => c.phase === 'OFFER_ACCEPTED').length;
+  const offerAcceptRate = offerCount > 0 ? Math.round((acceptCount / offerCount) * 100) : 0;
+
+  // Joining Scheduled Candidates (入社予定者: 内定承諾済 or 入社日設定済 or 内定通知済でフォロー中)
+  const joiningCandidates = displayCandidates.filter(
+    (c) => c.joiningDate || c.phase === 'OFFER_ACCEPTED' || c.phase === 'OFFER_ISSUED'
+  );
+
+  // Find Top Quality Agency (highest overall yield or offer count)
+  const topAgency = [...yieldMetrics]
+    .filter((m) => m.totalApplications >= 2)
+    .sort((a, b) => b.overallYieldRate - a.overallYieldRate)[0];
+
+  // 1. Phase Distribution Data for Recharts Bar Chart
+  const phaseLabels: Record<SelectionPhase, string> = {
+    DOCUMENT_SCREENING: '書類選考',
+    CASUAL_INTERVIEW: 'カジュアル面談',
+    FIRST_INTERVIEW: '1次面接',
+    SECOND_INTERVIEW: '2次面接',
+    FINAL_INTERVIEW: '最終面接',
+    OFFER_ISSUED: '内定',
+    OFFER_ACCEPTED: '承諾',
+    REJECTED_DECLINED: '辞退/不採用'
+  };
+
+  const phaseColors: Record<SelectionPhase, string> = {
+    DOCUMENT_SCREENING: '#3b82f6', // blue
+    CASUAL_INTERVIEW: '#14b8a6',   // teal
+    FIRST_INTERVIEW: '#6366f1',    // indigo
+    SECOND_INTERVIEW: '#06b6d4',   // cyan
+    FINAL_INTERVIEW: '#a855f7',    // purple
+    OFFER_ISSUED: '#f59e0b',       // amber
+    OFFER_ACCEPTED: '#10b981',     // emerald
+    REJECTED_DECLINED: '#f43f5e'   // rose
+  };
+
+  const phaseDistributionData = Object.keys(phaseLabels).map((phaseKey) => {
+    const key = phaseKey as SelectionPhase;
+    const count = displayCandidates.filter((c) => c.phase === key).length;
+    return {
+      phase: phaseLabels[key],
+      count,
+      color: phaseColors[key]
+    };
+  });
+
+  // 2. Extract Monthly Trends Data for Agencies
+  const monthStrings = (candidates.map((c) => c.appliedMonth).filter(Boolean) as string[]);
+  const availableMonths: string[] = Array.from(new Set(monthStrings)).sort();
+  const targetMonths: string[] = availableMonths.length > 0 ? availableMonths : ['2026-05', '2026-06', '2026-07'];
+
+  // A) Monthly Referral Trend (月別 推薦数・応募数)
+  const monthlyReferralData = targetMonths.map((m) => {
+    const row: Record<string, any> = { month: `${m.replace('-', '年')}月` };
+    agencies.forEach((ag) => {
+      row[ag.name] = candidates.filter((c) => c.appliedMonth === m && c.agencyId === ag.id).length;
+    });
+    return row;
+  });
+
+  // B) Monthly Offer Acceptance Trend (月別 内定承諾数)
+  const monthlyAcceptanceData = targetMonths.map((m) => {
+    const row: Record<string, any> = { month: `${m.replace('-', '年')}月` };
+    agencies.forEach((ag) => {
+      row[ag.name] = candidates.filter(
+        (c) => c.appliedMonth === m && c.agencyId === ag.id && c.phase === 'OFFER_ACCEPTED'
+      ).length;
+    });
+    return row;
+  });
+
+  // C) Overall Total Referrals vs Acceptances by Agency Comparison Data
+  const agencyComparisonData = agencies.map((ag) => {
+    const totalRef = displayCandidates.filter((c) => c.agencyId === ag.id).length;
+    const totalAcc = displayCandidates.filter((c) => c.agencyId === ag.id && c.phase === 'OFFER_ACCEPTED').length;
+    return {
+      name: ag.name.split(' ')[0],
+      agencyFullName: ag.name,
+      '推薦数 (応募)': totalRef,
+      '内定承諾数': totalAcc,
+      '承諾率 (%)': totalRef > 0 ? Math.round((totalAcc / totalRef) * 100) : 0
+    };
+  });
+
+  const agencyChartColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+  return (
+    <div className="space-y-6 pb-12">
+      
+      {/* Top Header & Month Filter */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs">
+        <div>
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-indigo-600" />
+            <h2 className="font-bold text-lg text-slate-900">分析ダッシュボード & 歩留まり（転換率）KPI</h2>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-xs text-slate-500">
+              紹介エージェントごとの推薦件数・通過率・最終承諾までの質をリアルタイム可視化
+            </p>
+            {candidates.some(c => c.isArchived) && (
+              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[11px] font-medium px-2 py-0.5 rounded-md border border-slate-200">
+                <Check className="w-3 h-3 text-emerald-600" />
+                過去・削除済み候補者データ（{candidates.filter(c => c.isArchived).length}名）反映済
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-600 font-medium">分析対象期間:</span>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="bg-slate-50 text-slate-800 border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer shadow-2xs"
+          >
+            <option value="ALL">全期間（累積）</option>
+            <option value="2026-07">2026年7月</option>
+            <option value="2026-06">2026年6月</option>
+            <option value="2026-05">2026年5月</option>
+          </select>
+        </div>
+      </div>
+
+      {/* KPI Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-500">総応募・推薦数</p>
+            <p className="text-xl font-bold text-slate-900 mt-1">{totalApps} <span className="text-xs text-slate-500 font-normal">名</span></p>
+            <p className="text-[11px] text-indigo-600 mt-1 flex items-center gap-1 font-medium">
+              <TrendingUp className="w-3 h-3" /> 全エージェント合計
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+            <Users className="w-4 h-4" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-500">現在選考中（アクティブ）</p>
+            <p className="text-xl font-bold text-emerald-600 mt-1">{activeCandidates} <span className="text-xs text-slate-500 font-normal">名</span></p>
+            <p className="text-[11px] text-emerald-600 mt-1 font-medium">選考パイプライン稼働中</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <Layers className="w-4 h-4" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-amber-200/80 bg-gradient-to-br from-amber-50/40 to-white rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-amber-900 flex items-center gap-1">
+              <span>入社予定者</span>
+            </p>
+            <p className="text-xl font-extrabold text-amber-600 mt-1">
+              {joiningCandidates.length} <span className="text-xs text-slate-500 font-normal">名</span>
+            </p>
+            <p className="text-[11px] text-amber-700 mt-1 font-semibold">
+              内定承諾: {acceptCount}名 / フォロー中
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
+            <UserCheck className="w-4 h-4" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-500">内定通知 / 承諾完了</p>
+            <p className="text-xl font-bold text-slate-800 mt-1">
+              {acceptCount} <span className="text-xs text-slate-500 font-normal">/ {offerCount} 名</span>
+            </p>
+            <p className="text-[11px] text-amber-600 mt-1 font-bold">
+              内定承諾率: {offerAcceptRate}%
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+            <Award className="w-4 h-4" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-500">最高歩留まり会社</p>
+            <p className="text-xs font-bold text-indigo-900 mt-1 line-clamp-1">
+              {topAgency ? topAgency.agencyName.split(' ')[0] : 'なし'}
+            </p>
+            <p className="text-[11px] text-indigo-700 mt-1 font-mono font-bold">
+              総合通過: {topAgency ? topAgency.overallYieldRate : 0}%
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+            <Award className="w-4 h-4" />
+          </div>
+        </div>
+
+      </div>
+
+      {/* SECTION: 選考サマリ・進行中候補者一覧 (Selection Summary with Candidate Face Photos) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+              <Users className="w-5 h-5 text-indigo-600" />
+              <span>選考サマリ・進行中候補者一覧</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              現在選考パイプラインで進行中の候補者（顔写真・選考フェーズ・担当者）
+            </p>
+          </div>
+          <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full self-start sm:self-auto shrink-0">
+            アクティブ選考中: {displayCandidates.filter(c => !c.isArchived && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length}名
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {displayCandidates
+            .filter(c => !c.isArchived && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase))
+            .slice(0, 6)
+            .map((c) => (
+              <div
+                key={c.id}
+                onClick={() => setSelectedCandidateId(c.id)}
+                className="bg-slate-50/70 hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 rounded-xl p-3.5 transition-all cursor-pointer group flex items-start justify-between gap-3 shadow-2xs hover:shadow-xs"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="relative shrink-0">
+                    {c.avatarUrl ? (
+                      <img
+                        src={c.avatarUrl}
+                        alt={c.name}
+                        className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-xs group-hover:border-indigo-300 transition-colors"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-100 to-slate-200 text-indigo-700 font-extrabold text-sm flex items-center justify-center border-2 border-white shadow-xs">
+                        {c.name.slice(0, 1)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-sm truncate">
+                        {c.name}
+                      </span>
+                      {c.age && <span className="text-xs text-slate-400 font-mono">({c.age}歳)</span>}
+                    </div>
+                    <p className="text-xs text-slate-500 truncate">{c.jobTitle} • {c.agencyName.split(' ')[0]}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 truncate">担当: {c.assignees.join(', ')}</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <span className="bg-indigo-100 text-indigo-900 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-indigo-200/60">
+                    {c.phase === 'DOCUMENT_SCREENING' && '書類選考'}
+                    {c.phase === 'CASUAL_INTERVIEW' && '面談'}
+                    {c.phase === 'FIRST_INTERVIEW' && '1次面接'}
+                    {c.phase === 'SECOND_INTERVIEW' && '2次面接'}
+                    {c.phase === 'FINAL_INTERVIEW' && '最終面接'}
+                    {c.phase === 'OFFER_ISSUED' && '内定提示'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 flex items-center gap-0.5 group-hover:text-indigo-600 transition-colors font-medium">
+                    詳細 <ChevronRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      {/* Yield Matrix Analysis Table (歩留まり・転換率マトリクス) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <span>エージェント別 歩留まり（転換率・通過率）マトリクス分析</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              各エージェントの「通過人数（絶対数）」と「フェーズ間通過率（％）」を定量対比
+            </p>
+          </div>
+
+          {/* 表示モード切替トグル */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs shrink-0">
+            <button
+              type="button"
+              onClick={() => setMatrixDisplayMode('both')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                matrixDisplayMode === 'both'
+                  ? 'bg-white text-indigo-600 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              人数 ＆ 通過率（推奨）
+            </button>
+            <button
+              type="button"
+              onClick={() => setMatrixDisplayMode('count')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                matrixDisplayMode === 'count'
+                  ? 'bg-white text-indigo-600 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              人数重視
+            </button>
+            <button
+              type="button"
+              onClick={() => setMatrixDisplayMode('rate')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                matrixDisplayMode === 'rate'
+                  ? 'bg-white text-indigo-600 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              率重視
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
+                <th className="py-3 px-3 min-w-[140px]">エージェント名</th>
+                <th className="py-3 px-3 text-center min-w-[90px]">推薦数 (応募)</th>
+                <th className="py-3 px-3 text-center min-w-[120px]">
+                  書類通過
+                  <span className="text-[10px] text-slate-500 font-normal block">応募 → 書類</span>
+                </th>
+                <th className="py-3 px-3 text-center min-w-[120px]">
+                  1次通過
+                  <span className="text-[10px] text-slate-500 font-normal block">書類 → 1次</span>
+                </th>
+                <th className="py-3 px-3 text-center min-w-[120px]">
+                  最終 / 内定
+                  <span className="text-[10px] text-slate-500 font-normal block">1次 → 最終</span>
+                </th>
+                <th className="py-3 px-3 text-center min-w-[120px]">
+                  内定承諾
+                  <span className="text-[10px] text-slate-500 font-normal block">内定 → 承諾</span>
+                </th>
+                <th className="py-3 px-3 text-center min-w-[120px]">
+                  総合歩留まり率
+                  <span className="text-[10px] text-slate-500 font-normal block">承諾 / 推薦数</span>
+                </th>
+                <th className="py-3 px-3 text-center min-w-[110px]">評価・品質ランク</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {yieldMetrics.map((m) => {
+                const isHighQuality = m.overallYieldRate >= 20 || m.acceptCount >= 1;
+                return (
+                  <tr key={m.agencyName} className="hover:bg-slate-50/80 transition-colors">
+                    
+                    {/* Agency Name */}
+                    <td className="py-3.5 px-3 font-bold text-sm text-slate-900">
+                      {m.agencyName}
+                    </td>
+
+                    {/* Total Applications Count */}
+                    <td className="py-3.5 px-3 text-center">
+                      <div className="font-extrabold text-base text-slate-900 font-mono">
+                        {m.totalApplications} <span className="text-xs font-normal text-slate-500">名</span>
+                      </div>
+                    </td>
+
+                    {/* Document Pass (Count & Rate) */}
+                    <td className="py-3.5 px-3 text-center">
+                      <div className="space-y-1">
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'count') && (
+                          <div className="font-extrabold text-sm text-blue-950 font-mono">
+                            {m.documentPassCount} <span className="text-xs font-normal text-slate-500">名</span>
+                          </div>
+                        )}
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'rate') && (
+                          <span className="inline-block bg-blue-50 text-blue-700 border border-blue-200 font-bold px-2 py-0.5 rounded text-xs font-mono">
+                            {m.documentPassRate}%
+                          </span>
+                        )}
+                        {matrixDisplayMode === 'both' && (
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            ({m.documentPassCount}/{m.totalApplications})
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* First Interview Pass (Count & Rate) */}
+                    <td className="py-3.5 px-3 text-center">
+                      <div className="space-y-1">
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'count') && (
+                          <div className="font-extrabold text-sm text-indigo-950 font-mono">
+                            {m.firstInterviewPassCount} <span className="text-xs font-normal text-slate-500">名</span>
+                          </div>
+                        )}
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'rate') && (
+                          <span className="inline-block bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold px-2 py-0.5 rounded text-xs font-mono">
+                            {m.firstInterviewPassRate}%
+                          </span>
+                        )}
+                        {matrixDisplayMode === 'both' && (
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            ({m.firstInterviewPassCount}/{m.documentPassCount || 1})
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Final / Offer (Count & Rate) */}
+                    <td className="py-3.5 px-3 text-center">
+                      <div className="space-y-1">
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'count') && (
+                          <div className="font-extrabold text-sm text-amber-950 font-mono">
+                            {m.offerCount} <span className="text-xs font-normal text-slate-500">名</span>
+                          </div>
+                        )}
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'rate') && (
+                          <span className="inline-block bg-amber-50 text-amber-700 border border-amber-200 font-bold px-2 py-0.5 rounded text-xs font-mono">
+                            {m.offerRate}%
+                          </span>
+                        )}
+                        {matrixDisplayMode === 'both' && (
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            ({m.offerCount}/{m.firstInterviewPassCount || 1})
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Offer Accept (Count & Rate) */}
+                    <td className="py-3.5 px-3 text-center">
+                      <div className="space-y-1">
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'count') && (
+                          <div className="font-extrabold text-sm text-emerald-950 font-mono">
+                            {m.acceptCount} <span className="text-xs font-normal text-slate-500">名</span>
+                          </div>
+                        )}
+                        {(matrixDisplayMode === 'both' || matrixDisplayMode === 'rate') && (
+                          <span className="inline-block bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded text-xs font-mono">
+                            {m.acceptRate}%
+                          </span>
+                        )}
+                        {matrixDisplayMode === 'both' && (
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            ({m.acceptCount}/{m.offerCount || 1})
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Overall Yield */}
+                    <td className="py-3.5 px-3 text-center font-mono">
+                      <div className="inline-flex flex-col items-center">
+                        <div className="bg-emerald-600 text-white border border-emerald-700 px-2.5 py-1 rounded-lg font-black text-xs shadow-2xs">
+                          {m.overallYieldRate}%
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-bold mt-1">
+                          承諾 {m.acceptCount}名 / 推薦 {m.totalApplications}名
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Quality Rank Badge */}
+                    <td className="py-3.5 px-3 text-center">
+                      {isHighQuality ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold px-2 py-0.5 rounded-full">
+                          <Star className="w-3 h-3 text-emerald-600 fill-emerald-600 shrink-0" />
+                          <span>優良（高承諾）</span>
+                        </span>
+                      ) : m.totalApplications > 0 ? (
+                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
+                          選考進行中
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[11px]">実績なし</span>
+                      )}
+                    </td>
+
+                  </tr>
+                );
+              })}
+
+              {/* Total Summary Row */}
+              {(() => {
+                const totalAppsCount = yieldMetrics.reduce((acc, m) => acc + m.totalApplications, 0);
+                const totalDocPassCount = yieldMetrics.reduce((acc, m) => acc + m.documentPassCount, 0);
+                const totalFirstPassCount = yieldMetrics.reduce((acc, m) => acc + m.firstInterviewPassCount, 0);
+                const totalOfferCount = yieldMetrics.reduce((acc, m) => acc + m.offerCount, 0);
+                const totalAcceptCount = yieldMetrics.reduce((acc, m) => acc + m.acceptCount, 0);
+
+                const avgDocRate = totalAppsCount > 0 ? Math.round((totalDocPassCount / totalAppsCount) * 100) : 0;
+                const avgFirstRate = totalDocPassCount > 0 ? Math.round((totalFirstPassCount / totalDocPassCount) * 100) : 0;
+                const avgOfferRate = totalFirstPassCount > 0 ? Math.round((totalOfferCount / totalFirstPassCount) * 100) : 0;
+                const avgAcceptRate = totalOfferCount > 0 ? Math.round((totalAcceptCount / totalOfferCount) * 100) : 0;
+                const avgOverallYield = totalAppsCount > 0 ? Math.round((totalAcceptCount / totalAppsCount) * 100) : 0;
+
+                return (
+                  <tr className="bg-slate-100/90 font-bold border-t-2 border-slate-300 text-slate-900">
+                    <td className="py-3 px-3 text-sm font-black text-indigo-950">
+                      全社合計 / 全体平均
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <div className="font-black text-base font-mono text-indigo-950">
+                        {totalAppsCount} <span className="text-xs font-bold text-slate-600">名</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <div className="space-y-0.5">
+                        <div className="font-extrabold text-sm text-blue-950 font-mono">{totalDocPassCount} 名</div>
+                        <span className="inline-block bg-blue-200/80 text-blue-900 font-extrabold px-2 py-0.5 rounded text-xs font-mono">
+                          {avgDocRate}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <div className="space-y-0.5">
+                        <div className="font-extrabold text-sm text-indigo-950 font-mono">{totalFirstPassCount} 名</div>
+                        <span className="inline-block bg-indigo-200/80 text-indigo-900 font-extrabold px-2 py-0.5 rounded text-xs font-mono">
+                          {avgFirstRate}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <div className="space-y-0.5">
+                        <div className="font-extrabold text-sm text-amber-950 font-mono">{totalOfferCount} 名</div>
+                        <span className="inline-block bg-amber-200/80 text-amber-900 font-extrabold px-2 py-0.5 rounded text-xs font-mono">
+                          {avgOfferRate}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <div className="space-y-0.5">
+                        <div className="font-extrabold text-sm text-emerald-950 font-mono">{totalAcceptCount} 名</div>
+                        <span className="inline-block bg-emerald-200/80 text-emerald-900 font-extrabold px-2 py-0.5 rounded text-xs font-mono">
+                          {avgAcceptRate}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono">
+                      <div className="inline-flex flex-col items-center">
+                        <div className="bg-slate-900 text-white px-2.5 py-1 rounded-lg font-black text-xs shadow-2xs">
+                          {avgOverallYield}%
+                        </div>
+                        <span className="text-[10px] text-slate-600 font-bold mt-0.5">
+                          ({totalAcceptCount}/{totalAppsCount}名)
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center text-xs font-bold text-slate-500">
+                      全体総括
+                    </td>
+                  </tr>
+                );
+              })()}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Charts Grid: Phase Distribution & Interactive Agency Monthly Trends */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* Chart 1: Current Selection Phase Distribution */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs flex flex-col">
+          <div className="mb-4">
+            <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+              <BarChart2 className="w-5 h-5 text-indigo-600" />
+              <span>選考フェーズ別 滞留人数グラフ</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">現在のパイプラインにおける各選考段階の候補者数</p>
+          </div>
+
+          <div className="h-72 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={phaseDistributionData} margin={{ top: 10, right: 10, left: -20, bottom: 25 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                <XAxis 
+                  dataKey="phase" 
+                  stroke="#64748b" 
+                  fontSize={11} 
+                  interval={0} 
+                  angle={-20} 
+                  textAnchor="end" 
+                />
+                <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', color: '#0f172a', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: any) => [`${value} 名`, '人数']}
+                />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]} barSize={28}>
+                  {phaseDistributionData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Chart 2: Interactive Monthly Agency Trends (Referrals vs Acceptances) */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-emerald-600" />
+                <span>月別・エージェント別 推移グラフ</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {trendMetric === 'referrals' && 'エージェントごとの月次「推薦数（応募件数）」の推移'}
+                {trendMetric === 'acceptances' && 'エージェントごとの月次「内定承諾数」の推移'}
+                {trendMetric === 'both' && 'エージェント別の「累計推薦数」vs「内定承諾数」比較'}
+              </p>
+            </div>
+
+            {/* Controls Toolbar */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Metric Selector Tabs */}
+              <div className="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <button
+                  onClick={() => setTrendMetric('referrals')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    trendMetric === 'referrals' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  推薦数
+                </button>
+                <button
+                  onClick={() => setTrendMetric('acceptances')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    trendMetric === 'acceptances' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  承諾数
+                </button>
+                <button
+                  onClick={() => setTrendMetric('both')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    trendMetric === 'both' ? 'bg-white text-amber-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  対比
+                </button>
+              </div>
+
+              {/* Chart Type Toggle (Bar vs Line) */}
+              {trendMetric !== 'both' && (
+                <div className="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                  <button
+                    onClick={() => setChartType('bar')}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      chartType === 'bar' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-400 hover:text-slate-700'
+                    }`}
+                    title="棒グラフ"
+                  >
+                    <BarChart2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setChartType('line')}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      chartType === 'line' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-400 hover:text-slate-700'
+                    }`}
+                    title="折れ線グラフ"
+                  >
+                    <LineChartIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="h-72 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              {trendMetric === 'both' ? (
+                <BarChart data={agencyComparisonData} margin={{ top: 10, right: 10, left: -20, bottom: 25 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                  <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
+                  <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', color: '#0f172a', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  <Bar dataKey="推薦数 (応募)" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar dataKey="内定承諾数" fill="#10b981" radius={[4, 4, 0, 0]} barSize={20} />
+                </BarChart>
+              ) : chartType === 'line' ? (
+                <LineChart 
+                  data={trendMetric === 'referrals' ? monthlyReferralData : monthlyAcceptanceData} 
+                  margin={{ top: 10, right: 10, left: -20, bottom: 25 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                  <XAxis dataKey="month" stroke="#64748b" fontSize={11} />
+                  <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', color: '#0f172a', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  {agencies.map((ag, idx) => (
+                    <Line 
+                      key={ag.id} 
+                      type="monotone"
+                      dataKey={ag.name} 
+                      stroke={agencyChartColors[idx % agencyChartColors.length]} 
+                      strokeWidth={2.5}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  ))}
+                </LineChart>
+              ) : (
+                <BarChart 
+                  data={trendMetric === 'referrals' ? monthlyReferralData : monthlyAcceptanceData} 
+                  margin={{ top: 10, right: 10, left: -20, bottom: 25 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                  <XAxis dataKey="month" stroke="#64748b" fontSize={11} />
+                  <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', color: '#0f172a', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  {agencies.map((ag, idx) => (
+                    <Bar 
+                      key={ag.id} 
+                      dataKey={ag.name} 
+                      fill={agencyChartColors[idx % agencyChartColors.length]} 
+                      radius={[4, 4, 0, 0]} 
+                    />
+                  ))}
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Dedicated Dual Trend Side-by-Side Breakdown Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+        
+        {/* Card 1: Monthly Referral Count Trend */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs">
+          <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+            <div>
+              <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                月別・エージェント別 推薦数（応募件数）の推移
+              </h4>
+              <p className="text-[11px] text-slate-500">毎月の各エージェントからの候補者推薦件数の月次グラフ</p>
+            </div>
+            <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+              推薦数
+            </span>
+          </div>
+
+          <div className="h-60 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyReferralData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                <XAxis dataKey="month" stroke="#64748b" fontSize={11} />
+                <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', color: '#0f172a', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                {agencies.map((ag, idx) => (
+                  <Bar 
+                    key={ag.id} 
+                    dataKey={ag.name} 
+                    fill={agencyChartColors[idx % agencyChartColors.length]} 
+                    radius={[4, 4, 0, 0]} 
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Card 2: Monthly Offer Acceptance Count Trend */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs">
+          <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+            <div>
+              <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                月別・エージェント別 内定承諾数の推移
+              </h4>
+              <p className="text-[11px] text-slate-500">毎月の各エージェント経由で内定承諾に至った人数の月次グラフ</p>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+              承諾数
+            </span>
+          </div>
+
+          <div className="h-60 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyAcceptanceData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                <XAxis dataKey="month" stroke="#64748b" fontSize={11} />
+                <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', color: '#0f172a', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                {agencies.map((ag, idx) => (
+                  <Bar 
+                    key={ag.id} 
+                    dataKey={ag.name} 
+                    fill={agencyChartColors[idx % agencyChartColors.length]} 
+                    radius={[4, 4, 0, 0]} 
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  );
+};

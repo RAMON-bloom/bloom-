@@ -1,6 +1,6 @@
 import React from 'react';
 import { useATS } from '../context/ATSContext';
-import { Filter, X, Plus, Briefcase, CheckSquare, Check, User, Users, Building2, Calendar, Clock, Layers } from 'lucide-react';
+import { Filter, X, Briefcase, CheckSquare, Check, User, Users, Building2, Calendar, Clock, Layers } from 'lucide-react';
 import { STANDARD_POSITIONS } from '../types';
 
 interface FilterBarProps {
@@ -8,7 +8,7 @@ interface FilterBarProps {
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false }) => {
-  const { filters, setFilters, agencies, staffList, candidates, setIsAddModalOpen, userRole } = useATS();
+  const { filters, setFilters, agencies, staffList, candidates } = useATS();
 
   // Extract unique months from candidates
   const availableMonths = Array.from(new Set<string>(candidates.map((c) => c.appliedMonth))).sort().reverse();
@@ -67,16 +67,6 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
               >
                 <X className="w-3.5 h-3.5" />
                 <span>全条件リセット</span>
-              </button>
-            )}
-
-            {userRole !== 'AGENCY' && (
-              <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1 rounded-lg shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>+ エントリー登録</span>
               </button>
             )}
           </div>

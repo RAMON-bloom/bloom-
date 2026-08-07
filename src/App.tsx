@@ -11,6 +11,7 @@ import { RecruitmentMeetingView } from './components/RecruitmentMeetingView';
 import { CandidateDetailModal } from './components/CandidateDetailModal';
 import { CandidateFormModal } from './components/CandidateFormModal';
 import { ToastContainer } from './components/ToastContainer';
+import { AuthGate } from './components/AuthGate';
 
 const MainContent: React.FC = () => {
   const { activeTab } = useATS();
@@ -30,14 +31,16 @@ const MainContent: React.FC = () => {
 
 export default function App() {
   return (
-    <ATSProvider>
-      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-500 selection:text-white antialiased">
-        <Header />
-        <MainContent />
-        <CandidateDetailModal />
-        <CandidateFormModal />
-        <ToastContainer />
-      </div>
-    </ATSProvider>
+    <AuthGate>
+      <ATSProvider>
+        <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-500 selection:text-white antialiased">
+          <Header />
+          <MainContent />
+          <CandidateDetailModal />
+          <CandidateFormModal />
+          <ToastContainer />
+        </div>
+      </ATSProvider>
+    </AuthGate>
   );
 }

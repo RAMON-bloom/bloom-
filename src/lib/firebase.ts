@@ -23,7 +23,7 @@ export const auth = getAuth(app);
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive');
-googleProvider.setCustomParameters({ prompt: 'consent' });
+googleProvider.setCustomParameters({ prompt: 'consent', hd: 'bloom-firm.com' });
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;

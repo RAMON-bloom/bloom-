@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useATS } from '../context/ATSContext';
 import { SelectionPhase, ScheduleStatus, STANDARD_POSITIONS } from '../types';
 import { X, UserPlus, FileText, UploadCloud, Loader2, Sparkles, CheckCircle2, File, HardDrive } from 'lucide-react';
@@ -8,7 +8,7 @@ import { renderAndCrop } from '../lib/photoCrop';
 export const CandidateFormModal: React.FC = () => {
   const { isAddModalOpen, setIsAddModalOpen, addCandidate, agencies, staffList, showToast, driveAccessToken } = useATS();
 
-  const [formData, setFormData] = useState({
+  const getInitialFormData = useCallback(() => ({
     name: '',
     nameKana: '',
     email: '',
@@ -37,7 +37,9 @@ export const CandidateFormModal: React.FC = () => {
     resignationNegotiationStatus: 'NOT_STARTED' as const,
     onboardingNotes: '',
     bcaDesiredDepartment: 'F+' as 'F+' | 'AC' | 'BOTH'
-  });
+  }), [agencies, staffList]);
+
+  const [formData, setFormData] = useState(getInitialFormData);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
@@ -45,6 +47,22 @@ export const CandidateFormModal: React.FC = () => {
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
   const [isDetectingPhoto, setIsDetectingPhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // The modal component stays mounted (App always renders it, it just returns null while
+  // closed), so without this the form kept whatever the previous candidate had typed in.
+  // Reset on every open rather than only on submit, so it's also clean after Cancel/X.
+  useEffect(() => {
+    if (isAddModalOpen) {
+      setFormData(getInitialFormData());
+      setIsDragging(false);
+      setIsParsing(false);
+      setParsedSuccess(false);
+      setIsUploadingToDrive(false);
+      setIsDetectingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAddModalOpen]);
 
   if (!isAddModalOpen) return null;
 

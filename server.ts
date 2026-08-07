@@ -1,6 +1,12 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+
+// Vite only injects `VITE_`-prefixed vars into the client bundle (import.meta.env); server-side
+// handlers here read process.env directly, same as they do as Vercel serverless functions in
+// production (which get env vars natively), so .env.local needs to be loaded explicitly here.
+dotenv.config({ path: '.env.local' });
 import parseResume from './api/parse-resume';
 import driveListLogs from './api/drive/list-logs';
 import driveSummarizeLog from './api/drive/summarize-log';

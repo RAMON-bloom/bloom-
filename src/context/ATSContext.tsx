@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   Candidate, 
   SelectionPhase, 
@@ -162,6 +162,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const nextCandidateIdNumRef = useRef<number>(0);
 
   const [filters, setFilters] = useState<FilterState>({
     searchQuery: '',
@@ -345,21 +346,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addCandidate = (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => {
     const appliedMonth = candidateData.appliedDate ? candidateData.appliedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
 
-    // ID generation reads prev.length inside the updater (not the outer `candidates` closure) so
-    // that calling addCandidate multiple times back-to-back — e.g. importing several unregistered
-    // Drive resumes in a loop — doesn't assign the same ID to every one of them.
-    let newCandidate!: Candidate;
-    setCandidates((prev) => {
-      const nextNum = prev.length + 1;
-      newCandidate = {
-        ...candidateData,
-        id: `CAND-${String(nextNum).padStart(4, '0')}`,
-        appliedMonth,
-        evaluationNotes: [],
-        lastUpdated: new Date().toISOString().split('T')[0]
-      };
-      return [newCandidate, ...prev];
-    });
+    // The candidate (including its ID) is built fully before touching state, then read
+    // synchronously for the toast — setCandidates' updater callback is not guaranteed to run
+    // synchronously, so a value only assigned inside it isn't safe to read right after the call
+    // (this used to throw "Cannot read properties of undefined (reading 'name')" here and abort
+    // the caller mid-function, which is why the registration modal sometimes failed to close).
+    // The ref-backed counter (rather than reading `candidates.length` directly) still guarantees
+    // unique IDs when addCandidate is called multiple times back-to-back in the same tick — e.g.
+    // importing several unregistered Drive resumes in a loop.
+    nextCandidateIdNumRef.current = Math.max(candidates.length, nextCandidateIdNumRef.current) + 1;
+    const newCandidate: Candidate = {
+      ...candidateData,
+      id: `CAND-${String(nextCandidateIdNumRef.current).padStart(4, '0')}`,
+      appliedMonth,
+      evaluationNotes: [],
+      lastUpdated: new Date().toISOString().split('T')[0]
+    };
+    setCandidates((prev) => [newCandidate, ...prev]);
     showToast(`候補者 「${newCandidate.name}」（${newCandidate.id}） を新規登録しました`, 'success');
   };
 

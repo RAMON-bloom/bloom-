@@ -46,6 +46,7 @@ export const CandidateFormModal: React.FC = () => {
   const [parsedSuccess, setParsedSuccess] = useState(false);
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
   const [isDetectingPhoto, setIsDetectingPhoto] = useState(false);
+  const [extraFileNames, setExtraFileNames] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // The modal component stays mounted (App always renders it, it just returns null while
@@ -59,6 +60,7 @@ export const CandidateFormModal: React.FC = () => {
       setParsedSuccess(false);
       setIsUploadingToDrive(false);
       setIsDetectingPhoto(false);
+      setExtraFileNames([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,31 +82,36 @@ export const CandidateFormModal: React.FC = () => {
     }));
   };
 
-  // Process uploaded file (Read text or Base64 and send to Gemini API)
-  const processResumeFile = async (file: globalThis.File) => {
-    if (!file) return;
+  const readFileAsDataUrl = (file: globalThis.File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  // Process dropped/selected files. AI parsing (name, education, etc.) runs against the first
+  // file only; every file in the drop — e.g. 履歴書 + 職務経歴書 together — gets uploaded to the
+  // candidate's Drive folder, since a candidate is often registered with more than one document.
+  const processResumeFiles = async (files: globalThis.File[]) => {
+    if (!files || files.length === 0) return;
+    const [primaryFile, ...extraFiles] = files;
 
     setIsParsing(true);
     setParsedSuccess(false);
+    setExtraFileNames(extraFiles.map((f) => f.name));
 
     try {
       let textContent = '';
-      let fileBase64 = '';
+      let primaryBase64 = '';
 
-      if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
-        textContent = await file.text();
+      if (primaryFile.type.includes('text') || primaryFile.name.endsWith('.txt') || primaryFile.name.endsWith('.md')) {
+        textContent = await primaryFile.text();
       } else {
-        // Read file as Data URL / Base64
-        fileBase64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-
+        primaryBase64 = await readFileAsDataUrl(primaryFile);
         // Try reading text if plain text compatible
         try {
-          textContent = await file.text();
+          textContent = await primaryFile.text();
         } catch {
           textContent = '';
         }
@@ -116,9 +123,9 @@ export const CandidateFormModal: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           textContent,
-          fileBase64,
-          fileName: file.name,
-          mimeType: file.type || 'application/pdf'
+          fileBase64: primaryBase64,
+          fileName: primaryFile.name,
+          mimeType: primaryFile.type || 'application/pdf'
         })
       });
 
@@ -139,42 +146,58 @@ export const CandidateFormModal: React.FC = () => {
           currentCompany: d.currentCompany || prev.currentCompany,
           companyCount: d.companyCount ? Number(d.companyCount) : prev.companyCount,
           resumeSummary: d.resumeSummary || prev.resumeSummary,
-          skills: Array.isArray(d.resumeSkills) ? d.resumeSkills.join(', ') : prev.skills,
+          skills: Array.isArray(d.resumeSkills) && d.resumeSkills.length > 0 ? d.resumeSkills.join(', ') : prev.skills,
           rawResumeContent: d.rawResumeContent || textContent || '（レジュメファイル解読済み）',
-          resumeFileName: file.name
+          resumeFileName: primaryFile.name
         }));
 
         setParsedSuccess(true);
         showToast('Gemini AIによるレジュメ解析が完了し、フォームに自動入力されました', 'success');
 
-        // If connected to Google Drive, also save the original resume file to the shared folder
-        if (driveAccessToken && fileBase64) {
+        // If connected to Google Drive, save every dropped file (not just the primary one) to
+        // the candidate's Drive folder — the first upload creates the folder, the rest reuse it.
+        if (driveAccessToken) {
           setIsUploadingToDrive(true);
           try {
             const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
-            const uploaded = await uploadResumeToDrive(
-              driveAccessToken,
-              {
-                name: file.name,
-                type: file.type || 'application/pdf',
-                base64: fileBase64
-              },
-              { candidateName: d.name, agencyName: selectedAgencyForUpload?.name, phase: formData.phase }
-            );
+            let folderId: string | undefined;
+            let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
+
+            for (const file of [primaryFile, ...extraFiles]) {
+              const base64 = file === primaryFile && primaryBase64 ? primaryBase64 : await readFileAsDataUrl(file);
+              const uploaded = await uploadResumeToDrive(
+                driveAccessToken,
+                { name: file.name, type: file.type || 'application/pdf', base64 },
+                {
+                  candidateName: d.name,
+                  agencyName: selectedAgencyForUpload?.name,
+                  phase: formData.phase,
+                  candidateFolderId: folderId
+                }
+              );
+              folderId = folderId || uploaded.folderId;
+              if (!primaryUploaded) primaryUploaded = uploaded;
+            }
+
             setFormData((prev) => ({
               ...prev,
-              resumeDriveUrl: uploaded.file.webViewLink || '',
-              resumeDriveFileId: uploaded.file.id || '',
-              resumeDriveFolderId: uploaded.folderId || ''
+              resumeDriveUrl: primaryUploaded?.file.webViewLink || '',
+              resumeDriveFileId: primaryUploaded?.file.id || '',
+              resumeDriveFolderId: folderId || ''
             }));
-            showToast('履歴書・応募書類をDriveフォルダに保存しました', 'success');
+            showToast(
+              extraFiles.length > 0
+                ? `${files.length}件のファイルをDriveフォルダに保存しました`
+                : '履歴書・応募書類をDriveフォルダに保存しました',
+              'success'
+            );
 
             // Best-effort: try to pull the candidate's actual photo out of the resume itself,
             // so the registered candidate doesn't end up with no photo (or a stand-in one).
-            if (uploaded.file.id) {
+            if (primaryUploaded?.file.id) {
               setIsDetectingPhoto(true);
               try {
-                const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.file.id);
+                const detected = await detectResumePhotoCrop(driveAccessToken, primaryUploaded.file.id);
                 if (detected.found && detected.box) {
                   const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
                   setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
@@ -216,14 +239,14 @@ export const CandidateFormModal: React.FC = () => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processResumeFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processResumeFiles(Array.from(e.dataTransfer.files));
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      processResumeFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      processResumeFiles(Array.from(e.target.files));
     }
   };
 
@@ -300,7 +323,7 @@ export const CandidateFormModal: React.FC = () => {
         <div className="mb-5">
           <label className="block text-slate-700 text-xs font-semibold mb-1.5 flex items-center gap-1.5">
             <FileText className="w-4 h-4 text-indigo-600" />
-            <span>職務経歴書・レジュメからドラッグ＆ドロップ登録 (AI自動解析)</span>
+            <span>履歴書・職務経歴書からドラッグ＆ドロップ登録 (AI自動解析・複数ファイル可)</span>
           </label>
 
           <div
@@ -321,6 +344,7 @@ export const CandidateFormModal: React.FC = () => {
               ref={fileInputRef}
               onChange={handleFileChange}
               accept=".pdf,.doc,.docx,.txt,.md"
+              multiple
               className="hidden"
             />
 
@@ -335,6 +359,9 @@ export const CandidateFormModal: React.FC = () => {
                 <CheckCircle2 className="w-5 h-5" />
                 <div className="text-left">
                   <p className="font-bold text-xs text-slate-900">解析完了: {formData.resumeFileName}</p>
+                  {extraFileNames.length > 0 && (
+                    <p className="text-[11px] text-slate-500">+ {extraFileNames.join(', ')}（Driveに同時保存）</p>
+                  )}
                   <p className="text-[11px] text-emerald-700">各フィールドに自動入力されました。必要に応じて下記で修正できます。</p>
                   {isUploadingToDrive ? (
                     <p className="text-[11px] text-indigo-600 flex items-center gap-1 mt-0.5">
@@ -374,9 +401,9 @@ export const CandidateFormModal: React.FC = () => {
               <div className="flex flex-col items-center py-2">
                 <UploadCloud className="w-8 h-8 text-indigo-600 mb-1.5" />
                 <p className="text-xs font-semibold text-slate-800">
-                  ここにレジュメ（PDF/Word/Text）をドラッグ＆ドロップ
+                  ここに履歴書・職務経歴書（PDF/Word/Text）をドラッグ＆ドロップ
                 </p>
-                <p className="text-[11px] text-slate-500 mt-1">またはクリックしてファイルを選択 (AIが氏名・学歴・企業・スキル等を自動抽出)</p>
+                <p className="text-[11px] text-slate-500 mt-1">複数ファイルまとめて可。またはクリックしてファイルを選択 (AIが1件目から氏名・学歴・企業・スキル等を自動抽出、全ファイルをDriveに保存)</p>
               </div>
             )}
           </div>

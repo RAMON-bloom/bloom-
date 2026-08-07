@@ -41,10 +41,15 @@ export async function parseResumeContent(input: ParseResumeInput): Promise<Parse
         },
         {
           text: `提供された職務経歴書・レジュメファイルを解読し、候補者情報を抽出し、以下のキーを持つJSONで返してください。
+学歴・現職・経験社数・年齢は、書類に実際に記載されている内容をそのまま正確に転記してください。記載がない項目は無理に埋めず、該当キーを省略するか空文字にしてください（絶対に別の学校名・企業名を創作しないでください）。
 JSON形式のみで出力してください:
 {
   "name": "候補者氏名",
   "nameKana": "フリガナ",
+  "age": "年齢（数値。年齢が直接記載されていればその数値、なければ生年月日から算出）",
+  "education": "最終学歴（学校名・学部学科・卒業年、書類記載のまま）",
+  "currentCompany": "現職・直近の在籍企業名",
+  "companyCount": "経験社数（数値。「〜社目」「経験社数」等の記載があればその数値をそのまま使用）",
   "email": "メールアドレス",
   "phone": "電話番号",
   "jobTitle": "職種",
@@ -58,6 +63,7 @@ JSON形式のみで出力してください:
     } else {
       const textToProcess = textContent || '職務経歴書テキスト';
       contents = `以下の職務経歴書テキストを解析し、候補者情報を抽出し、キーを持つJSONで返してください。
+学歴・現職・経験社数・年齢は、テキストに実際に記載されている内容をそのまま正確に転記してください。記載がない項目は無理に埋めず、該当キーを省略するか空文字にしてください（絶対に別の学校名・企業名を創作しないでください）。
 
 レジュメテキスト:
 ${textToProcess}
@@ -66,6 +72,10 @@ JSON出力フォーマット:
 {
   "name": "候補者氏名",
   "nameKana": "フリガナ",
+  "age": "年齢（数値。年齢が直接記載されていればその数値、なければ生年月日から算出）",
+  "education": "最終学歴（学校名・学部学科・卒業年、書類記載のまま）",
+  "currentCompany": "現職・直近の在籍企業名",
+  "companyCount": "経験社数（数値。「〜社目」「経験社数」等の記載があればその数値をそのまま使用）",
   "email": "メールアドレス",
   "phone": "電話番号",
   "jobTitle": "職種",
@@ -87,18 +97,21 @@ JSON出力フォーマット:
     const jsonText = response.text || '{}';
     const parsed = JSON.parse(jsonText);
 
+    // Fields Gemini genuinely couldn't find in the document are returned blank/zero rather than a
+    // plausible-looking fake value (a specific real school/company name here would silently
+    // overwrite the form with fabricated data that looks like a real extraction result).
     return {
       name: parsed.name || '新規 応募者',
       nameKana: parsed.nameKana || 'シンキ オウボシャ',
-      age: parsed.age || 29,
-      education: parsed.education || '慶應義塾大学 理工学部卒',
-      currentCompany: parsed.currentCompany || '株式会社テクノロジーソリューションズ',
-      companyCount: parsed.companyCount || 2,
-      email: parsed.email || 'candidate@example.com',
-      phone: parsed.phone || '090-0000-0000',
-      jobTitle: parsed.jobTitle || 'エンジニア',
+      age: Number(parsed.age) || 0,
+      education: parsed.education || '',
+      currentCompany: parsed.currentCompany || '',
+      companyCount: Number(parsed.companyCount) || 0,
+      email: parsed.email || '',
+      phone: parsed.phone || '',
+      jobTitle: parsed.jobTitle || '',
       resumeSummary: parsed.resumeSummary || textContent?.substring(0, 200) || 'レジュメ解析完了。',
-      resumeSkills: Array.isArray(parsed.resumeSkills) ? parsed.resumeSkills : ['TypeScript', 'React'],
+      resumeSkills: Array.isArray(parsed.resumeSkills) ? parsed.resumeSkills : [],
       salaryExpectation: parsed.salaryExpectation || '経験に応じて相談',
       rawResumeContent: parsed.rawResumeContent || textContent || '（添付された職務経歴書ファイル）'
     };

@@ -817,10 +817,18 @@ export const ListView: React.FC = () => {
                             c.assignees.map((staffName, idx) => (
                               <span
                                 key={idx}
-                                className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-950 font-extrabold text-xs px-2 py-0.5 rounded border border-indigo-200/90 shadow-2xs"
+                                className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-950 font-extrabold text-xs pl-2 pr-1 py-0.5 rounded border border-indigo-200/90 shadow-2xs"
                               >
                                 <User className="w-3 h-3 text-indigo-600 shrink-0" />
                                 <span>{staffName}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateCandidate({ ...c, assignees: c.assignees.filter((a) => a !== staffName) })}
+                                  title={`${staffName} を担当から外す`}
+                                  className="ml-0.5 text-indigo-400 hover:text-rose-600 cursor-pointer"
+                                >
+                                  <XCircle className="w-3 h-3" />
+                                </button>
                               </span>
                             ))
                           ) : (
@@ -831,30 +839,20 @@ export const ListView: React.FC = () => {
                             value=""
                             onChange={(e) => {
                               const val = e.target.value;
-                              if (!val) return;
-                              if (val === '__CLEAR__') {
-                                updateCandidate({ ...c, assignees: [] });
-                              } else {
-                                const exists = c.assignees.includes(val);
-                                const newAssignees = exists
-                                  ? c.assignees.filter((a) => a !== val)
-                                  : [...c.assignees, val];
-                                updateCandidate({ ...c, assignees: newAssignees });
-                              }
+                              if (!val || c.assignees.includes(val)) return;
+                              updateCandidate({ ...c, assignees: [...c.assignees, val] });
                             }}
                             className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-[11px] rounded px-1.5 py-0.5 font-semibold cursor-pointer focus:outline-none shadow-2xs"
-                            title="社内担当者を編集・切り替え"
+                            title="社内担当者を追加"
                           >
-                            <option value="">+ 編集</option>
-                            <option value="__CLEAR__">（担当者を未割当にする）</option>
-                            {staffList.map((s) => {
-                              const isAssigned = c.assignees.includes(s.name);
-                              return (
+                            <option value="">+ 追加</option>
+                            {staffList
+                              .filter((s) => !c.assignees.includes(s.name))
+                              .map((s) => (
                                 <option key={s.id} value={s.name}>
-                                  {isAssigned ? `${s.name} (解除)` : s.name}
+                                  {s.name}
                                 </option>
-                              );
-                            })}
+                              ))}
                           </select>
                         </div>
                       </td>

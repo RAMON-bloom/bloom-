@@ -456,7 +456,7 @@ export const RecruitmentMeetingView: React.FC = () => {
   const acceptCount = assignedRecruiterCandidates.filter(c => c.phase === 'OFFER_ACCEPTED').length;
 
   return (
-    <div className="space-y-6 pb-16 font-sans max-w-6xl mx-auto">
+    <div className="space-y-4 pb-10 font-sans max-w-7xl mx-auto">
       <div className="flex flex-col lg:flex-row gap-4 items-start">
 
         {/* MEETING PICKER: every MTG as a summary card, newest first — click one to load its full detail */}
@@ -502,7 +502,7 @@ export const RecruitmentMeetingView: React.FC = () => {
         </div>
 
         {/* ACTIVE MEETING DETAIL */}
-        <div ref={detailTopRef} className="flex-1 min-w-0 space-y-6">
+        <div ref={detailTopRef} className="flex-1 min-w-0 space-y-4">
 
       {/* HEADER & CONTROL BAR */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -617,9 +617,9 @@ export const RecruitmentMeetingView: React.FC = () => {
 
         {/* Content Body */}
         {isOverallOpen && (
-          <div className="p-5 space-y-5">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-              
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
               {/* Left Column (6 cols): Overall Meeting Notes */}
               <div className="lg:col-span-6 space-y-3">
                 <div className="flex items-center justify-between">
@@ -757,8 +757,8 @@ export const RecruitmentMeetingView: React.FC = () => {
       </div>
 
       {/* SECTION 2: 担当者別選考報告シート */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-6">
-        
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-4">
+
         {/* Section Header & Recruiter Quick Selector Tab Bar */}
         <div className="space-y-3 border-b border-slate-100 pb-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -810,8 +810,8 @@ export const RecruitmentMeetingView: React.FC = () => {
         </div>
 
         {/* Selected Recruiter Detail Card */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
           {/* Left Side (4 Cols): Assigned Candidates & Yield Quick Stats */}
           <div className="lg:col-span-4 space-y-4">
             
@@ -1091,7 +1091,7 @@ export const RecruitmentMeetingView: React.FC = () => {
 
         {/* Content Body */}
         {isAnalyticsOpen && (
-          <div className="p-5 space-y-5">
+          <div className="p-4 space-y-4">
             {/* Filter Switches */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <span className="text-xs font-bold text-slate-700">集計条件フィルター:</span>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, 
   Calendar, 
@@ -93,6 +93,18 @@ export const RecruitmentMeetingView: React.FC = () => {
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
 
   const activeMeeting = meetingLogs.find(m => m.id === selectedMeetingId) || meetingLogs[0];
+
+  // Newest MTG first in the picker, regardless of the order logs were created in.
+  const sortedMeetingLogs = [...meetingLogs].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  // Scrolls the detail pane back into view on every switch, so picking a different card from
+  // lower in a long list doesn't leave the (now-updated) header off-screen and unnoticed.
+  const detailTopRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    detailTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [selectedMeetingId]);
 
   const handleSaveNotes = (label?: string) => {
     if (!activeMeeting) return;
@@ -445,7 +457,53 @@ export const RecruitmentMeetingView: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-16 font-sans max-w-6xl mx-auto">
-      
+      <div className="flex flex-col lg:flex-row gap-4 items-start">
+
+        {/* MEETING PICKER: every MTG as a summary card, newest first — click one to load its full detail */}
+        <div className="w-full lg:w-64 shrink-0 space-y-2 lg:sticky lg:top-4">
+          {sortedMeetingLogs.map((m) => {
+            const isActive = m.id === activeMeeting.id;
+            const summaryExcerpt = (m.overallSummary || '')
+              .split('\n')
+              .map((line) => line.replace(/^[・\s【】]+/, '').trim())
+              .filter(Boolean)
+              .slice(0, 2)
+              .join(' ');
+
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setSelectedMeetingId(m.id)}
+                className={`w-full text-left p-3 rounded-xl border transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-200'
+                    : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900 min-w-0">
+                    <Calendar className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
+                    <span className="truncate">{m.title}</span>
+                  </div>
+                  {isActive && (
+                    <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.2 rounded-full">
+                      <CheckCircle2 className="w-3 h-3" />
+                      表示中
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
+                  {summaryExcerpt || '概要未入力'}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ACTIVE MEETING DETAIL */}
+        <div ref={detailTopRef} className="flex-1 min-w-0 space-y-6">
+
       {/* HEADER & CONTROL BAR */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         
@@ -524,40 +582,6 @@ export const RecruitmentMeetingView: React.FC = () => {
             <span>新規MTG作成</span>
           </button>
         </div>
-      </div>
-
-      {/* MEETING PICKER: every MTG as a summary card — click one to load its full detail below */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-        {meetingLogs.map((m) => {
-          const isActive = m.id === activeMeeting.id;
-          const summaryExcerpt = (m.overallSummary || '')
-            .split('\n')
-            .map((line) => line.replace(/^[・\s【】]+/, '').trim())
-            .filter(Boolean)
-            .slice(0, 2)
-            .join(' ');
-
-          return (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setSelectedMeetingId(m.id)}
-              className={`text-left shrink-0 w-60 p-3 rounded-xl border transition-colors cursor-pointer ${
-                isActive
-                  ? 'bg-indigo-50 border-indigo-300'
-                  : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                <Calendar className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
-                <span className="truncate">{m.title}</span>
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                {summaryExcerpt || '概要未入力'}
-              </p>
-            </button>
-          );
-        })}
       </div>
 
       {/* SECTION 1: 全体議事録・決定事項 & 全体ToDo (統合スマートカード) */}
@@ -1262,6 +1286,9 @@ export const RecruitmentMeetingView: React.FC = () => {
 
           </div>
         )}
+      </div>
+
+        </div>
       </div>
 
       {/* NEW MEETING LOG MODAL */}

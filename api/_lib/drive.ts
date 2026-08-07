@@ -159,6 +159,14 @@ export async function getFileParents(accessToken: string, fileId: string): Promi
   return data.parents || [];
 }
 
+export async function getFileMetadata(accessToken: string, fileId: string): Promise<DriveFile> {
+  const res = await driveFetch(
+    accessToken,
+    `${DRIVE_API}/files/${fileId}?fields=id,name,mimeType,modifiedTime,webViewLink`
+  );
+  return await res.json();
+}
+
 // Moves a file into newFolderId, removing whatever parent folders it currently has
 // (a resume should live in exactly one phase folder at a time).
 export async function moveFileToFolder(

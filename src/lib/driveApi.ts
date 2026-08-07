@@ -152,3 +152,26 @@ export async function importDriveResume(
   });
   return data.data;
 }
+
+export interface PhotoCropBox {
+  xMin: number;
+  yMin: number;
+  xMax: number;
+  yMax: number;
+}
+
+export interface DetectedPhotoCrop {
+  found: boolean;
+  box?: PhotoCropBox;
+  fileBase64: string;
+  mimeType: string;
+}
+
+// Downloads the resume file from Drive and asks Gemini to locate the photo box on page 1,
+// returning both the raw file bytes (for client-side rendering) and a normalized bounding box.
+export async function detectResumePhotoCrop(accessToken: string, fileId: string): Promise<DetectedPhotoCrop> {
+  return postJson<DetectedPhotoCrop>('/api/drive/detect-photo-crop', {
+    accessToken,
+    fileId
+  });
+}

@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
-import { 
-  X, 
-  Crop, 
-  Sparkles, 
-  Upload, 
-  ZoomIn, 
-  ZoomOut, 
-  RotateCw, 
-  Check, 
-  FileText, 
-  UserCheck, 
+import {
+  X,
+  Crop,
+  Sparkles,
+  Upload,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  Check,
+  UserCheck,
   Scan,
-  RefreshCw
+  RefreshCw,
+  ImageOff
 } from 'lucide-react';
+import { detectResumePhotoCrop, PhotoCropBox } from '../lib/driveApi';
 
 interface ResumePhotoCropperModalProps {
   isOpen: boolean;
@@ -20,34 +21,89 @@ interface ResumePhotoCropperModalProps {
   candidateName: string;
   currentAvatarUrl?: string;
   resumeFileName?: string;
+  resumeDriveFileId?: string;
+  driveAccessToken?: string | null;
   onSavePhoto: (newAvatarUrl: string) => void;
 }
 
-// Sample professional headshots extracted from resume mock options
-const SAMPLE_RESUME_HEADSHOTS = [
-  { id: 'h1', label: '標準証明写真 A', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80' },
-  { id: 'h2', label: '標準証明写真 B', url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80' },
-  { id: 'h3', label: '証明写真 C', url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80' },
-  { id: 'h4', label: '証明写真 D', url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=400&q=80' },
-  { id: 'h5', label: '証明写真 E', url: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=400&q=80' },
-  { id: 'h6', label: '証明写真 F', url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=400&q=80' },
-];
+// Renders an arbitrary image (base64, no data: prefix) onto an offscreen canvas at its
+// native resolution so we can crop pixels out of it afterwards.
+async function renderImageToCanvas(base64: string, mimeType: string): Promise<HTMLCanvasElement> {
+  const img = new Image();
+  const loaded = new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+  });
+  img.src = `data:${mimeType};base64,${base64}`;
+  await loaded;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.getContext('2d')!.drawImage(img, 0, 0);
+  return canvas;
+}
+
+// Renders page 1 of a PDF (base64, no data: prefix) onto an offscreen canvas via pdfjs-dist,
+// loaded dynamically so it never bloats the main app bundle.
+async function renderPdfPageToCanvas(base64: string): Promise<HTMLCanvasElement> {
+  const pdfjsLib = await import('pdfjs-dist');
+  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 2.5 });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d')!;
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+  return canvas;
+}
+
+// Renders the source file and crops out the normalized (0-1) box Gemini identified,
+// returning the result as a data URL ready to use as an avatar.
+async function renderAndCrop(fileBase64: string, mimeType: string, box: PhotoCropBox): Promise<string> {
+  const sourceCanvas = mimeType === 'application/pdf'
+    ? await renderPdfPageToCanvas(fileBase64)
+    : await renderImageToCanvas(fileBase64, mimeType);
+
+  const sw = sourceCanvas.width;
+  const sh = sourceCanvas.height;
+  const sx = Math.max(0, box.xMin * sw);
+  const sy = Math.max(0, box.yMin * sh);
+  const cropW = Math.max(1, Math.min(sw - sx, (box.xMax - box.xMin) * sw));
+  const cropH = Math.max(1, Math.min(sh - sy, (box.yMax - box.yMin) * sh));
+
+  const out = document.createElement('canvas');
+  out.width = cropW;
+  out.height = cropH;
+  out.getContext('2d')!.drawImage(sourceCanvas, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
+  return out.toDataURL('image/jpeg', 0.92);
+}
 
 export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = ({
   isOpen,
   onClose,
   candidateName,
   currentAvatarUrl,
-  resumeFileName = '履歴書.pdf',
+  resumeFileName,
+  resumeDriveFileId,
+  driveAccessToken,
   onSavePhoto,
 }) => {
-  const [selectedImage, setSelectedImage] = useState<string>(
-    currentAvatarUrl || SAMPLE_RESUME_HEADSHOTS[0].url
-  );
-  const [zoom, setZoom] = useState<number>(120);
+  const [selectedImage, setSelectedImage] = useState<string | null>(currentAvatarUrl || null);
+  const [zoom, setZoom] = useState<number>(100);
   const [aspectRatio, setAspectRatio] = useState<'3:4' | '1:1' | 'circle'>('3:4');
   const [isAiScanning, setIsAiScanning] = useState<boolean>(false);
   const [scanMessage, setScanMessage] = useState<string>('');
+  const [scanFailed, setScanFailed] = useState<boolean>(false);
   const [rotation, setRotation] = useState<number>(0);
 
   if (!isOpen) return null;
@@ -59,26 +115,50 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
       reader.onload = (event) => {
         if (event.target?.result) {
           setSelectedImage(event.target.result as string);
-          setScanMessage('アップロード画像からプレビュー読み込み完了');
+          setZoom(100);
+          setRotation(0);
+          setScanFailed(false);
+          setScanMessage('アップロード画像を読み込みました');
         }
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleAiAutoCrop = () => {
+  const handleAiAutoCrop = async () => {
+    if (!resumeDriveFileId || !driveAccessToken) {
+      setScanFailed(true);
+      setScanMessage('この候補者にはDrive上の履歴書原本が紐づいていないため、自動検出できません。「写真アップロード」から手動で選択してください。');
+      return;
+    }
+
     setIsAiScanning(true);
-    setScanMessage('履歴書PDF・画像の顔認識スキャンを実行中...');
-    
-    setTimeout(() => {
-      setIsAiScanning(false);
-      setZoom(135);
+    setScanFailed(false);
+    setScanMessage('履歴書ファイルをDriveから取得し、Geminiで顔写真枠を解析中...');
+
+    try {
+      const result = await detectResumePhotoCrop(driveAccessToken, resumeDriveFileId);
+      if (!result.found || !result.box) {
+        setScanFailed(true);
+        setScanMessage('履歴書内に証明写真枠を検出できませんでした。「写真アップロード」から手動で選択してください。');
+        return;
+      }
+
+      const croppedDataUrl = await renderAndCrop(result.fileBase64, result.mimeType, result.box);
+      setSelectedImage(croppedDataUrl);
+      setZoom(100);
       setRotation(0);
-      setScanMessage('AIが履歴書の顔写真枠 (右上3:4エリア) を自動検知・切り抜き完了');
-    }, 1200);
+      setScanMessage('AIが履歴書の顔写真枠を自動検出・切り抜きしました');
+    } catch (err: any) {
+      setScanFailed(true);
+      setScanMessage(`自動検出に失敗しました: ${err.message || '不明なエラー'}`);
+    } finally {
+      setIsAiScanning(false);
+    }
   };
 
   const handleSave = () => {
+    if (!selectedImage) return;
     onSavePhoto(selectedImage);
     onClose();
   };
@@ -97,7 +177,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
                 履歴書からの顔写真切り抜き
               </h3>
               <p className="text-xs text-slate-500">
-                候補者: <strong className="text-slate-800">{candidateName}</strong> 様 （原本: {resumeFileName}）
+                候補者: <strong className="text-slate-800">{candidateName}</strong> 様 （原本: {resumeFileName || '未登録'}）
               </p>
             </div>
           </div>
@@ -118,9 +198,9 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="font-bold text-sm">履歴書AI顔認識・自動切り抜き</p>
+                <p className="font-bold text-sm">履歴書AI顔写真検出・自動切り抜き</p>
                 <p className="text-xs text-indigo-200">
-                  添付された履歴書ファイルから証明写真エリア（右上）をスキャンして高解像度抽出します
+                  Driveに保存された履歴書原本（PDF/画像）をGeminiが解析し、証明写真エリアを自動検出・抽出します
                 </p>
               </div>
             </div>
@@ -137,31 +217,34 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
               ) : (
                 <>
                   <Scan className="w-4 h-4 text-indigo-600" />
-                  <span>AI顔自動抽出を実行</span>
+                  <span>AI顔写真自動抽出を実行</span>
                 </>
               )}
             </button>
           </div>
 
           {scanMessage && (
-            <div className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg flex items-center gap-2">
-              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <div className={`text-xs font-semibold p-2.5 rounded-lg flex items-center gap-2 border ${
+              scanFailed
+                ? 'text-amber-800 bg-amber-50 border-amber-200'
+                : 'text-emerald-800 bg-emerald-50 border-emerald-200'
+            }`}>
+              <Check className="w-4 h-4 shrink-0" />
               <span>{scanMessage}</span>
             </div>
           )}
 
           {/* Main Workspace (Resume Preview Sheet + Crop Box) */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            
+
             {/* Left: Interactive Resume Canvas simulator (7 cols) */}
             <div className="md:col-span-7 bg-slate-200/70 p-4 rounded-2xl border border-slate-300 flex flex-col items-center justify-center relative overflow-hidden min-h-[320px]">
-              
+
               {/* Simulated Japanese JIS Resume Sheet Background */}
               <div className="w-full bg-white rounded-lg shadow-md p-4 border border-slate-300 relative text-[9px] text-slate-400 select-none">
                 <div className="flex justify-between items-start border-b border-slate-200 pb-2 mb-2">
                   <div className="space-y-1">
                     <p className="font-serif text-slate-800 text-xs font-bold">履 歴 書 （JIS規格）</p>
-                    <p className="text-slate-500">2026年 8月 1日 現在</p>
                     <p className="text-slate-900 font-bold text-sm pt-1">{candidateName}</p>
                   </div>
 
@@ -178,16 +261,20 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
 
                     {/* Cropped Photo inside resume box */}
                     <div className="w-full h-full overflow-hidden flex items-center justify-center rounded">
-                      <img
-                        src={selectedImage}
-                        alt="Resume Headshot"
-                        referrerPolicy="no-referrer"
-                        style={{
-                          transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
-                          transition: 'transform 0.15s ease-out'
-                        }}
-                        className="w-full h-full object-cover"
-                      />
+                      {selectedImage ? (
+                        <img
+                          src={selectedImage}
+                          alt="Resume Headshot"
+                          referrerPolicy="no-referrer"
+                          style={{
+                            transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+                            transition: 'transform 0.15s ease-out'
+                          }}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ImageOff className="w-6 h-6 text-slate-300" />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -207,46 +294,54 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
 
             {/* Right: Controls & Preview (5 cols) */}
             <div className="md:col-span-5 space-y-4">
-              
+
               {/* Cropped Preview Card */}
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
                 <label className="block text-slate-800 font-bold text-xs">
                   切り抜き後プレビュー (アイコン表示)
                 </label>
-                
+
                 <div className="flex items-center gap-4">
                   {/* Square / ID ratio preview */}
                   <div className="flex flex-col items-center gap-1">
-                    <div className={`overflow-hidden border-2 border-indigo-500 shadow-md ${
+                    <div className={`overflow-hidden border-2 border-indigo-500 shadow-md bg-slate-100 flex items-center justify-center ${
                       aspectRatio === 'circle' ? 'w-16 h-16 rounded-full' :
                       aspectRatio === '1:1' ? 'w-16 h-16 rounded-xl' :
                       'w-14 h-18 rounded-lg'
                     }`}>
-                      <img
-                        src={selectedImage}
-                        alt="Crop Preview"
-                        referrerPolicy="no-referrer"
-                        style={{
-                          transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
-                        }}
-                        className="w-full h-full object-cover"
-                      />
+                      {selectedImage ? (
+                        <img
+                          src={selectedImage}
+                          alt="Crop Preview"
+                          referrerPolicy="no-referrer"
+                          style={{
+                            transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+                          }}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ImageOff className="w-4 h-4 text-slate-300" />
+                      )}
                     </div>
                     <span className="text-[10px] text-slate-500 font-medium">カード表示</span>
                   </div>
 
                   {/* Header circle preview */}
                   <div className="flex flex-col items-center gap-1">
-                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-200 shadow-md">
-                      <img
-                        src={selectedImage}
-                        alt="Header Avatar"
-                        referrerPolicy="no-referrer"
-                        style={{
-                          transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
-                        }}
-                        className="w-full h-full object-cover"
-                      />
+                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-200 shadow-md bg-slate-100 flex items-center justify-center">
+                      {selectedImage ? (
+                        <img
+                          src={selectedImage}
+                          alt="Header Avatar"
+                          referrerPolicy="no-referrer"
+                          style={{
+                            transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+                          }}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ImageOff className="w-3.5 h-3.5 text-slate-300" />
+                      )}
                     </div>
                     <span className="text-[10px] text-slate-500 font-medium">詳細ヘッダー</span>
                   </div>
@@ -322,7 +417,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
                   <button
                     type="button"
                     onClick={() => {
-                      setZoom(120);
+                      setZoom(100);
                       setRotation(0);
                     }}
                     className="text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
@@ -332,12 +427,12 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
                 </div>
               </div>
 
-              {/* Upload or Pick Sample Photo */}
+              {/* Upload a photo manually */}
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
                 <label className="block text-slate-800 font-bold text-xs">
-                  別の画像ファイルをアップロード / 選択
+                  画像ファイルを手動でアップロード
                 </label>
-                
+
                 <div className="flex gap-2">
                   <label className="flex-1 bg-slate-50 hover:bg-slate-100 border border-slate-300 border-dashed rounded-lg p-2.5 text-center cursor-pointer transition-colors flex items-center justify-center gap-1 text-slate-700 font-bold text-xs">
                     <Upload className="w-4 h-4 text-indigo-600" />
@@ -349,25 +444,6 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
                       className="hidden"
                     />
                   </label>
-                </div>
-
-                {/* Sample selector */}
-                <div className="pt-1">
-                  <p className="text-[10px] text-slate-400 font-medium mb-1.5">サンプル顔写真候補:</p>
-                  <div className="grid grid-cols-6 gap-1.5">
-                    {SAMPLE_RESUME_HEADSHOTS.map((sample) => (
-                      <button
-                        key={sample.id}
-                        type="button"
-                        onClick={() => setSelectedImage(sample.url)}
-                        className={`w-9 h-11 rounded overflow-hidden border-2 transition-colors cursor-pointer ${
-                          selectedImage === sample.url ? 'border-indigo-600' : 'border-slate-200 opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <img src={sample.url} alt={sample.label} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
 
@@ -390,7 +466,8 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
             </button>
             <button
               onClick={handleSave}
-              className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors shadow-md cursor-pointer flex items-center gap-1.5"
+              disabled={!selectedImage}
+              className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <UserCheck className="w-4 h-4" />
               <span>切り抜き顔写真を保存・適用</span>

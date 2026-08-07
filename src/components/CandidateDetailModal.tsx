@@ -93,7 +93,8 @@ export const CandidateDetailModal: React.FC = () => {
     restoreCandidate,
     staffList,
     userRole,
-    showToast
+    showToast,
+    driveAccessToken
   } = useATS();
   const { accessToken: authAccessToken, signIn: authSignIn } = useAuth();
 
@@ -1887,13 +1888,25 @@ export const CandidateDetailModal: React.FC = () => {
                   </button>
                 </div>
 
-                <button
-                  onClick={() => showToast(`「${candidate.resumeFileName || `${candidate.name}_履歴書.pdf`}」をダウンロードしました`, 'success')}
-                  className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>原本ダウンロード</span>
-                </button>
+                {candidate.resumeDriveUrl ? (
+                  <a
+                    href={candidate.resumeDriveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>原本を開く（{candidate.resumeFileName || `${candidate.name}_履歴書.pdf`}）</span>
+                  </a>
+                ) : (
+                  <span
+                    title="この候補者にはDrive上の原本ファイルが紐づいていません"
+                    className="flex items-center gap-1.5 text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg cursor-not-allowed"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>原本未登録</span>
+                  </span>
+                )}
               </div>
 
               {/* CV View */}
@@ -2118,6 +2131,8 @@ export const CandidateDetailModal: React.FC = () => {
         candidateName={candidate.name}
         currentAvatarUrl={candidate.avatarUrl}
         resumeFileName={candidate.resumeFileName}
+        resumeDriveFileId={candidate.resumeDriveFileId}
+        driveAccessToken={driveAccessToken}
         onSavePhoto={(newAvatarUrl) => {
           updateCandidate({
             ...candidate,

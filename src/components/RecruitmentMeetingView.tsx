@@ -474,19 +474,9 @@ export const RecruitmentMeetingView: React.FC = () => {
 
             <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
               <span>実施日:</span>
-              <div className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200/80 transition-colors px-2.5 py-0.5 rounded-lg border border-slate-200 font-bold text-slate-800">
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200 font-bold text-slate-800">
                 <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                <select
-                  value={selectedMeetingId}
-                  onChange={(e) => setSelectedMeetingId(e.target.value)}
-                  className="bg-transparent font-bold text-slate-900 text-xs focus:outline-none cursor-pointer"
-                >
-                  {meetingLogs.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.title}
-                    </option>
-                  ))}
-                </select>
+                <span className="text-xs">{activeMeeting.title}</span>
               </div>
             </div>
           </div>
@@ -534,6 +524,40 @@ export const RecruitmentMeetingView: React.FC = () => {
             <span>新規MTG作成</span>
           </button>
         </div>
+      </div>
+
+      {/* MEETING PICKER: every MTG as a summary card — click one to load its full detail below */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        {meetingLogs.map((m) => {
+          const isActive = m.id === activeMeeting.id;
+          const summaryExcerpt = (m.overallSummary || '')
+            .split('\n')
+            .map((line) => line.replace(/^[・\s【】]+/, '').trim())
+            .filter(Boolean)
+            .slice(0, 2)
+            .join(' ');
+
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setSelectedMeetingId(m.id)}
+              className={`text-left shrink-0 w-60 p-3 rounded-xl border transition-colors cursor-pointer ${
+                isActive
+                  ? 'bg-indigo-50 border-indigo-300'
+                  : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                <Calendar className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
+                <span className="truncate">{m.title}</span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
+                {summaryExcerpt || '概要未入力'}
+              </p>
+            </button>
+          );
+        })}
       </div>
 
       {/* SECTION 1: 全体議事録・決定事項 & 全体ToDo (統合スマートカード) */}

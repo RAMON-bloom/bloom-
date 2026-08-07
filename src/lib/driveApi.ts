@@ -108,3 +108,47 @@ export async function moveResumeToPhaseFolder(
   });
   return data.file;
 }
+
+export interface DrivePhaseFileEntry {
+  phase: string;
+  file: DriveMeetingFile;
+}
+
+// Scans the phase subfolders as they actually exist in Drive right now — used to detect resumes
+// added or moved directly in Drive, bypassing the app.
+export async function scanDriveResumes(accessToken: string): Promise<DrivePhaseFileEntry[]> {
+  const data = await postJson<{ success: boolean; entries: DrivePhaseFileEntry[] }>('/api/drive/scan-resumes', {
+    accessToken,
+    folderId: RECRUITMENT_DRIVE_FOLDER_ID
+  });
+  return data.entries;
+}
+
+export interface ImportedResumeData {
+  name: string;
+  nameKana: string;
+  age: number;
+  education: string;
+  currentCompany: string;
+  companyCount: number;
+  email: string;
+  phone: string;
+  jobTitle: string;
+  resumeSummary: string;
+  resumeSkills: string[];
+  salaryExpectation: string;
+  rawResumeContent: string;
+}
+
+export async function importDriveResume(
+  accessToken: string,
+  file: { id: string; name: string; mimeType: string }
+): Promise<ImportedResumeData> {
+  const data = await postJson<{ success: boolean; data: ImportedResumeData }>('/api/drive/import-resume', {
+    accessToken,
+    fileId: file.id,
+    fileName: file.name,
+    mimeType: file.mimeType
+  });
+  return data.data;
+}

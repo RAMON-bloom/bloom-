@@ -17,7 +17,8 @@ import {
   UploadCloud,
   DownloadCloud,
   LogOut,
-  ChevronDown
+  ChevronDown,
+  RefreshCw
 } from 'lucide-react';
 import { useATS, ActiveTab } from '../context/ATSContext';
 import { UserRole } from '../types';
@@ -42,7 +43,9 @@ export const Header: React.FC = () => {
     connectDrive,
     disconnectDrive,
     backupToDrive,
-    restoreFromDrive
+    restoreFromDrive,
+    isSyncingDrive,
+    syncWithDrive
   } = useATS();
 
   const [isDriveMenuOpen, setIsDriveMenuOpen] = useState(false);
@@ -134,6 +137,15 @@ export const Header: React.FC = () => {
                   >
                     <DownloadCloud className="w-3.5 h-3.5 text-indigo-600" />
                     Driveから復元
+                  </button>
+                  <button
+                    onClick={() => { syncWithDrive(); setIsDriveMenuOpen(false); }}
+                    disabled={isSyncingDrive}
+                    title="Drive上で直接追加・移動されたレジュメを検知し、フェーズ更新や未登録候補者の取込を行います"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isSyncingDrive ? 'animate-spin' : ''}`} />
+                    {isSyncingDrive ? 'Drive同期中...' : 'Driveと同期'}
                   </button>
                   <button
                     onClick={() => { disconnectDrive(); setIsDriveMenuOpen(false); }}

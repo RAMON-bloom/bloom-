@@ -17,7 +17,9 @@ import { useAuth } from './AuthContext';
 import {
   backupToDrive as backupToDriveApi,
   restoreFromDrive as restoreFromDriveApi,
-  moveResumeToPhaseFolder as moveResumeToPhaseFolderApi
+  moveResumeToPhaseFolder as moveResumeToPhaseFolderApi,
+  scanDriveResumes as scanDriveResumesApi,
+  importDriveResume as importDriveResumeApi
 } from '../lib/driveApi';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
@@ -108,6 +110,8 @@ interface ATSContextType {
   disconnectDrive: () => Promise<void>;
   backupToDrive: () => Promise<void>;
   restoreFromDrive: () => Promise<void>;
+  isSyncingDrive: boolean;
+  syncWithDrive: () => Promise<void>;
 }
 
 const ATSContext = createContext<ATSContextType | undefined>(undefined);
@@ -149,6 +153,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // rather than tracked as separate state here.
   const { email: driveUserEmail, accessToken: driveAccessToken, signIn: authSignIn, signOut: authSignOut } = useAuth();
   const [isDriveConnecting, setIsDriveConnecting] = useState(false);
+  const [isSyncingDrive, setIsSyncingDrive] = useState(false);
 
   const [userRole, setUserRole] = useState<UserRole>('ADMIN');
   const [activeTab, setActiveTab] = useState<ActiveTab>('kanban');
@@ -327,19 +332,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addCandidate = (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => {
-    const nextNum = candidates.length + 1;
-    const newId = `CAND-${String(nextNum).padStart(4, '0')}`;
     const appliedMonth = candidateData.appliedDate ? candidateData.appliedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
 
-    const newCandidate: Candidate = {
-      ...candidateData,
-      id: newId,
-      appliedMonth,
-      evaluationNotes: [],
-      lastUpdated: new Date().toISOString().split('T')[0]
-    };
-
-    setCandidates((prev) => [newCandidate, ...prev]);
+    // ID generation reads prev.length inside the updater (not the outer `candidates` closure) so
+    // that calling addCandidate multiple times back-to-back — e.g. importing several unregistered
+    // Drive resumes in a loop — doesn't assign the same ID to every one of them.
+    let newCandidate!: Candidate;
+    setCandidates((prev) => {
+      const nextNum = prev.length + 1;
+      newCandidate = {
+        ...candidateData,
+        id: `CAND-${String(nextNum).padStart(4, '0')}`,
+        appliedMonth,
+        evaluationNotes: [],
+        lastUpdated: new Date().toISOString().split('T')[0]
+      };
+      return [newCandidate, ...prev];
+    });
     showToast(`候補者 「${newCandidate.name}」（${newCandidate.id}） を新規登録しました`, 'success');
   };
 
@@ -599,6 +608,89 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Reconciles the app with whatever is actually sitting in Drive right now — for candidates
+  // whose resume was dragged into a different phase folder by hand, and for resume files that
+  // were added directly to a phase folder and were never registered as a candidate at all.
+  const syncWithDrive = async () => {
+    if (!driveAccessToken) {
+      showToast('先にGoogle Driveへログインしてください', 'warning');
+      return;
+    }
+    setIsSyncingDrive(true);
+    try {
+      const entries = await scanDriveResumesApi(driveAccessToken);
+      const fileIdToPhase = new Map(entries.map((e) => [e.file.id, e.phase]));
+
+      let movedCount = 0;
+      setCandidates((prev) =>
+        prev.map((c) => {
+          if (!c.resumeDriveFileId) return c;
+          const drivePhase = fileIdToPhase.get(c.resumeDriveFileId);
+          if (drivePhase && drivePhase in PHASE_ORDER && drivePhase !== c.phase) {
+            movedCount++;
+            return { ...c, phase: drivePhase as SelectionPhase, lastUpdated: new Date().toISOString().split('T')[0] };
+          }
+          return c;
+        })
+      );
+
+      const knownFileIds = new Set(candidates.map((c) => c.resumeDriveFileId).filter(Boolean));
+      const unregistered = entries.filter((e) => !knownFileIds.has(e.file.id));
+
+      let importedCount = 0;
+      let failedCount = 0;
+      for (const entry of unregistered) {
+        const phase = (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase;
+        try {
+          const parsed = await importDriveResumeApi(driveAccessToken, entry.file);
+          addCandidate({
+            name: parsed.name,
+            nameKana: parsed.nameKana,
+            age: parsed.age,
+            education: parsed.education,
+            currentCompany: parsed.currentCompany,
+            companyCount: parsed.companyCount,
+            email: parsed.email,
+            phone: parsed.phone,
+            jobTitle: parsed.jobTitle,
+            appliedDate: new Date().toISOString().split('T')[0],
+            agencyId: 'ag-direct',
+            agencyName: '直接応募 (自社採用HP)',
+            assignees: [staffList[0]?.name || '山田 太郎'],
+            phase,
+            scheduleStatus: 'UNARRANGED',
+            resumeSummary: parsed.resumeSummary,
+            rawResumeContent: parsed.rawResumeContent,
+            resumeFileName: entry.file.name,
+            resumeDriveUrl: entry.file.webViewLink,
+            resumeDriveFileId: entry.file.id,
+            resumeSkills: parsed.resumeSkills,
+            salaryExpectation: parsed.salaryExpectation
+          });
+          importedCount++;
+        } catch (err) {
+          console.error('Drive resume import failed for', entry.file.name, err);
+          failedCount++;
+        }
+      }
+
+      const summary = [
+        movedCount > 0 ? `フェーズ更新 ${movedCount}件` : null,
+        importedCount > 0 ? `新規取込 ${importedCount}件` : null,
+        failedCount > 0 ? `取込失敗 ${failedCount}件` : null
+      ].filter(Boolean);
+
+      showToast(
+        summary.length > 0 ? `Drive同期完了: ${summary.join(' / ')}` : 'Drive同期完了: 変更はありませんでした',
+        failedCount > 0 ? 'warning' : 'success'
+      );
+    } catch (err: any) {
+      showToast(`Drive同期に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+    } finally {
+      setIsSyncingDrive(false);
+    }
+  };
+
   // Filtered Candidates computation (Active only)
   const filteredCandidates = candidates.filter((c) => {
     // Exclude archived/deleted candidates from active pipeline
@@ -835,7 +927,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         connectDrive,
         disconnectDrive,
         backupToDrive,
-        restoreFromDrive
+        restoreFromDrive,
+        isSyncingDrive,
+        syncWithDrive
       }}
     >
       {children}

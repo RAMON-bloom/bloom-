@@ -145,6 +145,14 @@ export async function upsertTextFile(
   return await res.json();
 }
 
+// Downloads a file's raw bytes and returns them base64-encoded (e.g. for feeding a PDF into
+// Gemini's inline-data input, which requires base64 rather than a stream).
+export async function downloadFileBase64(accessToken: string, fileId: string): Promise<string> {
+  const res = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?alt=media`);
+  const buffer = await res.arrayBuffer();
+  return Buffer.from(buffer).toString('base64');
+}
+
 export async function getFileParents(accessToken: string, fileId: string): Promise<string[]> {
   const res = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?fields=parents`);
   const data = await res.json();

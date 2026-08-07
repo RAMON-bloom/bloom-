@@ -4,7 +4,8 @@ import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinn
 import { useAuth } from '../context/AuthContext';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
-import { uploadResumeToDrive } from '../lib/driveApi';
+import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
+import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { 
   X, 
@@ -47,6 +48,17 @@ import {
 } from 'lucide-react';
 
 const EVALUATION_GRADES: EvaluationGrade[] = ['A+', 'A-', 'B+', 'B', 'B-', 'C'];
+
+const PHASE_LABELS: Record<SelectionPhase, string> = {
+  DOCUMENT_SCREENING: '書類選考',
+  CASUAL_INTERVIEW: 'カジュアル面談',
+  FIRST_INTERVIEW: '1次面接',
+  SECOND_INTERVIEW: '2次面接',
+  FINAL_INTERVIEW: '最終面接',
+  OFFER_ISSUED: '内定通知',
+  OFFER_ACCEPTED: '内定承諾',
+  REJECTED_DECLINED: '辞退 / 不採用'
+};
 
 export const renderGradeBadge = (
   label: string, 
@@ -102,6 +114,7 @@ export const CandidateDetailModal: React.FC = () => {
 
   const [activeSubTab, setActiveSubTab] = useState<'evaluation' | 'resume' | 'onboarding'>('evaluation');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const evalFormRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (scrollContainerRef.current) {
@@ -114,6 +127,7 @@ export const CandidateDetailModal: React.FC = () => {
   const [isDetailDragging, setIsDetailDragging] = useState(false);
   const [isDetailParsing, setIsDetailParsing] = useState(false);
   const [isDetailCompressing, setIsDetailCompressing] = useState(false);
+  const [isDetailDetectingPhoto, setIsDetailDetectingPhoto] = useState(false);
   const [isPhotoCropperOpen, setIsPhotoCropperOpen] = useState(false);
 
   // Section Collapse State for Card Sections
@@ -175,6 +189,13 @@ export const CandidateDetailModal: React.FC = () => {
   const [onboardingNotesText, setOnboardingNotesText] = useState<string>('');
   const [customInterviewerInput, setCustomInterviewerInput] = useState<string>('');
 
+  // Runs only when the open candidate changes (not on every `candidates` update) — this used to
+  // depend on `candidates` too, which meant ANY update anywhere in the app (another candidate's
+  // note, a phase change, even this candidate's own note being saved) re-ran it and silently
+  // wiped whatever the user had typed into the L/C/M ratings, notes, or target-phase selector for
+  // the currently-open candidate before they could submit. That's the main way a 選考メモ in
+  // progress could appear to "not be reflected" — it never really saved wrong, it was reset out
+  // from under the user while they were still filling it in.
   useEffect(() => {
     if (selectedCandidateId) {
       const c = candidates.find((cand) => cand.id === selectedCandidateId);
@@ -194,7 +215,8 @@ export const CandidateDetailModal: React.FC = () => {
         setNewMNote(c.mNote || '');
       }
     }
-  }, [selectedCandidateId, candidates]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCandidateId]);
 
   const handleSaveOnboarding = (e: React.FormEvent) => {
     e.preventDefault();
@@ -262,19 +284,12 @@ export const CandidateDetailModal: React.FC = () => {
     const s = gmailData.summary;
     const noteText = `【Gmail面談ログ AI自動要約】\n\n1. 全体要約: ${s.overview}\n\n2. 面接官評価・フィードバック:\n${s.interviewFeedback}\n\n3. 候補者の質問・志望度・希望条件:\n${s.candidateQuestions}\n\n4. 推奨される次アクション:\n${s.nextAction}\n\n5. 評価ポイント:\n${s.keyHighlights.map(h => '・' + h).join('\n')}`;
 
-    const newNote = {
-      id: `eval-gmail-${Date.now()}`,
+    addEvaluationNote(candidate.id, {
       author: 'Gmail & Gemini AI (自動連動)',
-      date: new Date().toISOString().split('T')[0],
+      authorRole: 'AI自動要約',
+      phase: candidate.phase,
       comment: noteText,
-      interviewRating: 'A-' as EvaluationGrade,
-      phaseAtEval: candidate.currentPhase,
-      resultStatus: 'PASS' as const
-    };
-
-    updateCandidate({
-      ...candidate,
-      evaluationNotes: [newNote, ...candidate.evaluationNotes]
+      resultStatus: 'PENDING'
     });
 
     showToast('Gmail面談AI要約を選考評価メモに登録・保存しました！', 'success');
@@ -370,6 +385,7 @@ export const CandidateDetailModal: React.FC = () => {
       if (driveAccessToken) {
         let folderId = candidate.resumeDriveFolderId;
         let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
+        const allUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>>[] = [];
         let uploadedCount = 0;
 
         for (const file of files) {
@@ -389,6 +405,7 @@ export const CandidateDetailModal: React.FC = () => {
             );
             folderId = folderId || uploaded.folderId;
             if (!primaryUploaded) primaryUploaded = uploaded;
+            allUploaded.push(uploaded);
             uploadedCount++;
           } catch (driveErr: any) {
             showToast(`${file.name} のDrive保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
@@ -403,6 +420,31 @@ export const CandidateDetailModal: React.FC = () => {
             uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : `${files[0].name} をDriveフォルダに保存しました`,
             'success'
           );
+
+          // Best-effort: if this candidate still has no photo, try to auto-extract one from the
+          // newly added documents (same logic as at registration). Never overwrites a photo the
+          // candidate already has (manually cropped or previously auto-detected).
+          if (!candidate.avatarUrl && allUploaded.length > 0) {
+            setIsDetailDetectingPhoto(true);
+            try {
+              for (const uploaded of allUploaded) {
+                if (!uploaded.file.id) continue;
+                try {
+                  const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.file.id);
+                  if (detected.found && detected.box) {
+                    const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
+                    patch.avatarUrl = croppedDataUrl;
+                    showToast('追加した書類から顔写真を自動抽出しました', 'success');
+                    break;
+                  }
+                } catch (photoErr) {
+                  console.error('Auto photo crop failed', photoErr);
+                }
+              }
+            } finally {
+              setIsDetailDetectingPhoto(false);
+            }
+          }
         }
       }
     } catch (err: any) {
@@ -884,7 +926,7 @@ export const CandidateDetailModal: React.FC = () => {
                           <option value="REJECTED_DECLINED">8. 辞退 / 不採用</option>
                         </select>
                       ) : (
-                        <span className="text-xs font-bold text-indigo-900">{candidate.phase}</span>
+                        <span className="text-xs font-bold text-indigo-900">{PHASE_LABELS[candidate.phase]}</span>
                       )}
                     </div>
 
@@ -973,6 +1015,11 @@ export const CandidateDetailModal: React.FC = () => {
                                 } else {
                                   setNewComment('');
                                 }
+                                // Jump straight to the editable form for this phase, expanding it
+                                // first if it's collapsed — otherwise the click silently updates
+                                // hidden/off-screen state and looks like nothing happened.
+                                setCollapsedSections((prev) => ({ ...prev, evalForm: false }));
+                                setTimeout(() => evalFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
                               }}
                               className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold underline flex items-center gap-1 cursor-pointer"
                             >
@@ -1105,13 +1152,14 @@ export const CandidateDetailModal: React.FC = () => {
               </div>
               
               {/* Add Evaluation Form */}
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-                <div 
+              <div ref={evalFormRef} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs scroll-mt-4">
+                <div
                   onClick={() => toggleSection('evalForm')}
                   className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between cursor-pointer hover:bg-slate-100/80 transition-colors"
                 >
                   <h3 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
                     <MessageSquare className="w-4 h-4 text-indigo-600" />
+                    <span className="text-indigo-600 font-mono">[{PHASE_LABELS[evalTargetPhase]}]</span>
                     <span>面接評価・所感の入力</span>
                   </h3>
                   <button 
@@ -1491,7 +1539,7 @@ export const CandidateDetailModal: React.FC = () => {
                               <span className="text-[11px] text-slate-500 font-medium">({note.authorRole})</span>
                               {note.phase && (
                                 <span className="text-[11px] font-bold px-2 py-0.5 rounded border bg-indigo-50 border-indigo-200 text-indigo-700">
-                                  {note.phase}
+                                  {PHASE_LABELS[note.phase] || note.phase}
                                 </span>
                               )}
                             </div>
@@ -2188,6 +2236,11 @@ export const CandidateDetailModal: React.FC = () => {
                   <div className="flex items-center justify-center gap-2 text-indigo-700 font-bold text-xs py-2">
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
                     <span>新しい書類をGemini AIで解析・更新中...</span>
+                  </div>
+                ) : isDetailDetectingPhoto ? (
+                  <div className="flex items-center justify-center gap-2 text-indigo-700 font-bold text-xs py-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                    <span>顔写真を自動抽出中...</span>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3 text-xs">

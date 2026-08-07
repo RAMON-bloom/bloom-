@@ -164,6 +164,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextCandidateIdNumRef = useRef<number>(0);
+  const toastIdCounterRef = useRef<number>(0);
 
   const [filters, setFilters] = useState<FilterState>({
     searchQuery: '',
@@ -212,7 +213,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const showToast = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
-    const id = Date.now().toString();
+    // Date.now() alone collides when two toasts fire in the same millisecond (e.g. a save that
+    // triggers more than one showToast call back-to-back), which duplicates React list keys and
+    // can make one of the toasts disappear early. The counter suffix guarantees uniqueness.
+    toastIdCounterRef.current += 1;
+    const id = `${Date.now()}-${toastIdCounterRef.current}`;
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));

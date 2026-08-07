@@ -211,6 +211,7 @@ export const CandidateFormModal: React.FC = () => {
       const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
       let folderId: string | undefined;
       let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
+      const allUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>>[] = [];
       let uploadedCount = 0;
 
       for (const file of [primaryFile, ...extraFiles]) {
@@ -237,6 +238,7 @@ export const CandidateFormModal: React.FC = () => {
           );
           folderId = folderId || uploaded.folderId;
           if (!primaryUploaded) primaryUploaded = uploaded;
+          allUploaded.push(uploaded);
           uploadedCount++;
         } catch (driveErr: any) {
           showToast(`${file.name} のDrive保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
@@ -255,19 +257,27 @@ export const CandidateFormModal: React.FC = () => {
           'success'
         );
 
-        // Best-effort: try to pull the candidate's actual photo out of the resume itself,
-        // so the registered candidate doesn't end up with no photo (or a stand-in one).
-        if (primaryUploaded?.file.id) {
+        // Best-effort: try to pull the candidate's actual photo out of the resume itself, so the
+        // registered candidate doesn't end up with no photo (or a stand-in one). The photo isn't
+        // necessarily in the first-dropped file (e.g. 職務経歴書 first, 履歴書 with a photo second),
+        // so try every uploaded file in order and stop at the first one that actually has a photo.
+        if (allUploaded.length > 0) {
           setIsDetectingPhoto(true);
           try {
-            const detected = await detectResumePhotoCrop(driveAccessToken, primaryUploaded.file.id);
-            if (detected.found && detected.box) {
-              const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
-              setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
-              showToast('履歴書から顔写真を自動抽出しました', 'success');
+            for (const uploaded of allUploaded) {
+              if (!uploaded.file.id) continue;
+              try {
+                const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.file.id);
+                if (detected.found && detected.box) {
+                  const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
+                  setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
+                  showToast('履歴書から顔写真を自動抽出しました', 'success');
+                  break;
+                }
+              } catch (photoErr) {
+                console.error('Auto photo crop failed', photoErr);
+              }
             }
-          } catch (photoErr) {
-            console.error('Auto photo crop failed', photoErr);
           } finally {
             setIsDetectingPhoto(false);
           }

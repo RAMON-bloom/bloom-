@@ -13,6 +13,11 @@ import driveSummarizeLog from './api/drive/summarize-log';
 import driveBackup from './api/drive/backup';
 import driveRestore from './api/drive/restore';
 import driveUploadResume from './api/drive/upload-resume';
+import driveMoveResumeFolder from './api/drive/move-resume-folder';
+import driveScanResumes from './api/drive/scan-resumes';
+import driveImportResume from './api/drive/import-resume';
+import driveDetectPhotoCrop from './api/drive/detect-photo-crop';
+import driveDeleteResume from './api/drive/delete-resume';
 
 async function startServer() {
   const app = express();
@@ -29,6 +34,11 @@ async function startServer() {
   app.post('/api/drive/backup', driveBackup);
   app.post('/api/drive/restore', driveRestore);
   app.post('/api/drive/upload-resume', driveUploadResume);
+  app.post('/api/drive/move-resume-folder', driveMoveResumeFolder);
+  app.post('/api/drive/scan-resumes', driveScanResumes);
+  app.post('/api/drive/import-resume', driveImportResume);
+  app.post('/api/drive/detect-photo-crop', driveDetectPhotoCrop);
+  app.post('/api/drive/delete-resume', driveDeleteResume);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

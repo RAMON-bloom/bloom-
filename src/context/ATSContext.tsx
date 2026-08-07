@@ -19,7 +19,8 @@ import {
   restoreFromDrive as restoreFromDriveApi,
   moveResumeToPhaseFolder as moveResumeToPhaseFolderApi,
   scanDriveResumes as scanDriveResumesApi,
-  importDriveResume as importDriveResumeApi
+  importDriveResume as importDriveResumeApi,
+  deleteResumeFromDrive as deleteResumeFromDriveApi
 } from '../lib/driveApi';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
@@ -412,8 +413,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Unlike deleteCandidate (which archives, kept recoverable), this removes the record from
   // state entirely — for candidates registered by mistake that shouldn't linger even in the
   // archive. Only meaningful from the archive view, so it doesn't touch selectedCandidateId.
+  // Also removes the candidate's Drive folder (resume, CV, anything else in it) for good —
+  // fire-and-forget so a Drive hiccup doesn't block removing the record locally, matching how
+  // moveResumeFolderIfNeeded handles the same kind of best-effort Drive side effect.
   const permanentlyDeleteCandidate = (id: string) => {
     const candidate = candidates.find((c) => c.id === id);
+    const driveItemId = candidate?.resumeDriveFolderId || candidate?.resumeDriveFileId;
+    if (driveAccessToken && driveItemId) {
+      deleteResumeFromDriveApi(driveAccessToken, driveItemId).catch((err: any) => {
+        showToast(`${candidate?.name || ''} さんのDriveデータの削除に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      });
+    }
     setCandidates((prev) => prev.filter((c) => c.id !== id));
     showToast(`候補者 「${candidate?.name || ''}」 を完全に削除しました`, 'info');
   };

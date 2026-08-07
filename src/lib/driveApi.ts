@@ -28,7 +28,21 @@ async function postJson<T>(url: string, body: object): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  const data = await res.json();
+
+  // A non-JSON body means the request never reached our handler at all — e.g. the platform
+  // (Vercel/Express) rejected an oversized payload before parsing it and returned a plain-text
+  // "Request Entity Too Large" page. Reading as text first avoids res.json() throwing a raw
+  // SyntaxError ("Unexpected token 'R' ... is not valid JSON") that's meaningless to the user.
+  const rawText = await res.text();
+  let data: any;
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    if (res.status === 413) {
+      throw new Error('ファイルサイズが大きすぎます（1ファイルあたり約4MBが上限です）。ファイルを圧縮するか分割してください。');
+    }
+    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
+  }
   if (!res.ok || data.error) {
     throw new Error(data.error || `${url} でエラーが発生しました`);
   }
@@ -103,6 +117,12 @@ export async function uploadResumeToDrive(
     phase: options.phase
   });
   return { file: data.file, folderId: data.folderId };
+}
+
+// Permanently deletes a candidate's resume file/folder from Drive — used when a candidate is
+// deleted for good from the archive (not the soft-delete/archive step, which leaves Drive alone).
+export async function deleteResumeFromDrive(accessToken: string, fileId: string): Promise<void> {
+  await postJson('/api/drive/delete-resume', { accessToken, fileId });
 }
 
 export async function moveResumeToPhaseFolder(

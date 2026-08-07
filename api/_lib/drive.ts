@@ -217,6 +217,12 @@ export async function moveFileToFolder(
   return await res.json();
 }
 
+// Permanently deletes a file or folder (and, for a folder, everything inside it) from Drive —
+// bypasses the trash entirely, matching "完全に削除する" (permanent delete) semantics in the app.
+export async function deleteFileOrFolder(accessToken: string, fileId: string): Promise<void> {
+  await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}`, { method: 'DELETE' });
+}
+
 // Uploads a base64-encoded binary file (e.g. resume PDF) as a new file in the folder.
 export async function uploadBase64File(
   accessToken: string,

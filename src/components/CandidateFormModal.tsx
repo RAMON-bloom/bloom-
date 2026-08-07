@@ -90,9 +90,18 @@ export const CandidateFormModal: React.FC = () => {
       reader.readAsDataURL(file);
     });
 
+  // Vercel serverless functions reject request/response bodies above ~4.5MB before our code ever
+  // runs, returning a plain-text "Request Entity Too Large" page instead of JSON — which used to
+  // surface as a raw, meaningless "Unexpected token 'R' ... is not valid JSON" error. Base64
+  // inflates size by ~4/3, so keep raw files comfortably under that ceiling.
+  const MAX_UPLOAD_FILE_BYTES = 3 * 1024 * 1024;
+
   // Process dropped/selected files. AI parsing (name, education, etc.) runs against the first
   // file only; every file in the drop — e.g. 履歴書 + 職務経歴書 together — gets uploaded to the
   // candidate's Drive folder, since a candidate is often registered with more than one document.
+  // AI parsing and Drive upload are independent steps: a failure/oversized file in one doesn't
+  // block the other, and one extra file failing to upload doesn't take the primary file's
+  // successful upload (and the photo-crop that depends on it) down with it.
   const processResumeFiles = async (files: globalThis.File[]) => {
     if (!files || files.length === 0) return;
     const [primaryFile, ...extraFiles] = files;
@@ -101,13 +110,15 @@ export const CandidateFormModal: React.FC = () => {
     setParsedSuccess(false);
     setExtraFileNames(extraFiles.map((f) => f.name));
 
-    try {
-      let textContent = '';
-      let primaryBase64 = '';
+    let parsedData: any = null;
+    let textContent = '';
+    let primaryBase64 = '';
+    const primaryTooLarge = primaryFile.size > MAX_UPLOAD_FILE_BYTES;
 
+    try {
       if (primaryFile.type.includes('text') || primaryFile.name.endsWith('.txt') || primaryFile.name.endsWith('.md')) {
         textContent = await primaryFile.text();
-      } else {
+      } else if (!primaryTooLarge) {
         primaryBase64 = await readFileAsDataUrl(primaryFile);
         // Try reading text if plain text compatible
         try {
@@ -117,112 +128,139 @@ export const CandidateFormModal: React.FC = () => {
         }
       }
 
-      // Call API server endpoint
-      const response = await fetch('/api/parse-resume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          textContent,
-          fileBase64: primaryBase64,
-          fileName: primaryFile.name,
-          mimeType: primaryFile.type || 'application/pdf'
-        })
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.data) {
-        const d = result.data;
-        setFormData((prev) => ({
-          ...prev,
-          name: d.name || prev.name,
-          nameKana: d.nameKana || prev.nameKana,
-          email: d.email || prev.email,
-          phone: d.phone || prev.phone,
-          jobTitle: d.jobTitle || prev.jobTitle,
-          salaryExpectation: d.salaryExpectation || prev.salaryExpectation,
-          age: d.age ? Number(d.age) : prev.age,
-          education: d.education || prev.education,
-          currentCompany: d.currentCompany || prev.currentCompany,
-          companyCount: d.companyCount ? Number(d.companyCount) : prev.companyCount,
-          resumeSummary: d.resumeSummary || prev.resumeSummary,
-          skills: Array.isArray(d.resumeSkills) && d.resumeSkills.length > 0 ? d.resumeSkills.join(', ') : prev.skills,
-          rawResumeContent: d.rawResumeContent || textContent || '（レジュメファイル解読済み）',
-          resumeFileName: primaryFile.name
-        }));
-
-        setParsedSuccess(true);
-        showToast('Gemini AIによるレジュメ解析が完了し、フォームに自動入力されました', 'success');
-
-        // If connected to Google Drive, save every dropped file (not just the primary one) to
-        // the candidate's Drive folder — the first upload creates the folder, the rest reuse it.
-        if (driveAccessToken) {
-          setIsUploadingToDrive(true);
-          try {
-            const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
-            let folderId: string | undefined;
-            let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
-
-            for (const file of [primaryFile, ...extraFiles]) {
-              const base64 = file === primaryFile && primaryBase64 ? primaryBase64 : await readFileAsDataUrl(file);
-              const uploaded = await uploadResumeToDrive(
-                driveAccessToken,
-                { name: file.name, type: file.type || 'application/pdf', base64 },
-                {
-                  candidateName: d.name,
-                  agencyName: selectedAgencyForUpload?.name,
-                  phase: formData.phase,
-                  candidateFolderId: folderId
-                }
-              );
-              folderId = folderId || uploaded.folderId;
-              if (!primaryUploaded) primaryUploaded = uploaded;
-            }
-
-            setFormData((prev) => ({
-              ...prev,
-              resumeDriveUrl: primaryUploaded?.file.webViewLink || '',
-              resumeDriveFileId: primaryUploaded?.file.id || '',
-              resumeDriveFolderId: folderId || ''
-            }));
-            showToast(
-              extraFiles.length > 0
-                ? `${files.length}件のファイルをDriveフォルダに保存しました`
-                : '履歴書・応募書類をDriveフォルダに保存しました',
-              'success'
-            );
-
-            // Best-effort: try to pull the candidate's actual photo out of the resume itself,
-            // so the registered candidate doesn't end up with no photo (or a stand-in one).
-            if (primaryUploaded?.file.id) {
-              setIsDetectingPhoto(true);
-              try {
-                const detected = await detectResumePhotoCrop(driveAccessToken, primaryUploaded.file.id);
-                if (detected.found && detected.box) {
-                  const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
-                  setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
-                  showToast('履歴書から顔写真を自動抽出しました', 'success');
-                }
-              } catch (photoErr) {
-                console.error('Auto photo crop failed', photoErr);
-              } finally {
-                setIsDetectingPhoto(false);
-              }
-            }
-          } catch (driveErr: any) {
-            showToast(`Driveへの保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
-          } finally {
-            setIsUploadingToDrive(false);
-          }
-        }
+      if (primaryTooLarge) {
+        showToast(
+          `${primaryFile.name} は${(primaryFile.size / 1024 / 1024).toFixed(1)}MBあり、AI解析の上限（3MB）を超えているためスキップしました。手動で入力してください。`,
+          'warning'
+        );
       } else {
-        showToast('レジュメの解析に一部失敗しました。手動で入力をお願いします。', 'warning');
+        const response = await fetch('/api/parse-resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            textContent,
+            fileBase64: primaryBase64,
+            fileName: primaryFile.name,
+            mimeType: primaryFile.type || 'application/pdf'
+          })
+        });
+        const rawText = await response.text();
+        let result: any;
+        try {
+          result = rawText ? JSON.parse(rawText) : { success: false };
+        } catch {
+          throw new Error(
+            response.status === 413
+              ? 'ファイルサイズが大きすぎます。3MB以下のファイルをご利用ください。'
+              : `サーバーエラーが発生しました (HTTP ${response.status})`
+          );
+        }
+
+        if (result.success && result.data) {
+          const d = result.data;
+          parsedData = d;
+          setFormData((prev) => ({
+            ...prev,
+            name: d.name || prev.name,
+            nameKana: d.nameKana || prev.nameKana,
+            email: d.email || prev.email,
+            phone: d.phone || prev.phone,
+            jobTitle: d.jobTitle || prev.jobTitle,
+            salaryExpectation: d.salaryExpectation || prev.salaryExpectation,
+            age: d.age ? Number(d.age) : prev.age,
+            education: d.education || prev.education,
+            currentCompany: d.currentCompany || prev.currentCompany,
+            companyCount: d.companyCount ? Number(d.companyCount) : prev.companyCount,
+            resumeSummary: d.resumeSummary || prev.resumeSummary,
+            skills: Array.isArray(d.resumeSkills) && d.resumeSkills.length > 0 ? d.resumeSkills.join(', ') : prev.skills,
+            rawResumeContent: d.rawResumeContent || textContent || '（レジュメファイル解読済み）',
+            resumeFileName: primaryFile.name
+          }));
+          setParsedSuccess(true);
+          showToast('Gemini AIによるレジュメ解析が完了し、フォームに自動入力されました', 'success');
+        } else {
+          showToast('レジュメの解析に一部失敗しました。手動で入力をお願いします。', 'warning');
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('ファイル読み込み中にエラーが発生しました', 'warning');
+      showToast(err?.message || 'ファイル読み込み中にエラーが発生しました', 'warning');
     } finally {
       setIsParsing(false);
+    }
+
+    // Save every dropped file (not just the primary one) to the candidate's Drive folder — the
+    // first successful upload creates the folder, the rest reuse it. Runs regardless of whether
+    // AI parsing above succeeded, so an oversized/failed primary file doesn't block uploading the
+    // rest of the drop, and one extra file failing doesn't stop the primary's photo-crop below.
+    if (driveAccessToken) {
+      setIsUploadingToDrive(true);
+      const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
+      let folderId: string | undefined;
+      let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
+      let uploadedCount = 0;
+
+      for (const file of [primaryFile, ...extraFiles]) {
+        if (file.size > MAX_UPLOAD_FILE_BYTES) {
+          if (file !== primaryFile) {
+            showToast(
+              `${file.name} は${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
+              'warning'
+            );
+          }
+          continue;
+        }
+        try {
+          const base64 = file === primaryFile && primaryBase64 ? primaryBase64 : await readFileAsDataUrl(file);
+          const uploaded = await uploadResumeToDrive(
+            driveAccessToken,
+            { name: file.name, type: file.type || 'application/pdf', base64 },
+            {
+              candidateName: parsedData?.name || formData.name,
+              agencyName: selectedAgencyForUpload?.name,
+              phase: formData.phase,
+              candidateFolderId: folderId
+            }
+          );
+          folderId = folderId || uploaded.folderId;
+          if (!primaryUploaded) primaryUploaded = uploaded;
+          uploadedCount++;
+        } catch (driveErr: any) {
+          showToast(`${file.name} のDrive保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
+        }
+      }
+
+      if (uploadedCount > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          resumeDriveUrl: primaryUploaded?.file.webViewLink || prev.resumeDriveUrl,
+          resumeDriveFileId: primaryUploaded?.file.id || prev.resumeDriveFileId,
+          resumeDriveFolderId: folderId || prev.resumeDriveFolderId
+        }));
+        showToast(
+          uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : '履歴書・応募書類をDriveフォルダに保存しました',
+          'success'
+        );
+
+        // Best-effort: try to pull the candidate's actual photo out of the resume itself,
+        // so the registered candidate doesn't end up with no photo (or a stand-in one).
+        if (primaryUploaded?.file.id) {
+          setIsDetectingPhoto(true);
+          try {
+            const detected = await detectResumePhotoCrop(driveAccessToken, primaryUploaded.file.id);
+            if (detected.found && detected.box) {
+              const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
+              setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
+              showToast('履歴書から顔写真を自動抽出しました', 'success');
+            }
+          } catch (photoErr) {
+            console.error('Auto photo crop failed', photoErr);
+          } finally {
+            setIsDetectingPhoto(false);
+          }
+        }
+      }
+      setIsUploadingToDrive(false);
     }
   };
 

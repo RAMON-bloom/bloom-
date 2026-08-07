@@ -13,7 +13,7 @@ import {
   MeetingLog
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
-import { googleSignIn, logoutGoogle } from '../lib/firebase';
+import { useAuth } from './AuthContext';
 import { backupToDrive as backupToDriveApi, restoreFromDrive as restoreFromDriveApi } from '../lib/driveApi';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
@@ -140,8 +140,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_MEETING_LOGS;
   });
 
-  const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
-  const [driveUserEmail, setDriveUserEmail] = useState<string | null>(null);
+  // AuthGate already requires a signed-in bloom-firm.com Google account (Drive-scoped) before
+  // this provider ever renders, so the Drive token/email are sourced straight from that session
+  // rather than tracked as separate state here.
+  const { email: driveUserEmail, accessToken: driveAccessToken, signIn: authSignIn, signOut: authSignOut } = useAuth();
   const [isDriveConnecting, setIsDriveConnecting] = useState(false);
 
   const [userRole, setUserRole] = useState<UserRole>('ADMIN');
@@ -520,16 +522,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('初期サンプルデータにリセットしました', 'info');
   };
 
-  // Google Drive Integration
+  // Google Drive Integration — re-runs the same login used to enter the app, e.g. after the
+  // access token has expired and the background silent refresh in AuthGate couldn't restore it.
   const connectDrive = async () => {
     setIsDriveConnecting(true);
     try {
-      const result = await googleSignIn();
-      if (result) {
-        setDriveAccessToken(result.accessToken);
-        setDriveUserEmail(result.user.email);
-        showToast(`Google Drive に接続しました（${result.user.email}）`, 'success');
-      }
+      await authSignIn();
+      showToast('Google Drive に再接続しました', 'success');
     } catch (err: any) {
       showToast(`Drive連携に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
     } finally {
@@ -537,11 +536,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Drive access is the same session as the app login, so disconnecting signs out of the app.
   const disconnectDrive = async () => {
-    await logoutGoogle();
-    setDriveAccessToken(null);
-    setDriveUserEmail(null);
-    showToast('Google Drive 連携を解除しました', 'info');
+    authSignOut();
+    showToast('ログアウトしました', 'info');
   };
 
   const backupToDrive = async () => {

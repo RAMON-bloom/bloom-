@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
 import { SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment } from '../types';
-import { googleSignIn, initAuth, getAccessToken } from '../lib/firebase';
+import { useAuth } from '../context/AuthContext';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
 import { 
@@ -101,6 +101,7 @@ export const CandidateDetailModal: React.FC = () => {
     userRole,
     showToast
   } = useATS();
+  const { accessToken: authAccessToken, signIn: authSignIn } = useAuth();
 
   const [activeSubTab, setActiveSubTab] = useState<'evaluation' | 'resume' | 'onboarding'>('evaluation');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -135,8 +136,6 @@ export const CandidateDetailModal: React.FC = () => {
   };
 
   // Gmail Sync State
-  const [googleUser, setGoogleUser] = useState<any>(null);
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
   const [isSyncingGmail, setIsSyncingGmail] = useState(false);
   const [gmailData, setGmailData] = useState<{
     messages: Array<{ id: string; subject: string; from: string; date: string; snippet: string; body: string }>;
@@ -169,18 +168,6 @@ export const CandidateDetailModal: React.FC = () => {
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
   const [failReason, setFailReason] = useState<string>('');
 
-  useEffect(() => {
-    initAuth(
-      (user, token) => {
-        setGoogleUser(user);
-        setGoogleToken(token);
-      },
-      () => {
-        setGoogleUser(null);
-        setGoogleToken(null);
-      }
-    );
-  }, []);
 
   // Onboarding Form state
   const [onboardingJoiningDate, setOnboardingJoiningDate] = useState<string>('');
@@ -232,15 +219,10 @@ export const CandidateDetailModal: React.FC = () => {
   const handleClose = () => setSelectedCandidateId(null);
 
   const handleSyncGmailLogs = async () => {
-    let currentToken = googleToken || getAccessToken();
+    let currentToken = authAccessToken;
     if (!currentToken) {
       try {
-        const res = await googleSignIn();
-        if (res) {
-          setGoogleUser(res.user);
-          setGoogleToken(res.accessToken);
-          currentToken = res.accessToken;
-        }
+        currentToken = await authSignIn();
       } catch (err: any) {
         showToast('Googleログインに失敗しました: ' + (err.message || 'エラー'), 'warning');
         return;

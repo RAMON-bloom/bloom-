@@ -1,17 +1,18 @@
-import React from 'react';
-import { 
-  Archive, 
-  RotateCcw, 
-  Eye, 
-  Building2, 
-  Calendar, 
-  Briefcase, 
+import React, { useState } from 'react';
+import {
+  Archive,
+  RotateCcw,
+  Eye,
+  Building2,
+  Calendar,
+  Briefcase,
   UserX,
   Search,
   CheckCircle2,
   AlertCircle,
   Clock,
-  GraduationCap
+  GraduationCap,
+  Trash2
 } from 'lucide-react';
 import { useATS } from '../context/ATSContext';
 import { SelectionPhase } from '../types';
@@ -28,13 +29,17 @@ const PHASE_LABELS: Record<SelectionPhase, { label: string; color: string }> = {
 };
 
 export const ArchivedListView: React.FC = () => {
-  const { 
-    archivedCandidates, 
-    setSelectedCandidateId, 
-    restoreCandidate, 
-    filters, 
-    setFilters 
+  const {
+    archivedCandidates,
+    setSelectedCandidateId,
+    restoreCandidate,
+    permanentlyDeleteCandidate,
+    userRole,
+    filters,
+    setFilters
   } = useATS();
+
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string } | null>(null);
 
   return (
     <div className="space-y-6 pb-12">
@@ -201,6 +206,18 @@ export const ArchivedListView: React.FC = () => {
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span>選考に復元</span>
                           </button>
+
+                          {/* Permanent Delete */}
+                          {userRole === 'ADMIN' && (
+                            <button
+                              onClick={() => setDeleteConfirmTarget({ id: candidate.id, name: candidate.name })}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                              title="データベースから完全に削除（復元不可）"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>完全削除</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -208,6 +225,47 @@ export const ArchivedListView: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* PERMANENT DELETE CONFIRMATION MODAL */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">候補者データの完全削除</h3>
+                <p className="text-xs text-slate-500 mt-0.5">この操作は取り消せません。復元はできなくなります。</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">
+              対象: <span className="font-bold text-slate-900">{deleteConfirmTarget.name}</span>
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmTarget(null)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg cursor-pointer font-medium"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  permanentlyDeleteCandidate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer"
+              >
+                完全に削除する
+              </button>
+            </div>
           </div>
         </div>
       )}

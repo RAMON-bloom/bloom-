@@ -13,8 +13,18 @@ export interface DriveFile {
   webViewLink?: string;
 }
 
+// Files living in a Shared Drive (rather than someone's My Drive) are invisible to the Drive API
+// unless every call opts in with supportsAllDrives — otherwise a perfectly real, permitted file
+// comes back as a plain 404 "File not found", which is indistinguishable from a bad ID or a
+// genuine permissions problem. Setting it here once, for every request, is harmless for regular
+// My Drive files (the API just ignores it), so there's no reason to reason about it per call site.
+function withSupportsAllDrives(url: string): string {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}supportsAllDrives=true`;
+}
+
 async function driveFetch(accessToken: string, url: string, init?: RequestInit) {
-  const res = await fetch(url, {
+  const res = await fetch(withSupportsAllDrives(url), {
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -44,7 +54,7 @@ export async function listFilesInFolder(
   const fields = encodeURIComponent('files(id,name,mimeType,modifiedTime,webViewLink)');
   const res = await driveFetch(
     accessToken,
-    `${DRIVE_API}/files?q=${q}&fields=${fields}&orderBy=modifiedTime desc&pageSize=50`
+    `${DRIVE_API}/files?q=${q}&fields=${fields}&orderBy=modifiedTime desc&pageSize=50&includeItemsFromAllDrives=true&corpora=allDrives`
   );
   const data = await res.json();
   return data.files || [];

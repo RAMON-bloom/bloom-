@@ -82,6 +82,7 @@ interface ATSContextType {
   updateCandidate: (updatedCandidate: Candidate) => void;
   deleteCandidate: (id: string) => void;
   restoreCandidate: (id: string) => void;
+  permanentlyDeleteCandidate: (id: string) => void;
   
   // Agency Actions
   addAgency: (agency: Omit<Agency, 'id'>) => void;
@@ -401,6 +402,15 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
     showToast(`候補者 「${candidate?.name || ''}」 を現行の選考一覧に復元しました`, 'success');
+  };
+
+  // Unlike deleteCandidate (which archives, kept recoverable), this removes the record from
+  // state entirely — for candidates registered by mistake that shouldn't linger even in the
+  // archive. Only meaningful from the archive view, so it doesn't touch selectedCandidateId.
+  const permanentlyDeleteCandidate = (id: string) => {
+    const candidate = candidates.find((c) => c.id === id);
+    setCandidates((prev) => prev.filter((c) => c.id !== id));
+    showToast(`候補者 「${candidate?.name || ''}」 を完全に削除しました`, 'info');
   };
 
   // Agency Master actions
@@ -916,6 +926,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCandidate,
         deleteCandidate,
         restoreCandidate,
+        permanentlyDeleteCandidate,
         addAgency,
         updateAgency,
         deleteAgency,

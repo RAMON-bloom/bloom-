@@ -99,8 +99,16 @@ async function compressPdfFile(file: globalThis.File): Promise<{ file: globalThi
     const jpegBlob = await canvasToJpegBlob(canvas);
     const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
     const jpegImage = await outPdf.embedJpg(jpegBytes);
-    const outPage = outPdf.addPage([viewport.width, viewport.height]);
-    outPage.drawImage(jpegImage, { x: 0, y: 0, width: viewport.width, height: viewport.height });
+    // The new page must be sized in PDF points (baseViewport, scale 1) — NOT in the pixel
+    // dimensions used for rendering (viewport, scaled up for image quality). Using the pixel
+    // dimensions here previously made every compressed page several times too large (e.g. a
+    // normal A4 page became poster-sized), which readers—including Gemini's PDF understanding—
+    // handle by downsampling harder to fit their input budget, degrading OCR quality enough that
+    // extracted fields (education, photo detection) came back wrong or empty despite the file
+    // otherwise looking fine to a human. The image itself keeps its full raster resolution; only
+    // the page it's drawn into needs to match the original physical size.
+    const outPage = outPdf.addPage([baseViewport.width, baseViewport.height]);
+    outPage.drawImage(jpegImage, { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height });
   }
 
   const outBytes = await outPdf.save();

@@ -14,19 +14,19 @@ export const CandidateFormModal: React.FC = () => {
     nameKana: '',
     email: '',
     phone: '',
-    jobTitle: 'EC',
+    jobTitle: '',
     appliedDate: new Date().toISOString().split('T')[0],
     agencyId: agencies[0]?.id || 'ag-1',
     assignees: agencies[0]?.assignedStaffNames || [staffList[0]?.name || '山田 太郎'],
     phase: 'DOCUMENT_SCREENING' as SelectionPhase,
     scheduleStatus: 'UNARRANGED' as ScheduleStatus,
-    salaryExpectation: '600万円 〜 750万円',
-    age: 29,
-    education: '東京工業大学 工学部 情報工学科 卒',
-    currentCompany: '株式会社テクノソリューションズ',
-    companyCount: 2,
+    salaryExpectation: '',
+    age: 0,
+    education: '',
+    currentCompany: '',
+    companyCount: 0,
     resumeSummary: '',
-    skills: 'React, TypeScript, Next.js',
+    skills: '',
     rawResumeContent: '',
     resumeFileName: '',
     resumeDriveUrl: '',
@@ -337,7 +337,7 @@ export const CandidateFormModal: React.FC = () => {
       resumeSummary: formData.resumeSummary || '新規応募者。要書類選考。',
       avatarUrl: formData.avatarUrl || undefined,
       rawResumeContent: formData.rawResumeContent,
-      resumeFileName: formData.resumeFileName || '職務経歴書.pdf',
+      resumeFileName: formData.resumeFileName || undefined,
       resumeDriveUrl: formData.resumeDriveUrl || undefined,
       resumeDriveFileId: formData.resumeDriveFileId || undefined,
       resumeDriveFolderId: formData.resumeDriveFolderId || undefined,
@@ -501,7 +501,8 @@ export const CandidateFormModal: React.FC = () => {
                 type="number"
                 min="18"
                 max="80"
-                value={formData.age}
+                placeholder="例: 29"
+                value={formData.age || ''}
                 onChange={(e) => setFormData({ ...formData, age: Number(e.target.value) })}
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
               />
@@ -536,7 +537,8 @@ export const CandidateFormModal: React.FC = () => {
                 type="number"
                 min="1"
                 max="20"
-                value={formData.companyCount}
+                placeholder="例: 2"
+                value={formData.companyCount || ''}
                 onChange={(e) => setFormData({ ...formData, companyCount: Number(e.target.value) })}
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
               />

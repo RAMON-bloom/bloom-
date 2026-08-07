@@ -1985,7 +1985,7 @@ export const CandidateDetailModal: React.FC = () => {
                     className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>原本を開く（{candidate.resumeFileName || `${candidate.name}_履歴書.pdf`}）</span>
+                    <span>原本を開く（{candidate.resumeFileName || 'ファイル名未登録'}）</span>
                   </a>
                 ) : (
                   <span
@@ -2016,7 +2016,9 @@ export const CandidateDetailModal: React.FC = () => {
                       <FileText className="w-3.5 h-3.5 text-indigo-600" />
                       <span>職務要約</span>
                     </h4>
-                    <p className="text-slate-700 leading-relaxed text-xs">{candidate.resumeSummary || '実務経験における主要成果およびスキルセットの要約です。'}</p>
+                    <p className="text-slate-700 leading-relaxed text-xs">
+                      {candidate.resumeSummary || <span className="text-slate-400 italic">未入力</span>}
+                    </p>
                   </div>
 
                   <div>
@@ -2024,13 +2026,17 @@ export const CandidateDetailModal: React.FC = () => {
                       <Code className="w-3.5 h-3.5 text-indigo-600" />
                       <span>活用技術・スキル</span>
                     </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(candidate.resumeSkills || ['TypeScript', 'React', 'Node.js', 'Project Management']).map((sk) => (
-                        <span key={sk} className="bg-indigo-50 text-indigo-800 text-xs px-2.5 py-1 rounded border border-indigo-200/80 font-mono font-medium">
-                          {sk}
-                        </span>
-                      ))}
-                    </div>
+                    {candidate.resumeSkills && candidate.resumeSkills.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {candidate.resumeSkills.map((sk) => (
+                          <span key={sk} className="bg-indigo-50 text-indigo-800 text-xs px-2.5 py-1 rounded border border-indigo-200/80 font-mono font-medium">
+                            {sk}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-slate-400 italic text-xs">未登録</p>
+                    )}
                   </div>
 
                   <div>
@@ -2039,7 +2045,7 @@ export const CandidateDetailModal: React.FC = () => {
                       <span>職務経歴本文</span>
                     </h4>
                     <div className="bg-white border border-slate-200 text-slate-800 font-mono text-xs p-4.5 rounded-xl leading-relaxed whitespace-pre-wrap shadow-2xs">
-                      {candidate.rawResumeContent || `【職務詳細】\n・現職: ${candidate.currentCompany || 'IT企業'}\n・職種: ${candidate.jobTitle}\n・業務内容:\n  - 大規模SaaSプロダクトのフロントエンド/バックエンド開発に従事\n  - アジャイル開発チームのリードおよび新規機能要件定義\n  - パフォーマンス改善およびチームメンタリング`}
+                      {candidate.rawResumeContent || <span className="text-slate-400 italic font-sans">未登録</span>}
                     </div>
                   </div>
                 </div>
@@ -2073,7 +2079,7 @@ export const CandidateDetailModal: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-slate-500 font-medium block">現住所・最寄り駅</span>
-                      <span className="font-bold text-slate-900">{candidate.location || '東京都'} ({candidate.nearestStation || '最寄り駅未登録'})</span>
+                      <span className="font-bold text-slate-900">{candidate.location || '未登録'} ({candidate.nearestStation || '最寄り駅未登録'})</span>
                     </div>
                   </div>
 
@@ -2083,8 +2089,8 @@ export const CandidateDetailModal: React.FC = () => {
                       <span>最終学歴・経歴サマリー</span>
                     </h4>
                     <div className="bg-white p-3.5 rounded-lg border border-slate-200 text-xs space-y-1">
-                      <p className="font-bold text-slate-800">{candidate.education || '大学卒業（工学部/情報学科等）'}</p>
-                      <p className="text-slate-600 text-[11px]">現職: {candidate.currentCompany || '非公開'} （{candidate.jobTitle}）</p>
+                      <p className="font-bold text-slate-800">{candidate.education || <span className="text-slate-400 italic font-normal">未登録</span>}</p>
+                      <p className="text-slate-600 text-[11px]">現職: {candidate.currentCompany || '未登録'} （{candidate.jobTitle}）</p>
                     </div>
                   </div>
 
@@ -2093,13 +2099,17 @@ export const CandidateDetailModal: React.FC = () => {
                       <Award className="w-4 h-4 text-indigo-600" />
                       <span>保有資格・免許</span>
                     </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {(candidate.certifications || ['基本情報技術者試験', 'TOEIC 780点', '普通自動車第一種運転免許']).map((cert) => (
-                        <span key={cert} className="bg-slate-100 text-slate-800 text-xs px-3 py-1 rounded-md border border-slate-200 font-medium">
-                          {cert}
-                        </span>
-                      ))}
-                    </div>
+                    {candidate.certifications && candidate.certifications.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {candidate.certifications.map((cert) => (
+                          <span key={cert} className="bg-slate-100 text-slate-800 text-xs px-3 py-1 rounded-md border border-slate-200 font-medium">
+                            {cert}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-slate-400 italic text-xs">未登録</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -2108,7 +2118,7 @@ export const CandidateDetailModal: React.FC = () => {
                       <span>志望動機・自己PR</span>
                     </h4>
                     <div className="bg-white border border-slate-200 text-slate-800 text-xs p-4 rounded-xl leading-relaxed whitespace-pre-wrap">
-                      {candidate.prSelfStatement || `これまでの開発で培ったプロジェクトマネジメントスキルと高い技術力を活かし、貴社の事業成長に貢献したいと考えております。チームでの協調性を大切にし、常にユーザーファーストの視点でサービス改善に取り組んでいます。`}
+                      {candidate.prSelfStatement || <span className="text-slate-400 italic">未入力</span>}
                     </div>
                   </div>
                 </div>
@@ -2137,7 +2147,7 @@ export const CandidateDetailModal: React.FC = () => {
                         <span>主要な強み・推奨理由</span>
                       </h4>
                       <p className="text-emerald-950 text-xs leading-relaxed whitespace-pre-wrap">
-                        {candidate.aiStrengths || '・実務における豊富な開発運用経験\n・周囲を巻き込む高いコミュニケーション能力\n・自主的なキャッチアップ速度と自走力'}
+                        {candidate.aiStrengths || <span className="text-emerald-700/60 italic">未生成</span>}
                       </p>
                     </div>
 
@@ -2147,21 +2157,9 @@ export const CandidateDetailModal: React.FC = () => {
                         <span>面接での確認推奨事項</span>
                       </h4>
                       <p className="text-amber-950 text-xs leading-relaxed whitespace-pre-wrap">
-                        {candidate.aiConcerns || '・現職での離職背景・転職理由の深掘り\n・希望年収条件（550万円以上）と評価テーブルの摺り合わせ\n・オンボーディング時の立ち上がりフォロー'}
+                        {candidate.aiConcerns || <span className="text-amber-700/60 italic">未生成</span>}
                       </p>
                     </div>
-                  </div>
-
-                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2">
-                    <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                      <MessageSquare className="w-4 h-4 text-indigo-600" />
-                      <span>Gemini 推薦質問例 (次選考用)</span>
-                    </h4>
-                    <ul className="text-xs text-slate-700 space-y-1.5 list-disc list-inside pl-1">
-                      <li>「これまで最も挑戦的だったプロジェクトと、それをどう乗り越えたか教えてください。」</li>
-                      <li>「チームでの意見対立が発生した際、どのように合意形成を図りますか？」</li>
-                      <li>「当社で1年以内に達成したい目標や具体的な役割のイメージはありますか？」</li>
-                    </ul>
                   </div>
                 </div>
               )}

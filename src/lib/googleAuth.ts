@@ -137,6 +137,17 @@ function requestToken(prompt: '' | 'consent', hint?: string): Promise<SignInResu
           finish(() => reject(new Error('Googleログインが完了しませんでした。もう一度お試しください。')));
           return;
         }
+        // A silent (prompt: '') refresh reuses whatever scopes were granted at the user's very
+        // first-ever consent for this app+account — if that happened before the Drive scope was
+        // added, every later silent refresh keeps re-issuing a token missing it, with no error
+        // anywhere, and every Drive API call then fails with a confusing 404/403. Only the
+        // interactive consent screen can add a missing scope, so surface this as a distinct,
+        // catchable failure rather than handing back an insufficient token as if it were fine.
+        const grantedScopes = (response.scope || '').split(' ');
+        if (!grantedScopes.includes('https://www.googleapis.com/auth/drive')) {
+          finish(() => reject(new Error('MISSING_DRIVE_SCOPE')));
+          return;
+        }
         try {
           const identity = await fetchIdentity(response.access_token);
           assertAllowedDomain(identity);

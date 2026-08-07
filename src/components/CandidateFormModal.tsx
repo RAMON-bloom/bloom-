@@ -207,9 +207,19 @@ export const CandidateFormModal: React.FC = () => {
     }
   };
 
+  const isBusy = isParsing || isUploadingToDrive || isDetectingPhoto;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim()) return;
+
+    if (isBusy) {
+      showToast('レジュメの解析・Drive保存・顔写真検出が完了するまでお待ちください', 'warning');
+      return;
+    }
+    if (!formData.name.trim()) {
+      showToast('候補者名を入力してください', 'warning');
+      return;
+    }
 
     const selectedAgency = agencies.find((a) => a.id === formData.agencyId);
 
@@ -647,9 +657,11 @@ export const CandidateFormModal: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-2xs cursor-pointer"
+              disabled={isBusy}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              登録する
+              {isBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>{isBusy ? '処理中...' : '登録する'}</span>
             </button>
           </div>
 

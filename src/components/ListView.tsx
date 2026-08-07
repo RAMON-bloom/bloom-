@@ -170,6 +170,7 @@ export const ListView: React.FC = () => {
   // Default sort: Phase ascending (フェーズが進んでいない順)
   const [sortField, setSortField] = useState<ListViewSortField>('phase');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string } | null>(null);
 
   const handleSort = (field: ListViewSortField) => {
     if (sortField === field) {
@@ -914,9 +915,7 @@ export const ListView: React.FC = () => {
 
                           {userRole === 'ADMIN' && (
                             <button
-                              onClick={() => {
-                                deleteCandidate(c.id);
-                              }}
+                              onClick={() => setDeleteConfirmTarget({ id: c.id, name: c.name })}
                               className="p-1.5 text-slate-400 hover:text-rose-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
                               title="過去候補者一覧へ移動・保存（アーカイブ）"
                             >
@@ -934,6 +933,47 @@ export const ListView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* DELETE CANDIDATE CONFIRMATION MODAL */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">候補者の削除</h3>
+                <p className="text-xs text-slate-500 mt-0.5">過去候補者一覧へ移動します（後から復元できます）</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">
+              対象: <span className="font-bold text-slate-900">{deleteConfirmTarget.name}</span>
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmTarget(null)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg cursor-pointer font-medium"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteCandidate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer"
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

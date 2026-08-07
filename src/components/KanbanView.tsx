@@ -21,7 +21,8 @@ import {
   GraduationCap,
   Briefcase,
   HeartHandshake,
-  Coffee
+  Coffee,
+  Trash2
 } from 'lucide-react';
 
 // Color is reserved for real outcomes (accepted / rejected). Every in-progress phase shares one
@@ -107,9 +108,10 @@ export const getPositionBadge = (pos: string, bcaDept?: 'F+' | 'AC' | 'BOTH') =>
 };
 
 export const KanbanView: React.FC = () => {
-  const { filteredCandidates, updateCandidatePhase, setSelectedCandidateId, userRole } = useATS();
+  const { filteredCandidates, updateCandidatePhase, setSelectedCandidateId, deleteCandidate, userRole } = useATS();
   const [draggedCandidateId, setDraggedCandidateId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<SelectionPhase | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string } | null>(null);
 
   const handleDragStart = (e: React.DragEvent, candidateId: string) => {
     e.dataTransfer.setData('text/plain', candidateId);
@@ -232,6 +234,21 @@ export const KanbanView: React.FC = () => {
                             <div className="absolute top-3 right-2.5 opacity-0 group-hover:opacity-60 transition-opacity text-slate-400">
                               <GripVertical className="w-3.5 h-3.5" />
                             </div>
+                          )}
+
+                          {/* Quick Delete (mistakenly-registered candidates) */}
+                          {userRole === 'ADMIN' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteConfirmTarget({ id: candidate.id, name: candidate.name });
+                              }}
+                              className="absolute top-2.5 right-7 p-1 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-all cursor-pointer"
+                              title="この候補者を削除（アーカイブ）"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           )}
 
                           {/* Position Badge & Agency */}
@@ -381,6 +398,47 @@ export const KanbanView: React.FC = () => {
 
         </div>
       </div>
+
+      {/* DELETE CANDIDATE CONFIRMATION MODAL */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">候補者の削除</h3>
+                <p className="text-xs text-slate-500 mt-0.5">過去候補者一覧へ移動します（後から復元できます）</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">
+              対象: <span className="font-bold text-slate-900">{deleteConfirmTarget.name}</span>
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmTarget(null)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg cursor-pointer font-medium"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteCandidate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer"
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

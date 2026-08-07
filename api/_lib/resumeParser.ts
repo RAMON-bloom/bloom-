@@ -1,4 +1,4 @@
-import { getAi } from './gemini';
+import { getAi } from './gemini.js';
 
 export interface ParsedResumeData {
   name: string;

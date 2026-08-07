@@ -1,4 +1,4 @@
-import { findFolderByName, findFileByName, readFileContent } from '../_lib/drive';
+import { findFolderByName, findFileByName, readFileContent } from '../_lib/drive.js';
 
 const BACKUP_SUBFOLDER = 'バックアップ';
 const BACKUP_FILE_NAME = 'bloom_ats_backup.json';

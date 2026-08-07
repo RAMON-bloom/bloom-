@@ -1,5 +1,5 @@
-import { ensureSubfolder, uploadBase64File } from '../_lib/drive';
-import { RESUME_ROOT_SUBFOLDER, resolvePhaseFolderName } from '../_lib/phaseFolders';
+import { ensureSubfolder, uploadBase64File } from '../_lib/drive.js';
+import { RESUME_ROOT_SUBFOLDER, resolvePhaseFolderName } from '../_lib/phaseFolders.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {

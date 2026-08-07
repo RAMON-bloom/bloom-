@@ -1,4 +1,4 @@
-import { listFilesInFolder } from '../_lib/drive';
+import { listFilesInFolder } from '../_lib/drive.js';
 
 const RESERVED_SUBFOLDER_NAMES = ['履歴書・応募書類', 'バックアップ'];
 

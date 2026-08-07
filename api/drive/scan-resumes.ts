@@ -1,5 +1,6 @@
-import { DriveFile, findFolderByName, listFilesInFolder } from '../_lib/drive';
-import { PHASE_FOLDER_NAMES, RESUME_ROOT_SUBFOLDER } from '../_lib/phaseFolders';
+import type { DriveFile } from '../_lib/drive.js';
+import { findFolderByName, listFilesInFolder } from '../_lib/drive.js';
+import { PHASE_FOLDER_NAMES, RESUME_ROOT_SUBFOLDER } from '../_lib/phaseFolders.js';
 
 // Scans the Drive-side phase folders as they actually exist right now (does NOT create any
 // missing folder — that's only done on upload/move) so the client can detect files that were

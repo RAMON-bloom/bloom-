@@ -1,5 +1,5 @@
-import { getAi } from '../_lib/gemini';
-import { readFileContent } from '../_lib/drive';
+import { getAi } from '../_lib/gemini.js';
+import { readFileContent } from '../_lib/drive.js';
 
 interface MeetingSummary {
   overview: string;

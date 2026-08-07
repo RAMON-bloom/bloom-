@@ -1,5 +1,5 @@
-import { downloadFileBase64, readFileContent } from '../_lib/drive';
-import { parseResumeContent } from '../_lib/resumeParser';
+import { downloadFileBase64, readFileContent } from '../_lib/drive.js';
+import { parseResumeContent } from '../_lib/resumeParser.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {

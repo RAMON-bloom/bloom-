@@ -1,4 +1,4 @@
-import { ensureSubfolder, upsertTextFile } from '../_lib/drive';
+import { ensureSubfolder, upsertTextFile } from '../_lib/drive.js';
 
 const BACKUP_SUBFOLDER = 'バックアップ';
 const BACKUP_FILE_NAME = 'bloom_ats_backup.json';

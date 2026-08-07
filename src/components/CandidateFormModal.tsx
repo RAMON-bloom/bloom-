@@ -4,6 +4,7 @@ import { SelectionPhase, ScheduleStatus, STANDARD_POSITIONS } from '../types';
 import { X, UserPlus, FileText, UploadCloud, Loader2, Sparkles, CheckCircle2, File, HardDrive } from 'lucide-react';
 import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
+import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 
 export const CandidateFormModal: React.FC = () => {
   const { isAddModalOpen, setIsAddModalOpen, addCandidate, agencies, staffList, showToast, driveAccessToken } = useATS();
@@ -42,6 +43,7 @@ export const CandidateFormModal: React.FC = () => {
   const [formData, setFormData] = useState(getInitialFormData);
 
   const [isDragging, setIsDragging] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [parsedSuccess, setParsedSuccess] = useState(false);
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
@@ -56,6 +58,7 @@ export const CandidateFormModal: React.FC = () => {
     if (isAddModalOpen) {
       setFormData(getInitialFormData());
       setIsDragging(false);
+      setIsCompressing(false);
       setIsParsing(false);
       setParsedSuccess(false);
       setIsUploadingToDrive(false);
@@ -82,32 +85,42 @@ export const CandidateFormModal: React.FC = () => {
     }));
   };
 
-  const readFileAsDataUrl = (file: globalThis.File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-  // Vercel serverless functions reject request/response bodies above ~4.5MB before our code ever
-  // runs, returning a plain-text "Request Entity Too Large" page instead of JSON — which used to
-  // surface as a raw, meaningless "Unexpected token 'R' ... is not valid JSON" error. Base64
-  // inflates size by ~4/3, so keep raw files comfortably under that ceiling.
-  const MAX_UPLOAD_FILE_BYTES = 3 * 1024 * 1024;
-
   // Process dropped/selected files. AI parsing (name, education, etc.) runs against the first
   // file only; every file in the drop — e.g. 履歴書 + 職務経歴書 together — gets uploaded to the
   // candidate's Drive folder, since a candidate is often registered with more than one document.
   // AI parsing and Drive upload are independent steps: a failure/oversized file in one doesn't
   // block the other, and one extra file failing to upload doesn't take the primary file's
   // successful upload (and the photo-crop that depends on it) down with it.
-  const processResumeFiles = async (files: globalThis.File[]) => {
-    if (!files || files.length === 0) return;
-    const [primaryFile, ...extraFiles] = files;
+  const processResumeFiles = async (rawFiles: globalThis.File[]) => {
+    if (!rawFiles || rawFiles.length === 0) return;
+
+    setParsedSuccess(false);
+
+    // Oversized PDFs/images are compressed client-side (rasterize + re-encode as JPEG) before
+    // anything else touches them, so both AI parsing and Drive upload below just see right-sized
+    // files. Files that are already small, or aren't a compressible type, pass through untouched.
+    // This can take up to ~20s for a large/complex file, so it gets its own busy indicator rather
+    // than being lumped in with (much faster) AI parsing.
+    const needsCompression = rawFiles.some((f) => f.size > MAX_UPLOAD_FILE_BYTES);
+    if (needsCompression) setIsCompressing(true);
+    const compressedResults = await Promise.all(
+      rawFiles.map((f) => (f.size > MAX_UPLOAD_FILE_BYTES ? compressFileIfOversized(f, MAX_UPLOAD_FILE_BYTES) : Promise.resolve({ file: f, compressed: false, truncated: false })))
+    );
+    setIsCompressing(false);
+    compressedResults.forEach(({ file, compressed, truncated }, i) => {
+      if (compressed) {
+        showToast(
+          `${rawFiles[i].name} を圧縮しました（${(rawFiles[i].size / 1024 / 1024).toFixed(1)}MB → ${(file.size / 1024 / 1024).toFixed(1)}MB）` +
+            (truncated ? '※ページ数が多いため一部ページを省略しています' : ''),
+          'info'
+        );
+      }
+    });
+    const files = compressedResults.map((r) => r.file);
 
     setIsParsing(true);
-    setParsedSuccess(false);
+
+    const [primaryFile, ...extraFiles] = files;
     setExtraFileNames(extraFiles.map((f) => f.name));
 
     let parsedData: any = null;
@@ -130,7 +143,7 @@ export const CandidateFormModal: React.FC = () => {
 
       if (primaryTooLarge) {
         showToast(
-          `${primaryFile.name} は${(primaryFile.size / 1024 / 1024).toFixed(1)}MBあり、AI解析の上限（3MB）を超えているためスキップしました。手動で入力してください。`,
+          `${primaryFile.name} は圧縮後も${(primaryFile.size / 1024 / 1024).toFixed(1)}MBあり、AI解析の上限（3MB）を超えているためスキップしました。手動で入力してください。`,
           'warning'
         );
       } else {
@@ -204,7 +217,7 @@ export const CandidateFormModal: React.FC = () => {
         if (file.size > MAX_UPLOAD_FILE_BYTES) {
           if (file !== primaryFile) {
             showToast(
-              `${file.name} は${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
+              `${file.name} は圧縮後も${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
               'warning'
             );
           }
@@ -288,7 +301,7 @@ export const CandidateFormModal: React.FC = () => {
     }
   };
 
-  const isBusy = isParsing || isUploadingToDrive || isDetectingPhoto;
+  const isBusy = isCompressing || isParsing || isUploadingToDrive || isDetectingPhoto;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -386,7 +399,13 @@ export const CandidateFormModal: React.FC = () => {
               className="hidden"
             />
 
-            {isParsing ? (
+            {isCompressing ? (
+              <div className="flex flex-col items-center justify-center py-2 text-indigo-600">
+                <Loader2 className="w-7 h-7 animate-spin mb-2" />
+                <p className="font-semibold text-xs text-slate-900">大きいファイルを圧縮中...</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">ファイルによっては最大20秒程度かかることがあります</p>
+              </div>
+            ) : isParsing ? (
               <div className="flex flex-col items-center justify-center py-2 text-indigo-600">
                 <Loader2 className="w-7 h-7 animate-spin mb-2" />
                 <p className="font-semibold text-xs text-slate-900">Gemini AIがレジュメを解析中...</p>
@@ -441,7 +460,7 @@ export const CandidateFormModal: React.FC = () => {
                 <p className="text-xs font-semibold text-slate-800">
                   ここに履歴書・職務経歴書（PDF/Word/Text）をドラッグ＆ドロップ
                 </p>
-                <p className="text-[11px] text-slate-500 mt-1">複数ファイルまとめて可。またはクリックしてファイルを選択 (AIが1件目から氏名・学歴・企業・スキル等を自動抽出、全ファイルをDriveに保存)</p>
+                <p className="text-[11px] text-slate-500 mt-1">複数ファイルまとめて可。またはクリックしてファイルを選択 (AIが1件目から氏名・学歴・企業・スキル等を自動抽出、全ファイルをDriveに保存。3MB超のPDF/画像は自動で圧縮されます)</p>
               </div>
             )}
           </div>

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
-import { SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment } from '../types';
+import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
+import { uploadResumeToDrive } from '../lib/driveApi';
+import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { 
   X, 
   Calendar, 
@@ -111,6 +113,7 @@ export const CandidateDetailModal: React.FC = () => {
   const [docCategory, setDocCategory] = useState<'cv' | 'resume' | 'ai_summary'>('cv');
   const [isDetailDragging, setIsDetailDragging] = useState(false);
   const [isDetailParsing, setIsDetailParsing] = useState(false);
+  const [isDetailCompressing, setIsDetailCompressing] = useState(false);
   const [isPhotoCropperOpen, setIsPhotoCropperOpen] = useState(false);
 
   // Section Collapse State for Card Sections
@@ -277,53 +280,139 @@ export const CandidateDetailModal: React.FC = () => {
     showToast('Gmail面談AI要約を選考評価メモに登録・保存しました！', 'success');
   };
 
-  const handleDetailFileDrop = async (file: globalThis.File) => {
-    if (!file) return;
-    setIsDetailParsing(true);
+  // Adds one or more new documents to an already-registered candidate: the first file is AI-
+  // parsed to refresh the resume summary/skills/full-text (name, education etc. are left alone —
+  // this is a document update, not a re-registration), and every file is uploaded into the
+  // candidate's existing Drive folder (creating one if they somehow don't have one yet, e.g. a
+  // pre-Drive-integration candidate). Oversized PDFs/images are compressed first, same as at
+  // registration. All state changes are collected into one `patch` and applied in a single
+  // updateCandidate call at the end, since `candidate` here is a snapshot that would otherwise go
+  // stale between an AI-parse update and a later Drive-upload update in the same run.
+  const handleDetailFilesDrop = async (rawFiles: globalThis.File[]) => {
+    if (!rawFiles || rawFiles.length === 0) return;
+
+    const patch: Partial<Candidate> = {};
+
     try {
+      const needsCompression = rawFiles.some((f) => f.size > MAX_UPLOAD_FILE_BYTES);
+      if (needsCompression) setIsDetailCompressing(true);
+      const compressedResults = await Promise.all(
+        rawFiles.map((f) => (f.size > MAX_UPLOAD_FILE_BYTES ? compressFileIfOversized(f, MAX_UPLOAD_FILE_BYTES) : Promise.resolve({ file: f, compressed: false, truncated: false })))
+      );
+      setIsDetailCompressing(false);
+      compressedResults.forEach(({ file, compressed, truncated }, i) => {
+        if (compressed) {
+          showToast(
+            `${rawFiles[i].name} を圧縮しました（${(rawFiles[i].size / 1024 / 1024).toFixed(1)}MB → ${(file.size / 1024 / 1024).toFixed(1)}MB）` +
+              (truncated ? '※ページ数が多いため一部ページを省略しています' : ''),
+            'info'
+          );
+        }
+      });
+      const files = compressedResults.map((r) => r.file);
+      const primaryFile = files[0];
+
+      setIsDetailParsing(true);
       let textContent = '';
-      let fileBase64 = '';
-      if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
-        textContent = await file.text();
-      } else {
-        fileBase64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        try { textContent = await file.text(); } catch {}
+      let primaryBase64 = '';
+      const primaryTooLarge = primaryFile.size > MAX_UPLOAD_FILE_BYTES;
+
+      if (primaryFile.type.includes('text') || primaryFile.name.endsWith('.txt') || primaryFile.name.endsWith('.md')) {
+        textContent = await primaryFile.text();
+      } else if (!primaryTooLarge) {
+        primaryBase64 = await readFileAsDataUrl(primaryFile);
+        try { textContent = await primaryFile.text(); } catch { textContent = ''; }
       }
 
-      const response = await fetch('/api/parse-resume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          textContent,
-          fileBase64,
-          fileName: file.name,
-          mimeType: file.type || 'application/pdf'
-        })
-      });
-      const result = await response.json();
-      if (result.success && result.data) {
-        const d = result.data;
-        updateCandidate({
-          ...candidate,
-          resumeFileName: file.name,
-          rawResumeContent: d.rawResumeContent || textContent || candidate.rawResumeContent,
-          resumeSummary: d.resumeSummary || candidate.resumeSummary,
-          resumeSkills: Array.isArray(d.resumeSkills) ? d.resumeSkills : candidate.resumeSkills,
-          lastUpdated: new Date().toISOString().split('T')[0]
-        });
-        showToast(`${file.name} を解析し、最新の職務経歴書・履歴書データを反映しました`, 'success');
+      if (primaryTooLarge) {
+        showToast(
+          `${primaryFile.name} は圧縮後も${(primaryFile.size / 1024 / 1024).toFixed(1)}MBあり、AI解析の上限（3MB）を超えているためスキップしました。`,
+          'warning'
+        );
       } else {
-        showToast('ファイルの解析に一部失敗しました。', 'warning');
+        const response = await fetch('/api/parse-resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            textContent,
+            fileBase64: primaryBase64,
+            fileName: primaryFile.name,
+            mimeType: primaryFile.type || 'application/pdf'
+          })
+        });
+        const rawText = await response.text();
+        let result: any;
+        try {
+          result = rawText ? JSON.parse(rawText) : { success: false };
+        } catch {
+          throw new Error(
+            response.status === 413
+              ? 'ファイルサイズが大きすぎます。3MB以下のファイルをご利用ください。'
+              : `サーバーエラーが発生しました (HTTP ${response.status})`
+          );
+        }
+
+        if (result.success && result.data) {
+          const d = result.data;
+          patch.resumeFileName = primaryFile.name;
+          patch.rawResumeContent = d.rawResumeContent || textContent || candidate.rawResumeContent;
+          patch.resumeSummary = d.resumeSummary || candidate.resumeSummary;
+          patch.resumeSkills = Array.isArray(d.resumeSkills) && d.resumeSkills.length > 0 ? d.resumeSkills : candidate.resumeSkills;
+          showToast(`${primaryFile.name} を解析し、最新の職務経歴書・履歴書データを反映しました`, 'success');
+        } else {
+          showToast('ファイルの解析に一部失敗しました。', 'warning');
+        }
       }
-    } catch (err) {
+
+      // Upload every file (not just the primary) into the candidate's Drive folder — reuses the
+      // existing folder if there is one, otherwise creates one (legacy candidates registered
+      // before Drive integration, or ones registered without Drive connected at the time).
+      if (driveAccessToken) {
+        let folderId = candidate.resumeDriveFolderId;
+        let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
+        let uploadedCount = 0;
+
+        for (const file of files) {
+          if (file.size > MAX_UPLOAD_FILE_BYTES) {
+            showToast(
+              `${file.name} は圧縮後も${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
+              'warning'
+            );
+            continue;
+          }
+          try {
+            const base64 = file === primaryFile && primaryBase64 ? primaryBase64 : await readFileAsDataUrl(file);
+            const uploaded = await uploadResumeToDrive(
+              driveAccessToken,
+              { name: file.name, type: file.type || 'application/pdf', base64 },
+              { candidateName: candidate.name, agencyName: candidate.agencyName, phase: candidate.phase, candidateFolderId: folderId }
+            );
+            folderId = folderId || uploaded.folderId;
+            if (!primaryUploaded) primaryUploaded = uploaded;
+            uploadedCount++;
+          } catch (driveErr: any) {
+            showToast(`${file.name} のDrive保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
+          }
+        }
+
+        if (uploadedCount > 0) {
+          patch.resumeDriveFolderId = folderId || candidate.resumeDriveFolderId;
+          patch.resumeDriveFileId = primaryUploaded?.file.id || candidate.resumeDriveFileId;
+          patch.resumeDriveUrl = primaryUploaded?.file.webViewLink || candidate.resumeDriveUrl;
+          showToast(
+            uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : `${files[0].name} をDriveフォルダに保存しました`,
+            'success'
+          );
+        }
+      }
+    } catch (err: any) {
       console.error(err);
-      showToast('ファイル処理中にエラーが発生しました', 'warning');
+      showToast(err?.message || 'ファイル処理中にエラーが発生しました', 'warning');
     } finally {
+      if (Object.keys(patch).length > 0) {
+        updateCandidate({ ...candidate, ...patch, lastUpdated: new Date().toISOString().split('T')[0] });
+      }
+      setIsDetailCompressing(false);
       setIsDetailParsing(false);
       setIsDetailDragging(false);
     }
@@ -2084,31 +2173,37 @@ export const CandidateDetailModal: React.FC = () => {
                 onDrop={(e) => {
                   e.preventDefault();
                   setIsDetailDragging(false);
-                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    handleDetailFileDrop(e.dataTransfer.files[0]);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleDetailFilesDrop(Array.from(e.dataTransfer.files));
                   }
                 }}
                 className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
                   isDetailDragging ? 'border-indigo-600 bg-indigo-50' : 'border-slate-300 bg-white'
                 }`}
               >
-                {isDetailParsing ? (
+                {isDetailCompressing ? (
+                  <div className="flex items-center justify-center gap-2 text-indigo-700 font-bold text-xs py-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                    <span>大きいファイルを圧縮中...（最大20秒程度）</span>
+                  </div>
+                ) : isDetailParsing ? (
                   <div className="flex items-center justify-center gap-2 text-indigo-700 font-bold text-xs py-2">
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
                     <span>新しい書類をGemini AIで解析・更新中...</span>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3 text-xs">
-                    <span className="text-slate-600 font-medium">新しい履歴書・職務経歴書(PDF/Word/Text)をドロップして更新</span>
+                    <span className="text-slate-600 font-medium">新しい書類(履歴書・職務経歴書など、複数可)をドロップして追加</span>
                     <label className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-lg cursor-pointer text-xs shrink-0">
                       ファイル選択
                       <input
                         type="file"
                         accept=".pdf,.doc,.docx,.txt"
+                        multiple
                         className="hidden"
                         onChange={(e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            handleDetailFileDrop(e.target.files[0]);
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleDetailFilesDrop(Array.from(e.target.files));
                           }
                         }}
                       />

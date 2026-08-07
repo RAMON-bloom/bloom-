@@ -55,7 +55,7 @@ interface ATSContextType {
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
   meetingLogs: MeetingLog[];
-  addMeetingLog: (log: Omit<MeetingLog, 'id'>) => void;
+  addMeetingLog: (log: Omit<MeetingLog, 'id'>) => string;
   updateMeetingLog: (log: MeetingLog) => void;
   
   // Actions
@@ -193,6 +193,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newLog: MeetingLog = { ...newLogData, id };
     setMeetingLogs((prev) => [newLog, ...prev]);
     showToast(`MTGログ 「${newLog.title}」 を保存・追加しました`, 'success');
+    return id;
   };
 
   const updateMeetingLog = (updatedLog: MeetingLog) => {

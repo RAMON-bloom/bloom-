@@ -172,7 +172,7 @@ export const RecruitmentMeetingView: React.FC = () => {
       actionItemsCompleted: [false, false]
     }));
 
-    addMeetingLog({
+    const newId = addMeetingLog({
       title: formattedTitle,
       date: `${newMtgDate}T10:00`,
       meetUrl: '',
@@ -184,6 +184,7 @@ export const RecruitmentMeetingView: React.FC = () => {
       ]
     });
 
+    setSelectedMeetingId(newId);
     setIsNewMeetingModalOpen(false);
     showToast(`新しい採用MTGログ（${formattedTitle}）を作成しました`, 'success');
   };

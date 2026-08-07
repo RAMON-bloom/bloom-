@@ -90,6 +90,7 @@ export interface Candidate {
   rawResumeContent?: string; // Original resume full text / document content
   resumeFileName?: string;
   resumeDriveUrl?: string; // Google Drive上に保存された履歴書・応募書類ファイルへのリンク
+  resumeDriveFileId?: string; // 上記ファイルのDrive ID（選考フェーズ変更時のフォルダ移動に使用）
   resumeSkills?: string[];
   evaluationNotes: EvaluationNote[];
   interviewRating?: EvaluationGrade; // 最新/総合面接評価 (A+, A-, B+, B, B-, C)

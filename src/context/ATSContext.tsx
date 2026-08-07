@@ -14,7 +14,11 @@ import {
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { useAuth } from './AuthContext';
-import { backupToDrive as backupToDriveApi, restoreFromDrive as restoreFromDriveApi } from '../lib/driveApi';
+import {
+  backupToDrive as backupToDriveApi,
+  restoreFromDrive as restoreFromDriveApi,
+  moveResumeToPhaseFolder as moveResumeToPhaseFolderApi
+} from '../lib/driveApi';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -199,7 +203,20 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 3500);
   };
 
+  // Fire-and-forget: moves the candidate's resume into the Drive folder matching their new
+  // phase. Silently no-ops if Drive isn't connected or the resume was never uploaded to Drive
+  // (e.g. legacy candidates registered before this feature existed).
+  const moveResumeFolderIfNeeded = (candidate: Candidate, newPhase: SelectionPhase) => {
+    if (!driveAccessToken || !candidate.resumeDriveFileId || candidate.phase === newPhase) return;
+    moveResumeToPhaseFolderApi(driveAccessToken, candidate.resumeDriveFileId, newPhase).catch((err: any) => {
+      showToast(`${candidate.name} さんの履歴書のDriveフォルダ移動に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+    });
+  };
+
   const updateCandidatePhase = (candidateId: string, newPhase: SelectionPhase) => {
+    const target = candidates.find((c) => c.id === candidateId);
+    if (target) moveResumeFolderIfNeeded(target, newPhase);
+
     setCandidates((prev) =>
       prev.map((c) => {
         if (c.id === candidateId) {
@@ -279,6 +296,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `eval-${Date.now()}`,
       createdAt: new Date().toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })
     };
+
+    if (noteData.resultStatus === 'FAIL') {
+      const target = candidates.find((c) => c.id === candidateId);
+      if (target) moveResumeFolderIfNeeded(target, 'REJECTED_DECLINED' as SelectionPhase);
+    }
 
     setCandidates((prev) =>
       prev.map((c) => {

@@ -1,6 +1,5 @@
 import { ensureSubfolder, uploadBase64File } from '../_lib/drive';
-
-const RESUME_SUBFOLDER = '履歴書・応募書類';
+import { RESUME_ROOT_SUBFOLDER, resolvePhaseFolderName } from '../_lib/phaseFolders';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -8,7 +7,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { accessToken, folderId, fileName, mimeType, fileBase64, candidateId } = req.body || {};
+    const { accessToken, folderId, fileName, mimeType, fileBase64, candidateId, phase } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
     }
@@ -19,13 +18,14 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'アップロード対象のファイルデータがありません。' });
     }
 
-    const resumeFolderId = await ensureSubfolder(accessToken, folderId, RESUME_SUBFOLDER);
+    const resumeRootFolderId = await ensureSubfolder(accessToken, folderId, RESUME_ROOT_SUBFOLDER);
+    const phaseFolderId = await ensureSubfolder(accessToken, resumeRootFolderId, resolvePhaseFolderName(phase));
     const base64Data = fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64;
     const driveFileName = candidateId ? `${candidateId}_${fileName}` : fileName;
 
     const file = await uploadBase64File(
       accessToken,
-      resumeFolderId,
+      phaseFolderId,
       driveFileName,
       mimeType || 'application/pdf',
       base64Data

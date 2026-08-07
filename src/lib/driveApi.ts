@@ -71,17 +71,40 @@ export async function restoreFromDrive<T = any>(accessToken: string): Promise<T>
   return res.data;
 }
 
+export interface DriveResumeFile {
+  id: string;
+  name: string;
+  webViewLink?: string;
+}
+
 export async function uploadResumeToDrive(
   accessToken: string,
   file: { name: string; type: string; base64: string },
-  candidateId?: string
-): Promise<{ id: string; webViewLink?: string }> {
-  return postJson('/api/drive/upload-resume', {
+  candidateId?: string,
+  phase?: string
+): Promise<DriveResumeFile> {
+  const data = await postJson<{ success: boolean; file: DriveResumeFile }>('/api/drive/upload-resume', {
     accessToken,
     folderId: RECRUITMENT_DRIVE_FOLDER_ID,
     fileName: file.name,
     mimeType: file.type,
     fileBase64: file.base64,
-    candidateId
+    candidateId,
+    phase
   });
+  return data.file;
+}
+
+export async function moveResumeToPhaseFolder(
+  accessToken: string,
+  fileId: string,
+  phase: string
+): Promise<DriveResumeFile> {
+  const data = await postJson<{ success: boolean; file: DriveResumeFile }>('/api/drive/move-resume-folder', {
+    accessToken,
+    folderId: RECRUITMENT_DRIVE_FOLDER_ID,
+    fileId,
+    phase
+  });
+  return data.file;
 }

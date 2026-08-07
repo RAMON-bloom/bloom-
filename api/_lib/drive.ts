@@ -145,6 +145,36 @@ export async function upsertTextFile(
   return await res.json();
 }
 
+export async function getFileParents(accessToken: string, fileId: string): Promise<string[]> {
+  const res = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?fields=parents`);
+  const data = await res.json();
+  return data.parents || [];
+}
+
+// Moves a file into newFolderId, removing whatever parent folders it currently has
+// (a resume should live in exactly one phase folder at a time).
+export async function moveFileToFolder(
+  accessToken: string,
+  fileId: string,
+  newFolderId: string
+): Promise<DriveFile> {
+  const currentParents = await getFileParents(accessToken, fileId);
+  const fields = 'id,name,mimeType,modifiedTime,webViewLink';
+  if (currentParents.includes(newFolderId)) {
+    const res = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?fields=${fields}`);
+    return await res.json();
+  }
+
+  const params = new URLSearchParams({ addParents: newFolderId, fields });
+  if (currentParents.length > 0) {
+    params.set('removeParents', currentParents.join(','));
+  }
+  const res = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?${params.toString()}`, {
+    method: 'PATCH'
+  });
+  return await res.json();
+}
+
 // Uploads a base64-encoded binary file (e.g. resume PDF) as a new file in the folder.
 export async function uploadBase64File(
   accessToken: string,

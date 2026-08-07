@@ -28,6 +28,7 @@ export const CandidateFormModal: React.FC = () => {
     rawResumeContent: '',
     resumeFileName: '',
     resumeDriveUrl: '',
+    resumeDriveFileId: '',
     joiningDate: '',
     preJoinDinnerStatus: 'UNPLANNED' as const,
     resignationNegotiationStatus: 'NOT_STARTED' as const,
@@ -128,12 +129,21 @@ export const CandidateFormModal: React.FC = () => {
         if (driveAccessToken && fileBase64) {
           setIsUploadingToDrive(true);
           try {
-            const uploaded = await uploadResumeToDrive(driveAccessToken, {
-              name: file.name,
-              type: file.type || 'application/pdf',
-              base64: fileBase64
-            });
-            setFormData((prev) => ({ ...prev, resumeDriveUrl: uploaded.webViewLink || '' }));
+            const uploaded = await uploadResumeToDrive(
+              driveAccessToken,
+              {
+                name: file.name,
+                type: file.type || 'application/pdf',
+                base64: fileBase64
+              },
+              undefined,
+              formData.phase
+            );
+            setFormData((prev) => ({
+              ...prev,
+              resumeDriveUrl: uploaded.webViewLink || '',
+              resumeDriveFileId: uploaded.id || ''
+            }));
             showToast('履歴書・応募書類をDriveフォルダに保存しました', 'success');
           } catch (driveErr: any) {
             showToast(`Driveへの保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
@@ -204,6 +214,7 @@ export const CandidateFormModal: React.FC = () => {
       rawResumeContent: formData.rawResumeContent,
       resumeFileName: formData.resumeFileName || '職務経歴書.pdf',
       resumeDriveUrl: formData.resumeDriveUrl || undefined,
+      resumeDriveFileId: formData.resumeDriveFileId || undefined,
       resumeSkills: formData.skills.split(',').map((s) => s.trim()).filter(Boolean),
       joiningDate: formData.joiningDate || undefined,
       preJoinDinnerStatus: formData.preJoinDinnerStatus,

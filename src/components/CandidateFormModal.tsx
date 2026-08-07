@@ -2,7 +2,8 @@ import React, { useState, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
 import { SelectionPhase, ScheduleStatus, STANDARD_POSITIONS } from '../types';
 import { X, UserPlus, FileText, UploadCloud, Loader2, Sparkles, CheckCircle2, File, HardDrive } from 'lucide-react';
-import { uploadResumeToDrive } from '../lib/driveApi';
+import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
+import { renderAndCrop } from '../lib/photoCrop';
 
 export const CandidateFormModal: React.FC = () => {
   const { isAddModalOpen, setIsAddModalOpen, addCandidate, agencies, staffList, showToast, driveAccessToken } = useATS();
@@ -29,6 +30,7 @@ export const CandidateFormModal: React.FC = () => {
     resumeFileName: '',
     resumeDriveUrl: '',
     resumeDriveFileId: '',
+    avatarUrl: '',
     joiningDate: '',
     preJoinDinnerStatus: 'UNPLANNED' as const,
     resignationNegotiationStatus: 'NOT_STARTED' as const,
@@ -40,6 +42,7 @@ export const CandidateFormModal: React.FC = () => {
   const [isParsing, setIsParsing] = useState(false);
   const [parsedSuccess, setParsedSuccess] = useState(false);
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
+  const [isDetectingPhoto, setIsDetectingPhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isAddModalOpen) return null;
@@ -145,6 +148,24 @@ export const CandidateFormModal: React.FC = () => {
               resumeDriveFileId: uploaded.id || ''
             }));
             showToast('履歴書・応募書類をDriveフォルダに保存しました', 'success');
+
+            // Best-effort: try to pull the candidate's actual photo out of the resume itself,
+            // so the registered candidate doesn't end up with no photo (or a stand-in one).
+            if (uploaded.id) {
+              setIsDetectingPhoto(true);
+              try {
+                const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.id);
+                if (detected.found && detected.box) {
+                  const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
+                  setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
+                  showToast('履歴書から顔写真を自動抽出しました', 'success');
+                }
+              } catch (photoErr) {
+                console.error('Auto photo crop failed', photoErr);
+              } finally {
+                setIsDetectingPhoto(false);
+              }
+            }
           } catch (driveErr: any) {
             showToast(`Driveへの保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
           } finally {
@@ -210,7 +231,7 @@ export const CandidateFormModal: React.FC = () => {
       currentCompany: formData.currentCompany,
       companyCount: formData.companyCount,
       resumeSummary: formData.resumeSummary || '新規応募者。要書類選考。',
-      avatarUrl: formData.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+      avatarUrl: formData.avatarUrl || undefined,
       rawResumeContent: formData.rawResumeContent,
       resumeFileName: formData.resumeFileName || '職務経歴書.pdf',
       resumeDriveUrl: formData.resumeDriveUrl || undefined,
@@ -302,6 +323,20 @@ export const CandidateFormModal: React.FC = () => {
                       ※ヘッダーの「Drive連携」でログインすると、Driveフォルダにも自動保存されます
                     </p>
                   )}
+                  {isDetectingPhoto ? (
+                    <p className="text-[11px] text-indigo-600 flex items-center gap-1 mt-0.5">
+                      <Loader2 className="w-3 h-3 animate-spin" /> 履歴書から顔写真を検出中...
+                    </p>
+                  ) : formData.avatarUrl ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <img
+                        src={formData.avatarUrl}
+                        alt="抽出した顔写真"
+                        className="w-6 h-8 object-cover rounded border border-indigo-200"
+                      />
+                      <span className="text-[11px] text-emerald-700">顔写真を自動抽出しました</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : (

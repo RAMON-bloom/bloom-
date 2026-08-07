@@ -46,21 +46,29 @@ export const RecruitmentMeetingView: React.FC = () => {
 
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; title: string } | null>(null);
 
+  // "担当者別選考報告シート" only makes sense for staff actually assigned to at least one
+  // agency — falls back to the full staff list if no agency has an assignee yet, so the
+  // section never ends up empty.
+  const agencyAssignedStaffList = staffList.filter((st) =>
+    agencies.some((ag) => ag.assignedStaffNames?.includes(st.name))
+  );
+  const recruiterStaffList = agencyAssignedStaffList.length > 0 ? agencyAssignedStaffList : staffList;
+
   // Selected Meeting Date/Log
   const [selectedMeetingId, setSelectedMeetingId] = useState<string>(
     meetingLogs[0]?.id || ''
   );
-  
+
   // Active Recruiter Selection
   const [selectedRecruiter, setSelectedRecruiter] = useState<string>(
-    staffList[0]?.name || ''
+    recruiterStaffList[0]?.name || ''
   );
 
   useEffect(() => {
-    if (staffList.length > 0 && !staffList.some((s) => s.name === selectedRecruiter)) {
-      setSelectedRecruiter(staffList[0].name);
+    if (recruiterStaffList.length > 0 && !recruiterStaffList.some((s) => s.name === selectedRecruiter)) {
+      setSelectedRecruiter(recruiterStaffList[0].name);
     }
-  }, [staffList, selectedRecruiter]);
+  }, [recruiterStaffList, selectedRecruiter]);
 
   // Section Collapse/Expand States for clean UI
   const [isOverallOpen, setIsOverallOpen] = useState(true);
@@ -137,7 +145,7 @@ export const RecruitmentMeetingView: React.FC = () => {
   }
 
   // Active Selected Recruiter Object
-  const currentRecruiterStaff = staffList.find(s => s.name === selectedRecruiter) || staffList[0];
+  const currentRecruiterStaff = recruiterStaffList.find(s => s.name === selectedRecruiter) || recruiterStaffList[0];
 
   // Handle Action Item Toggle
   const handleToggleActionItem = (actionId: string) => {
@@ -179,7 +187,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     const dateObj = new Date(newMtgDate);
     const formattedTitle = `${dateObj.getFullYear()}年${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
 
-    const initialReports: RecruiterReport[] = staffList.map(s => ({
+    const initialReports: RecruiterReport[] = recruiterStaffList.map(s => ({
       recruiterName: s.name,
       progressNotes: `${s.name}担当分：候補者選考進捗・面接設定状況を更新中。`,
       recommendationNotes: `提携エージェントからの推薦件数・初期打率を管理中。`,
@@ -195,8 +203,8 @@ export const RecruitmentMeetingView: React.FC = () => {
       title: formattedTitle,
       date: `${newMtgDate}T10:00`,
       meetUrl: '',
-      attendees: staffList.map(s => s.name),
-      overallSummary: `【採用全般メモ (${formattedTitle})】\n・実施日: ${formattedTitle}\n・参加者: ${staffList.map(s => s.name).join(', ')}\n・定例協議内容：採用状況の確認と今後のアクション決定。`,
+      attendees: recruiterStaffList.map(s => s.name),
+      overallSummary: `【採用全般メモ (${formattedTitle})】\n・実施日: ${formattedTitle}\n・参加者: ${recruiterStaffList.map(s => s.name).join(', ')}\n・定例協議内容：採用状況の確認と今後のアクション決定。`,
       recruiterReports: initialReports,
       actionItems: [
         { id: `act-${Date.now()}-1`, text: '選考結果連絡の未入力を当日中にゼロにする', assignee: staffList[0]?.name || '担当者', done: false }
@@ -794,7 +802,7 @@ export const RecruitmentMeetingView: React.FC = () => {
 
           {/* Recruiter Quick Selector Buttons */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-            {staffList.map((st) => {
+            {recruiterStaffList.map((st) => {
               const isSelected = (currentRecruiterStaff?.name || selectedRecruiter) === st.name;
               const candCount = candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length;
 

@@ -1,6 +1,11 @@
 import { ensureSubfolder, moveFileToFolder } from '../_lib/drive.js';
 import { RESUME_ROOT_SUBFOLDER, resolvePhaseFolderName } from '../_lib/phaseFolders.js';
 
+// `fileId` here is normally a candidate's own Drive FOLDER id, not a resume file — Drive's API
+// treats folders as just another kind of file, so moving one relocates its entire contents
+// (resume, CV, anything else dropped in) as a single atomic operation. Legacy candidates
+// registered before per-candidate folders existed may still pass their bare resume file id,
+// which works the same way since there's nothing folder-specific about the move itself.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });

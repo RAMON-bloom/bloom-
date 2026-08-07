@@ -77,22 +77,32 @@ export interface DriveResumeFile {
   webViewLink?: string;
 }
 
+export interface UploadedResumeResult {
+  file: DriveResumeFile;
+  folderId: string;
+}
+
+// A brand-new candidate (no candidateFolderId yet) gets a fresh Drive folder named after them,
+// created inside the current phase's folder; the resume/CV file is uploaded into it. Passing an
+// existing candidateFolderId (e.g. re-uploading an updated resume later) uploads straight into
+// that folder instead of creating a new one.
 export async function uploadResumeToDrive(
   accessToken: string,
   file: { name: string; type: string; base64: string },
-  candidateId?: string,
-  phase?: string
-): Promise<DriveResumeFile> {
-  const data = await postJson<{ success: boolean; file: DriveResumeFile }>('/api/drive/upload-resume', {
+  options: { candidateName?: string; agencyName?: string; candidateFolderId?: string; phase?: string } = {}
+): Promise<UploadedResumeResult> {
+  const data = await postJson<{ success: boolean; file: DriveResumeFile; folderId: string }>('/api/drive/upload-resume', {
     accessToken,
     folderId: RECRUITMENT_DRIVE_FOLDER_ID,
     fileName: file.name,
     mimeType: file.type,
     fileBase64: file.base64,
-    candidateId,
-    phase
+    candidateName: options.candidateName,
+    agencyName: options.agencyName,
+    candidateFolderId: options.candidateFolderId,
+    phase: options.phase
   });
-  return data.file;
+  return { file: data.file, folderId: data.folderId };
 }
 
 export async function moveResumeToPhaseFolder(
@@ -111,6 +121,8 @@ export async function moveResumeToPhaseFolder(
 
 export interface DrivePhaseFileEntry {
   phase: string;
+  folderId: string | null;
+  folderName: string | null;
   file: DriveMeetingFile;
 }
 

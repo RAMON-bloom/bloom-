@@ -93,6 +93,22 @@ export async function ensureSubfolder(
   return created.id;
 }
 
+// Unlike ensureSubfolder, always creates a fresh folder rather than reusing one with a matching
+// name — used for a brand-new candidate's own folder, where silently merging into an existing
+// same-named folder (a different candidate entirely) would be far worse than a rare duplicate.
+export async function createFolder(accessToken: string, parentId: string, name: string): Promise<DriveFile> {
+  const res = await driveFetch(accessToken, `${DRIVE_API}/files?fields=id,name,mimeType,modifiedTime,webViewLink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId]
+    })
+  });
+  return await res.json();
+}
+
 export async function readFileContent(accessToken: string, file: DriveFile): Promise<string> {
   if (file.mimeType === 'application/vnd.google-apps.document') {
     const res = await driveFetch(

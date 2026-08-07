@@ -30,6 +30,7 @@ export const CandidateFormModal: React.FC = () => {
     resumeFileName: '',
     resumeDriveUrl: '',
     resumeDriveFileId: '',
+    resumeDriveFolderId: '',
     avatarUrl: '',
     joiningDate: '',
     preJoinDinnerStatus: 'UNPLANNED' as const,
@@ -132,6 +133,7 @@ export const CandidateFormModal: React.FC = () => {
         if (driveAccessToken && fileBase64) {
           setIsUploadingToDrive(true);
           try {
+            const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
             const uploaded = await uploadResumeToDrive(
               driveAccessToken,
               {
@@ -139,22 +141,22 @@ export const CandidateFormModal: React.FC = () => {
                 type: file.type || 'application/pdf',
                 base64: fileBase64
               },
-              undefined,
-              formData.phase
+              { candidateName: d.name, agencyName: selectedAgencyForUpload?.name, phase: formData.phase }
             );
             setFormData((prev) => ({
               ...prev,
-              resumeDriveUrl: uploaded.webViewLink || '',
-              resumeDriveFileId: uploaded.id || ''
+              resumeDriveUrl: uploaded.file.webViewLink || '',
+              resumeDriveFileId: uploaded.file.id || '',
+              resumeDriveFolderId: uploaded.folderId || ''
             }));
             showToast('履歴書・応募書類をDriveフォルダに保存しました', 'success');
 
             // Best-effort: try to pull the candidate's actual photo out of the resume itself,
             // so the registered candidate doesn't end up with no photo (or a stand-in one).
-            if (uploaded.id) {
+            if (uploaded.file.id) {
               setIsDetectingPhoto(true);
               try {
-                const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.id);
+                const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.file.id);
                 if (detected.found && detected.box) {
                   const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
                   setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
@@ -246,6 +248,7 @@ export const CandidateFormModal: React.FC = () => {
       resumeFileName: formData.resumeFileName || '職務経歴書.pdf',
       resumeDriveUrl: formData.resumeDriveUrl || undefined,
       resumeDriveFileId: formData.resumeDriveFileId || undefined,
+      resumeDriveFolderId: formData.resumeDriveFolderId || undefined,
       resumeSkills: formData.skills.split(',').map((s) => s.trim()).filter(Boolean),
       joiningDate: formData.joiningDate || undefined,
       preJoinDinnerStatus: formData.preJoinDinnerStatus,

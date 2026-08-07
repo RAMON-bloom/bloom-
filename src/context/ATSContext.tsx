@@ -217,12 +217,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 3500);
   };
 
-  // Fire-and-forget: moves the candidate's resume into the Drive folder matching their new
-  // phase. Silently no-ops if Drive isn't connected or the resume was never uploaded to Drive
-  // (e.g. legacy candidates registered before this feature existed).
+  // Fire-and-forget: moves the candidate's whole Drive folder (resume, CV, anything else in it)
+  // into the folder matching their new phase. Prefers the per-candidate folder; falls back to
+  // moving the bare resume file for legacy candidates registered before that folder existed.
+  // Silently no-ops if Drive isn't connected or the resume was never uploaded to Drive at all.
   const moveResumeFolderIfNeeded = (candidate: Candidate, newPhase: SelectionPhase) => {
-    if (!driveAccessToken || !candidate.resumeDriveFileId || candidate.phase === newPhase) return;
-    moveResumeToPhaseFolderApi(driveAccessToken, candidate.resumeDriveFileId, newPhase).catch((err: any) => {
+    const driveItemId = candidate.resumeDriveFolderId || candidate.resumeDriveFileId;
+    if (!driveAccessToken || !driveItemId || candidate.phase === newPhase) return;
+    moveResumeToPhaseFolderApi(driveAccessToken, driveItemId, newPhase).catch((err: any) => {
       showToast(`${candidate.name} さんの履歴書のDriveフォルダ移動に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
     });
   };
@@ -637,13 +639,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsSyncingDrive(true);
     try {
       const entries = await scanDriveResumesApi(driveAccessToken);
-      const fileIdToPhase = new Map(entries.map((e) => [e.file.id, e.phase]));
+      // A candidate folder normally holds several files (resume, CV, ...) — key by folder for
+      // those, and separately by bare file id for legacy flat entries with no folder at all.
+      const folderIdToPhase = new Map(
+        entries.filter((e) => e.folderId).map((e) => [e.folderId as string, e.phase])
+      );
+      const fileIdToPhase = new Map(
+        entries.filter((e) => !e.folderId).map((e) => [e.file.id, e.phase])
+      );
 
       let movedCount = 0;
       setCandidates((prev) =>
         prev.map((c) => {
-          if (!c.resumeDriveFileId) return c;
-          const drivePhase = fileIdToPhase.get(c.resumeDriveFileId);
+          const drivePhase = c.resumeDriveFolderId
+            ? folderIdToPhase.get(c.resumeDriveFolderId)
+            : c.resumeDriveFileId
+            ? fileIdToPhase.get(c.resumeDriveFileId)
+            : undefined;
           if (drivePhase && drivePhase in PHASE_ORDER && drivePhase !== c.phase) {
             movedCount++;
             return { ...c, phase: drivePhase as SelectionPhase, lastUpdated: new Date().toISOString().split('T')[0] };
@@ -652,8 +664,21 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         })
       );
 
+      const knownFolderIds = new Set(candidates.map((c) => c.resumeDriveFolderId).filter(Boolean));
       const knownFileIds = new Set(candidates.map((c) => c.resumeDriveFileId).filter(Boolean));
-      const unregistered = entries.filter((e) => !knownFileIds.has(e.file.id));
+      const isKnown = (e: (typeof entries)[number]) =>
+        e.folderId ? knownFolderIds.has(e.folderId) : knownFileIds.has(e.file.id);
+
+      // Several files can sit in one unregistered candidate folder — import once per folder
+      // (using its first file to parse candidate info from) rather than once per file.
+      const seenFolderIds = new Set<string>();
+      const unregistered = entries.filter((e) => {
+        if (isKnown(e)) return false;
+        if (!e.folderId) return true;
+        if (seenFolderIds.has(e.folderId)) return false;
+        seenFolderIds.add(e.folderId);
+        return true;
+      });
 
       let importedCount = 0;
       let failedCount = 0;
@@ -682,6 +707,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             resumeFileName: entry.file.name,
             resumeDriveUrl: entry.file.webViewLink,
             resumeDriveFileId: entry.file.id,
+            resumeDriveFolderId: entry.folderId || undefined,
             resumeSkills: parsed.resumeSkills,
             salaryExpectation: parsed.salaryExpectation
           });

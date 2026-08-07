@@ -2,9 +2,15 @@ import type { DriveFile } from '../_lib/drive.js';
 import { findFolderByName, listFilesInFolder } from '../_lib/drive.js';
 import { PHASE_FOLDER_NAMES, RESUME_ROOT_SUBFOLDER } from '../_lib/phaseFolders.js';
 
+const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+
 // Scans the Drive-side phase folders as they actually exist right now (does NOT create any
 // missing folder — that's only done on upload/move) so the client can detect files that were
 // added or moved directly in Drive, bypassing the app.
+//
+// Each phase folder normally contains one subfolder per candidate (their resume/CV live inside
+// it), but also handles bare files sitting directly in a phase folder — either a manual drop
+// bypassing folders entirely, or a candidate registered before per-candidate folders existed.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -24,13 +30,21 @@ export default async function handler(req: any, res: any) {
       return res.json({ success: true, entries: [] });
     }
 
-    const entries: Array<{ phase: string; file: DriveFile }> = [];
+    const entries: Array<{ phase: string; folderId: string | null; folderName: string | null; file: DriveFile }> = [];
     for (const [phase, folderName] of Object.entries(PHASE_FOLDER_NAMES)) {
       const phaseFolder = await findFolderByName(accessToken, resumeRoot.id, folderName);
       if (!phaseFolder) continue;
-      const files = await listFilesInFolder(accessToken, phaseFolder.id);
-      for (const file of files) {
-        entries.push({ phase, file });
+
+      const children = await listFilesInFolder(accessToken, phaseFolder.id);
+      for (const child of children) {
+        if (child.mimeType === FOLDER_MIME_TYPE) {
+          const filesInside = await listFilesInFolder(accessToken, child.id);
+          for (const file of filesInside) {
+            entries.push({ phase, folderId: child.id, folderName: child.name, file });
+          }
+        } else {
+          entries.push({ phase, folderId: null, folderName: null, file: child });
+        }
       }
     }
 

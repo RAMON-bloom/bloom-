@@ -17,12 +17,12 @@ export const ToastContainer: React.FC = () => {
               ? 'bg-slate-900 border border-emerald-500/40 text-emerald-100'
               : toast.type === 'warning'
               ? 'bg-slate-900 border border-amber-500/40 text-amber-100'
-              : 'bg-slate-900 border border-blue-500/40 text-blue-100'
+              : 'bg-slate-900 border border-indigo-500/40 text-indigo-100'
           }`}
         >
           {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
           {toast.type === 'warning' && <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />}
-          {toast.type === 'info' && <Info className="w-4 h-4 text-blue-400 shrink-0" />}
+          {toast.type === 'info' && <Info className="w-4 h-4 text-indigo-400 shrink-0" />}
           <span className="leading-tight">{toast.message}</span>
         </div>
       ))}

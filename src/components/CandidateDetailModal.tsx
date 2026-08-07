@@ -56,17 +56,11 @@ export const renderGradeBadge = (
   let colorStyle = 'bg-slate-100 text-slate-700 border-slate-200';
   switch (grade) {
     case 'A+':
+    case 'A-':
       colorStyle = 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold';
       break;
-    case 'A-':
-      colorStyle = 'bg-teal-50 text-teal-800 border-teal-200 font-bold';
-      break;
     case 'B+':
-      colorStyle = 'bg-indigo-50 text-indigo-800 border-indigo-200 font-bold';
-      break;
     case 'B':
-      colorStyle = 'bg-blue-50 text-blue-800 border-blue-200 font-bold';
-      break;
     case 'B-':
       colorStyle = 'bg-amber-50 text-amber-800 border-amber-200 font-bold';
       break;
@@ -452,8 +446,8 @@ export const CandidateDetailModal: React.FC = () => {
 
                 {/* BCA Desired Department Selector */}
                 {candidate.jobTitle.toUpperCase().includes('BCA') && (
-                  <div className="flex items-center gap-1.5 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200 animate-in fade-in">
-                    <span className="text-[11px] font-bold text-purple-900">BCA希望事業部:</span>
+                  <div className="flex items-center gap-1.5 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200 animate-in fade-in">
+                    <span className="text-[11px] font-bold text-indigo-900">BCA希望事業部:</span>
                     <select
                       value={candidate.bcaDesiredDepartment || 'F+'}
                       onChange={(e) => {
@@ -465,7 +459,7 @@ export const CandidateDetailModal: React.FC = () => {
                         });
                         showToast(`BCA希望事業部を 「${val === 'BOTH' ? 'F+ / AC 両方' : val}」 に変更しました`, 'success');
                       }}
-                      className="bg-white text-purple-900 font-bold text-xs rounded px-2 py-0.5 border border-purple-300 focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer shadow-2xs"
+                      className="bg-white text-indigo-900 font-bold text-xs rounded px-2 py-0.5 border border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-2xs"
                     >
                       <option value="F+">F+ 事業部</option>
                       <option value="AC">AC 事業部</option>
@@ -489,7 +483,7 @@ export const CandidateDetailModal: React.FC = () => {
                   title="クリックで履歴書から顔写真を切り抜き・変更"
                 >
                   {candidate.avatarUrl ? (
-                    <div className="w-14 h-14 rounded-xl overflow-hidden border-2 border-indigo-200 shadow-md group-hover:border-indigo-600 transition-all">
+                    <div className="w-14 h-14 rounded-xl overflow-hidden border-2 border-indigo-200 group-hover:border-indigo-600 transition-all">
                       <img 
                         src={candidate.avatarUrl} 
                         alt={candidate.name} 
@@ -505,7 +499,7 @@ export const CandidateDetailModal: React.FC = () => {
                   )}
 
                   {/* Hover Overlay Badge */}
-                  <div className="absolute inset-0 bg-slate-900/60 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[10px] font-bold gap-0.5 shadow-md">
+                  <div className="absolute inset-0 bg-slate-900/60 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[10px] font-bold gap-0.5">
                     <Crop className="w-4 h-4" />
                     <span>切り抜き</span>
                   </div>
@@ -626,7 +620,7 @@ export const CandidateDetailModal: React.FC = () => {
                 {candidate.salaryExpectation && (
                   <div className="flex items-center gap-1.5">
                     <span className="text-slate-500">希望年収:</span>
-                    <span className="font-bold text-emerald-700">{candidate.salaryExpectation}</span>
+                    <span className="font-bold text-slate-900">{candidate.salaryExpectation}</span>
                   </div>
                 )}
               </div>
@@ -636,7 +630,7 @@ export const CandidateDetailModal: React.FC = () => {
                   onClick={() => setIsEditingProfile(!isEditingProfile)}
                   className={`font-bold text-xs px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer border ${
                     isEditingProfile
-                      ? 'bg-slate-800 text-white border-slate-800'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-300'
                   }`}
                 >
@@ -729,7 +723,7 @@ export const CandidateDetailModal: React.FC = () => {
                               restoreCandidate(candidate.id);
                               setSelectedCandidateId(null);
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span>復元</span>
@@ -950,7 +944,7 @@ export const CandidateDetailModal: React.FC = () => {
                               >
                                 <option value="" disabled>+ 面接官を選択・アサイン...</option>
                                 <option value="__CUSTOM__" className="font-bold text-indigo-600">
-                                  ➕ 自由アサイン（選択肢外の名前を入力...）
+                                  自由アサイン（選択肢外の名前を入力...）
                                 </option>
                                 {staffList.map((st) => (
                                   <option key={st.id} value={st.name}>
@@ -971,7 +965,7 @@ export const CandidateDetailModal: React.FC = () => {
                                   <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
                                     latestNote.resultStatus === 'PASS' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                                     latestNote.resultStatus === 'FAIL' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                                    'bg-amber-50 text-amber-700 border-amber-200'
+                                    'bg-slate-100 text-slate-500 border-slate-200'
                                   }`}>
                                     {latestNote.resultStatus === 'PASS' ? '合格' : latestNote.resultStatus === 'FAIL' ? '不採用' : '結果待ち'}
                                   </span>
@@ -1101,7 +1095,7 @@ export const CandidateDetailModal: React.FC = () => {
                       <div>
                         <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
                           <span>希望事業部</span>
-                          <span className="text-[10px] text-purple-700 font-semibold">(F+ / AC)</span>
+                          <span className="text-[10px] text-indigo-700 font-semibold">(F+ / AC)</span>
                         </label>
                         <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-1 rounded-lg">
                           {([
@@ -1115,7 +1109,7 @@ export const CandidateDetailModal: React.FC = () => {
                               onClick={() => setNewDesiredDepartment(newDesiredDepartment === dept.value ? undefined : dept.value)}
                               className={`flex-1 py-1 px-1.5 rounded text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
                                 newDesiredDepartment === dept.value
-                                  ? 'bg-purple-700 text-white shadow-2xs'
+                                  ? 'bg-indigo-600 text-white shadow-2xs'
                                   : 'text-slate-600 hover:bg-slate-200'
                               }`}
                             >
@@ -1155,7 +1149,7 @@ export const CandidateDetailModal: React.FC = () => {
                                       ? r === '〇'
                                         ? 'bg-emerald-600 text-white shadow-2xs'
                                         : r === '△'
-                                        ? 'bg-amber-50 text-white shadow-2xs'
+                                        ? 'bg-amber-500 text-white shadow-2xs'
                                         : 'bg-rose-600 text-white shadow-2xs'
                                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
                                   }`}
@@ -1417,7 +1411,7 @@ export const CandidateDetailModal: React.FC = () => {
                           <div className="flex items-center gap-2 flex-wrap">
                             {renderGradeBadge('面接評価', note.interviewRating)}
                             {note.bcaDesiredDepartment && (
-                              <span className="text-[10px] bg-purple-50 text-purple-800 border border-purple-200 px-2 py-0.5 rounded font-bold">
+                              <span className="text-[10px] bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded font-bold">
                                 希望: {note.bcaDesiredDepartment === 'BOTH' ? 'F+ / AC (両方)' : note.bcaDesiredDepartment}
                               </span>
                             )}
@@ -1540,7 +1534,7 @@ export const CandidateDetailModal: React.FC = () => {
                   className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-100/80 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-rose-500" />
+                    <Mail className="w-4 h-4 text-indigo-600" />
                     <span className="font-bold text-slate-900 text-xs">Gmail面談ログ同期 ＆ Gemini AI連携要約</span>
                   </div>
                   <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -1588,7 +1582,7 @@ export const CandidateDetailModal: React.FC = () => {
                           </span>
                           <button
                             onClick={handleSaveAiSummaryToNotes}
-                            className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 py-1 rounded transition-all cursor-pointer shadow-2xs"
+                            className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-2.5 py-1 rounded transition-all cursor-pointer shadow-2xs"
                           >
                             <Check className="w-3 h-3 stroke-[3]" />
                             <span>選考評価メモに登録</span>
@@ -2021,10 +2015,10 @@ export const CandidateDetailModal: React.FC = () => {
               {/* AI Summary View */}
               {docCategory === 'ai_summary' && (
                 <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5 leading-relaxed max-h-[500px] overflow-y-auto shadow-2xs">
-                  <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900 text-white p-4.5 rounded-xl shadow-xs space-y-2">
+                  <div className="bg-indigo-900 text-white p-4.5 rounded-xl shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
+                        <Sparkles className="w-5 h-5 text-indigo-200" />
                         <h3 className="font-bold text-sm">Gemini AI 解析レポート</h3>
                       </div>
                       <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-mono font-bold">Model: Gemini 2.5 Flash</span>

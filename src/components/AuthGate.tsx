@@ -116,7 +116,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
             </svg>
             {signingIn ? 'ログイン中...' : lastEmail ? `${lastEmail} で続ける` : 'Googleでログイン'}
           </button>
-          {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+          {error && <p className="mt-4 text-sm text-rose-600">{error}</p>}
         </div>
       </div>
     );

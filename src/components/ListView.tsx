@@ -287,56 +287,56 @@ export const ListView: React.FC = () => {
       key: 'DOCUMENT_SCREENING',
       label: '書類選考',
       count: phaseCounts.DOCUMENT_SCREENING,
-      bg: 'bg-blue-50/50 hover:bg-blue-100/50',
-      borderColor: 'border-blue-200',
-      activeBorderColor: 'ring-2 ring-blue-600 border-blue-600 bg-blue-100/60',
-      textColor: 'text-blue-900',
-      badgeBg: 'bg-blue-100 text-blue-800',
-      icon: <FileText className="w-3.5 h-3.5 text-blue-600" />,
+      bg: 'bg-slate-50/50 hover:bg-slate-100/50',
+      borderColor: 'border-slate-200',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
+      textColor: 'text-slate-900',
+      badgeBg: 'bg-slate-100 text-slate-700',
+      icon: <FileText className="w-3.5 h-3.5 text-slate-500" />,
     },
     {
       key: 'CASUAL_INTERVIEW',
       label: 'カジュアル面談',
       count: phaseCounts.CASUAL_INTERVIEW,
-      bg: 'bg-teal-50/50 hover:bg-teal-100/50',
-      borderColor: 'border-teal-200',
-      activeBorderColor: 'ring-2 ring-teal-600 border-teal-600 bg-teal-100/60',
-      textColor: 'text-teal-900',
-      badgeBg: 'bg-teal-100 text-teal-800',
-      icon: <Coffee className="w-3.5 h-3.5 text-teal-600" />,
+      bg: 'bg-slate-50/50 hover:bg-slate-100/50',
+      borderColor: 'border-slate-200',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
+      textColor: 'text-slate-900',
+      badgeBg: 'bg-slate-100 text-slate-700',
+      icon: <Coffee className="w-3.5 h-3.5 text-slate-500" />,
     },
     {
       key: 'FIRST_INTERVIEW',
       label: '1次面接',
       count: phaseCounts.FIRST_INTERVIEW,
-      bg: 'bg-indigo-50/50 hover:bg-indigo-100/50',
-      borderColor: 'border-indigo-200',
-      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-100/60',
-      textColor: 'text-indigo-900',
-      badgeBg: 'bg-indigo-100 text-indigo-800',
-      icon: <UserCheck className="w-3.5 h-3.5 text-indigo-600" />,
+      bg: 'bg-slate-50/50 hover:bg-slate-100/50',
+      borderColor: 'border-slate-200',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
+      textColor: 'text-slate-900',
+      badgeBg: 'bg-slate-100 text-slate-700',
+      icon: <UserCheck className="w-3.5 h-3.5 text-slate-500" />,
     },
     {
       key: 'SECOND_INTERVIEW',
       label: '2次面接',
       count: phaseCounts.SECOND_INTERVIEW,
-      bg: 'bg-cyan-50/50 hover:bg-cyan-100/50',
-      borderColor: 'border-cyan-200',
-      activeBorderColor: 'ring-2 ring-cyan-600 border-cyan-600 bg-cyan-100/60',
-      textColor: 'text-cyan-900',
-      badgeBg: 'bg-cyan-100 text-cyan-800',
-      icon: <Clock className="w-3.5 h-3.5 text-cyan-600" />,
+      bg: 'bg-slate-50/50 hover:bg-slate-100/50',
+      borderColor: 'border-slate-200',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
+      textColor: 'text-slate-900',
+      badgeBg: 'bg-slate-100 text-slate-700',
+      icon: <Clock className="w-3.5 h-3.5 text-slate-500" />,
     },
     {
       key: 'FINAL_INTERVIEW',
       label: '最終面接',
       count: phaseCounts.FINAL_INTERVIEW,
-      bg: 'bg-purple-50/50 hover:bg-purple-100/50',
-      borderColor: 'border-purple-200',
-      activeBorderColor: 'ring-2 ring-purple-600 border-purple-600 bg-purple-100/60',
-      textColor: 'text-purple-900',
-      badgeBg: 'bg-purple-100 text-purple-800',
-      icon: <Award className="w-3.5 h-3.5 text-purple-600" />,
+      bg: 'bg-slate-50/50 hover:bg-slate-100/50',
+      borderColor: 'border-slate-200',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
+      textColor: 'text-slate-900',
+      badgeBg: 'bg-slate-100 text-slate-700',
+      icon: <Award className="w-3.5 h-3.5 text-slate-500" />,
     },
     {
       key: 'OFFER_ISSUED',
@@ -344,7 +344,7 @@ export const ListView: React.FC = () => {
       count: phaseCounts.OFFER_ISSUED,
       bg: 'bg-amber-50/50 hover:bg-amber-100/50',
       borderColor: 'border-amber-200',
-      activeBorderColor: 'ring-2 ring-amber-600 border-amber-600 bg-amber-100/60',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
       textColor: 'text-amber-900',
       badgeBg: 'bg-amber-100 text-amber-800',
       icon: <UserCheck className="w-3.5 h-3.5 text-amber-600" />,
@@ -355,7 +355,7 @@ export const ListView: React.FC = () => {
       count: phaseCounts.OFFER_ACCEPTED,
       bg: 'bg-emerald-50/50 hover:bg-emerald-100/50',
       borderColor: 'border-emerald-200',
-      activeBorderColor: 'ring-2 ring-emerald-600 border-emerald-600 bg-emerald-100/60',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
       textColor: 'text-emerald-900',
       badgeBg: 'bg-emerald-100 text-emerald-800',
       icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />,
@@ -366,7 +366,7 @@ export const ListView: React.FC = () => {
       count: joiningScheduledCount,
       bg: 'bg-amber-50/80 hover:bg-amber-100/80',
       borderColor: 'border-amber-300',
-      activeBorderColor: 'ring-2 ring-amber-500 border-amber-500 bg-amber-100/90',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-100/90',
       textColor: 'text-amber-950 font-bold',
       badgeBg: 'bg-amber-200 text-amber-900',
       icon: <Calendar className="w-3.5 h-3.5 text-amber-700" />,
@@ -377,7 +377,7 @@ export const ListView: React.FC = () => {
       count: phaseCounts.REJECTED_DECLINED,
       bg: 'bg-rose-50/50 hover:bg-rose-100/50',
       borderColor: 'border-rose-200',
-      activeBorderColor: 'ring-2 ring-rose-600 border-rose-600 bg-rose-100/60',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
       textColor: 'text-rose-900',
       badgeBg: 'bg-rose-100 text-rose-800',
       icon: <XCircle className="w-3.5 h-3.5 text-rose-600" />,
@@ -415,11 +415,11 @@ export const ListView: React.FC = () => {
 
   const getPhaseBadge = (phase: SelectionPhase) => {
     const config: Record<SelectionPhase, { label: string; bg: string; text: string }> = {
-      CASUAL_INTERVIEW: { label: 'カジュアル面談', bg: 'bg-teal-50 border-teal-200', text: 'text-teal-700' },
-      DOCUMENT_SCREENING: { label: '書類選考', bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700' },
-      FIRST_INTERVIEW: { label: '1次面接', bg: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-700' },
-      SECOND_INTERVIEW: { label: '2次面接', bg: 'bg-cyan-50 border-cyan-200', text: 'text-cyan-700' },
-      FINAL_INTERVIEW: { label: '最終面接', bg: 'bg-purple-50 border-purple-200', text: 'text-purple-700' },
+      CASUAL_INTERVIEW: { label: 'カジュアル面談', bg: 'bg-slate-100 border-slate-200', text: 'text-slate-700' },
+      DOCUMENT_SCREENING: { label: '書類選考', bg: 'bg-slate-100 border-slate-200', text: 'text-slate-700' },
+      FIRST_INTERVIEW: { label: '1次面接', bg: 'bg-slate-100 border-slate-200', text: 'text-slate-700' },
+      SECOND_INTERVIEW: { label: '2次面接', bg: 'bg-slate-100 border-slate-200', text: 'text-slate-700' },
+      FINAL_INTERVIEW: { label: '最終面接', bg: 'bg-slate-100 border-slate-200', text: 'text-slate-700' },
       OFFER_ISSUED: { label: '内定通知', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700' },
       OFFER_ACCEPTED: { label: '内定承諾', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
       REJECTED_DECLINED: { label: '辞退 / 不採用', bg: 'bg-rose-50 border-rose-200', text: 'text-rose-700' }
@@ -464,14 +464,14 @@ export const ListView: React.FC = () => {
         );
       case 'PROPOSING_DATES':
         return (
-          <span className="inline-flex items-center gap-1 text-xs text-blue-700 font-medium bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-            <Clock className="w-3.5 h-3.5 text-blue-600" /> 候補日提示中
+          <span className="inline-flex items-center gap-1 text-xs text-amber-700 font-medium bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+            <Clock className="w-3.5 h-3.5 text-amber-600" /> 候補日提示中
           </span>
         );
       case 'WAITING_RESULT':
         return (
-          <span className="inline-flex items-center gap-1 text-xs text-purple-700 font-medium bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
-            <Clock className="w-3.5 h-3.5 text-purple-600" /> 結果待ち
+          <span className="inline-flex items-center gap-1 text-xs text-amber-700 font-medium bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+            <Clock className="w-3.5 h-3.5 text-amber-600" /> 結果待ち
           </span>
         );
       case 'UNARRANGED':
@@ -681,7 +681,7 @@ export const ListView: React.FC = () => {
                             {c.preJoinDinnerStatus && c.preJoinDinnerStatus !== 'NOT_SET' && c.preJoinDinnerStatus !== 'NOT_REQUIRED' && (
                               <span className={`inline-flex items-center text-[10px] px-1.5 py-0.2 rounded font-medium border ${
                                 c.preJoinDinnerStatus === 'COMPLETED' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                'bg-amber-50 text-amber-800 border-amber-200'
                               }`}>
                                 会食: {
                                   c.preJoinDinnerStatus === 'COMPLETED' ? '済' :
@@ -700,7 +700,7 @@ export const ListView: React.FC = () => {
                             {c.jobTitle}
                           </span>
                           {c.jobTitle.toUpperCase().includes('BCA') && c.bcaDesiredDepartment && (
-                            <span className="inline-block bg-purple-50 text-purple-800 font-extrabold px-1.5 py-0.5 rounded text-[10px] border border-purple-200">
+                            <span className="inline-block bg-indigo-50 text-indigo-700 font-extrabold px-1.5 py-0.5 rounded text-[10px] border border-indigo-100">
                               {c.bcaDesiredDepartment === 'BOTH' ? 'F+/AC' : c.bcaDesiredDepartment}
                             </span>
                           )}
@@ -777,7 +777,7 @@ export const ListView: React.FC = () => {
                             className={`text-xs rounded px-2 py-0.5 border transition-colors cursor-pointer focus:outline-none font-medium ${
                               c.scheduleStatus === 'SCHEDULE_CONFIRMED' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-semibold' :
                               c.scheduleStatus === 'PROPOSING_DATES' ? 'bg-amber-50 border-amber-200 text-amber-800' :
-                              c.scheduleStatus === 'WAITING_RESULT' ? 'bg-indigo-50 border-indigo-200 text-indigo-800' :
+                              c.scheduleStatus === 'WAITING_RESULT' ? 'bg-amber-50 border-amber-200 text-amber-800' :
                               'bg-slate-50 border-slate-200 text-slate-600'
                             }`}
                           >
@@ -851,7 +851,7 @@ export const ListView: React.FC = () => {
                               const isAssigned = c.assignees.includes(s.name);
                               return (
                                 <option key={s.id} value={s.name}>
-                                  {isAssigned ? `✓ ${s.name} (解除)` : s.name}
+                                  {isAssigned ? `${s.name} (解除)` : s.name}
                                 </option>
                               );
                             })}
@@ -866,9 +866,9 @@ export const ListView: React.FC = () => {
                           onChange={(e) => updateCandidate({ ...c, interviewRating: (e.target.value as EvaluationGrade) || undefined })}
                           className={`text-xs font-mono font-bold rounded px-2 py-1 border transition-all cursor-pointer focus:outline-none ${
                             c.interviewRating === 'A+' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' :
-                            c.interviewRating === 'A-' ? 'bg-teal-100 text-teal-900 border-teal-300' :
-                            c.interviewRating === 'B+' ? 'bg-indigo-100 text-indigo-900 border-indigo-300' :
-                            c.interviewRating === 'B' ? 'bg-blue-100 text-blue-900 border-blue-300' :
+                            c.interviewRating === 'A-' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' :
+                            c.interviewRating === 'B+' ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                            c.interviewRating === 'B' ? 'bg-amber-100 text-amber-900 border-amber-300' :
                             c.interviewRating === 'B-' ? 'bg-amber-100 text-amber-900 border-amber-300' :
                             c.interviewRating === 'C' ? 'bg-rose-100 text-rose-900 border-rose-300' :
                             'bg-slate-50 text-slate-400 border-dashed border-slate-300 hover:border-indigo-400'
@@ -876,9 +876,9 @@ export const ListView: React.FC = () => {
                         >
                           <option value="" className="bg-white text-slate-400 font-sans font-normal">評価未設定</option>
                           <option value="A+" className="bg-white text-emerald-900 font-mono font-bold">A+</option>
-                          <option value="A-" className="bg-white text-teal-900 font-mono font-bold">A-</option>
-                          <option value="B+" className="bg-white text-indigo-900 font-mono font-bold">B+</option>
-                          <option value="B" className="bg-white text-blue-900 font-mono font-bold">B</option>
+                          <option value="A-" className="bg-white text-emerald-900 font-mono font-bold">A-</option>
+                          <option value="B+" className="bg-white text-amber-900 font-mono font-bold">B+</option>
+                          <option value="B" className="bg-white text-amber-900 font-mono font-bold">B</option>
                           <option value="B-" className="bg-white text-amber-900 font-mono font-bold">B-</option>
                           <option value="C" className="bg-white text-rose-900 font-mono font-bold">C</option>
                         </select>

@@ -101,9 +101,12 @@ export const Header: React.FC = () => {
                 <button
                   onClick={() => setIsDriveMenuOpen((v) => !v)}
                   title={`Drive連携中: ${driveUserEmail || ''}`}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer text-xs font-bold"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer text-xs font-bold"
                 >
-                  <HardDrive className="w-4 h-4" />
+                  <span className="relative flex items-center">
+                    <HardDrive className="w-4 h-4" />
+                    <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  </span>
                   <span className="hidden md:inline">Drive連携中</span>
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
@@ -178,123 +181,56 @@ export const Header: React.FC = () => {
       </div>
 
       {/* Navigation Tabs Bar */}
-      <div className="bg-slate-50/70 border-t border-slate-200 px-4 sm:px-6 lg:px-8">
+      <div className="border-t border-slate-200 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex items-center justify-between overflow-x-auto no-scrollbar">
-          <nav className="flex space-x-1 sm:space-x-2 py-2">
-            
-            <button
-              onClick={() => setActiveTab('kanban')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'kanban'
-                  ? 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-              }`}
-            >
-              <Kanban className="w-4 h-4" />
-              <span>選考サマリ</span>
-              <span className="ml-1 bg-indigo-50 text-indigo-600 text-xs px-2 py-0.5 rounded-full font-mono font-semibold">
-                {filteredCandidates.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('list')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'list'
-                  ? 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-              }`}
-            >
-              <ListFilter className="w-4 h-4" />
-              <span>候補者一覧テーブル</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('recruitment_meeting')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'recruitment_meeting'
-                  ? 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-              }`}
-            >
-              <span>採用MTG</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'dashboard'
-                  ? 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>分析ダッシュボード</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('onboarding')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'onboarding'
-                  ? 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-              }`}
-            >
-              <UserCheck className="w-4 h-4" />
-              <span>入社予定者管理</span>
-              {joiningScheduledCount > 0 && (
-                <span className="ml-0.5 bg-indigo-50 text-indigo-600 text-xs px-2 py-0.5 rounded-full font-mono font-semibold">
-                  {joiningScheduledCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('archived')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'archived'
-                  ? 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-              }`}
-            >
-              <Archive className="w-4 h-4 text-slate-500" />
-              <span>過去候補者一覧</span>
-              {archivedCandidates.length > 0 && (
-                <span className="ml-0.5 bg-slate-200 text-slate-700 text-xs px-2 py-0.5 rounded-full font-mono font-bold">
-                  {archivedCandidates.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('agency_master')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'agency_master'
-                  ? 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-              <span>エージェントマスタ</span>
-            </button>
+          <nav className="flex space-x-4 sm:space-x-6">
+            {[
+              { tab: 'kanban' as ActiveTab, icon: Kanban, label: '選考サマリ', count: filteredCandidates.length },
+              { tab: 'list' as ActiveTab, icon: ListFilter, label: '候補者一覧テーブル' },
+              { tab: 'recruitment_meeting' as ActiveTab, icon: null, label: '採用MTG' },
+              { tab: 'dashboard' as ActiveTab, icon: BarChart3, label: '分析ダッシュボード' },
+              { tab: 'onboarding' as ActiveTab, icon: UserCheck, label: '入社予定者管理', count: joiningScheduledCount || undefined },
+              { tab: 'archived' as ActiveTab, icon: Archive, label: '過去候補者一覧', count: archivedCandidates.length || undefined },
+              { tab: 'agency_master' as ActiveTab, icon: Building2, label: 'エージェントマスタ' }
+            ].map(({ tab, icon: Icon, label, count }) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex items-center gap-1.5 py-2.5 text-xs sm:text-sm whitespace-nowrap cursor-pointer border-b-2 transition-colors ${
+                  activeTab === tab
+                    ? 'text-indigo-600 font-semibold border-indigo-600'
+                    : 'text-slate-500 hover:text-slate-800 border-transparent'
+                }`}
+              >
+                {Icon && <Icon className="w-4 h-4" />}
+                <span>{label}</span>
+                {count !== undefined && (
+                  <span className={`text-[11px] px-1.5 rounded-full font-mono ${
+                    activeTab === tab ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            ))}
           </nav>
 
           {/* Quick counts indicator */}
           <div className="hidden lg:flex items-center gap-4 text-xs text-slate-500 py-2 border-l border-slate-200 pl-4">
             <div>全候補者: <span className="font-semibold text-slate-800">{candidates.length}名</span></div>
-            <div>選考中: <span className="font-semibold text-emerald-600">{candidates.filter(c => !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length}名</span></div>
+            <div>選考中: <span className="font-semibold text-slate-800">{candidates.filter(c => !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length}名</span></div>
           </div>
         </div>
       </div>
 
       {/* Prominent Action Bar directly below dashboard selection tabs */}
-      <div className="bg-slate-50 border-t border-b border-slate-200 py-2.5 px-4 sm:px-6 lg:px-8 shadow-2xs">
+      <div className="bg-slate-50 border-t border-slate-200 py-2.5 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex items-center justify-center">
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm sm:text-base px-6 py-2.5 rounded-xl shadow-xs hover:shadow-md active:scale-95 transition-all cursor-pointer"
+            className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm sm:text-base px-6 py-2.5 rounded-lg transition-colors cursor-pointer"
           >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
+            <Plus className="w-5 h-5" />
             <span>新規候補者を登録</span>
           </button>
         </div>

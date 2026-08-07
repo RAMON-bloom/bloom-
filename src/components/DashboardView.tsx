@@ -80,14 +80,14 @@ export const DashboardView: React.FC = () => {
   };
 
   const phaseColors: Record<SelectionPhase, string> = {
-    DOCUMENT_SCREENING: '#3b82f6', // blue
-    CASUAL_INTERVIEW: '#14b8a6',   // teal
-    FIRST_INTERVIEW: '#6366f1',    // indigo
-    SECOND_INTERVIEW: '#06b6d4',   // cyan
-    FINAL_INTERVIEW: '#a855f7',    // purple
-    OFFER_ISSUED: '#f59e0b',       // amber
-    OFFER_ACCEPTED: '#10b981',     // emerald
-    REJECTED_DECLINED: '#f43f5e'   // rose
+    DOCUMENT_SCREENING: '#c7d2fe',  // indigo-200 (pipeline stage, not an outcome)
+    CASUAL_INTERVIEW: '#a5b4fc',    // indigo-300
+    FIRST_INTERVIEW: '#818cf8',     // indigo-400
+    SECOND_INTERVIEW: '#6366f1',    // indigo-500
+    FINAL_INTERVIEW: '#4f46e5',     // indigo-600
+    OFFER_ISSUED: '#f59e0b',        // amber (genuine pending-decision state)
+    OFFER_ACCEPTED: '#10b981',      // emerald (genuine success state)
+    REJECTED_DECLINED: '#f43f5e'    // rose (genuine negative state)
   };
 
   const phaseDistributionData = Object.keys(phaseLabels).map((phaseKey) => {
@@ -138,7 +138,8 @@ export const DashboardView: React.FC = () => {
     };
   });
 
-  const agencyChartColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+  // Agencies are categories, not states — differentiate using indigo shades/opacity only
+  const agencyChartColors = ['#4f46e5', '#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#94a3b8'];
 
   return (
     <div className="space-y-6 pb-12">
@@ -205,19 +206,17 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white border border-amber-200/80 bg-gradient-to-br from-amber-50/40 to-white rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-amber-900 flex items-center gap-1">
-              <span>入社予定者</span>
-            </p>
-            <p className="text-xl font-extrabold text-amber-600 mt-1">
+            <p className="text-xs font-medium text-slate-500">入社予定者</p>
+            <p className="text-xl font-bold text-slate-900 mt-1">
               {joiningCandidates.length} <span className="text-xs text-slate-500 font-normal">名</span>
             </p>
-            <p className="text-[11px] text-amber-700 mt-1 font-semibold">
+            <p className="text-[11px] text-amber-600 mt-1 font-medium">
               内定承諾: {acceptCount}名 / フォロー中
             </p>
           </div>
-          <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
+          <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
             <UserCheck className="w-4 h-4" />
           </div>
         </div>
@@ -291,7 +290,7 @@ export const DashboardView: React.FC = () => {
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-100 to-slate-200 text-indigo-700 font-extrabold text-sm flex items-center justify-center border-2 border-white shadow-xs">
+                      <div className="w-11 h-11 rounded-full bg-indigo-100 text-indigo-700 font-extrabold text-sm flex items-center justify-center border-2 border-white shadow-xs">
                         {c.name.slice(0, 1)}
                       </div>
                     )}
@@ -428,12 +427,12 @@ export const DashboardView: React.FC = () => {
                     <td className="py-3.5 px-3 text-center">
                       <div className="space-y-1">
                         {(matrixDisplayMode === 'both' || matrixDisplayMode === 'count') && (
-                          <div className="font-extrabold text-sm text-blue-950 font-mono">
+                          <div className="font-extrabold text-sm text-indigo-950 font-mono">
                             {m.documentPassCount} <span className="text-xs font-normal text-slate-500">名</span>
                           </div>
                         )}
                         {(matrixDisplayMode === 'both' || matrixDisplayMode === 'rate') && (
-                          <span className="inline-block bg-blue-50 text-blue-700 border border-blue-200 font-bold px-2 py-0.5 rounded text-xs font-mono">
+                          <span className="inline-block bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold px-2 py-0.5 rounded text-xs font-mono">
                             {m.documentPassRate}%
                           </span>
                         )}
@@ -511,7 +510,7 @@ export const DashboardView: React.FC = () => {
                     {/* Overall Yield */}
                     <td className="py-3.5 px-3 text-center font-mono">
                       <div className="inline-flex flex-col items-center">
-                        <div className="bg-emerald-600 text-white border border-emerald-700 px-2.5 py-1 rounded-lg font-black text-xs shadow-2xs">
+                        <div className="bg-indigo-600 text-white border border-indigo-700 px-2.5 py-1 rounded-lg font-black text-xs shadow-2xs">
                           {m.overallYieldRate}%
                         </div>
                         <span className="text-[10px] text-slate-500 font-bold mt-1">
@@ -528,7 +527,7 @@ export const DashboardView: React.FC = () => {
                           <span>優良（高承諾）</span>
                         </span>
                       ) : m.totalApplications > 0 ? (
-                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
+                        <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
                           選考進行中
                         </span>
                       ) : (
@@ -566,8 +565,8 @@ export const DashboardView: React.FC = () => {
                     </td>
                     <td className="py-3 px-3 text-center">
                       <div className="space-y-0.5">
-                        <div className="font-extrabold text-sm text-blue-950 font-mono">{totalDocPassCount} 名</div>
-                        <span className="inline-block bg-blue-200/80 text-blue-900 font-extrabold px-2 py-0.5 rounded text-xs font-mono">
+                        <div className="font-extrabold text-sm text-indigo-950 font-mono">{totalDocPassCount} 名</div>
+                        <span className="inline-block bg-indigo-200/80 text-indigo-900 font-extrabold px-2 py-0.5 rounded text-xs font-mono">
                           {avgDocRate}%
                         </span>
                       </div>
@@ -687,7 +686,7 @@ export const DashboardView: React.FC = () => {
                 <button
                   onClick={() => setTrendMetric('acceptances')}
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                    trendMetric === 'acceptances' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    trendMetric === 'acceptances' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   承諾数
@@ -695,7 +694,7 @@ export const DashboardView: React.FC = () => {
                 <button
                   onClick={() => setTrendMetric('both')}
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                    trendMetric === 'both' ? 'bg-white text-amber-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    trendMetric === 'both' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   対比
@@ -739,7 +738,7 @@ export const DashboardView: React.FC = () => {
                     contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '8px', color: '#0f172a', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
                   <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                  <Bar dataKey="推薦数 (応募)" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar dataKey="推薦数 (応募)" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={20} />
                   <Bar dataKey="内定承諾数" fill="#10b981" radius={[4, 4, 0, 0]} barSize={20} />
                 </BarChart>
               ) : chartType === 'line' ? (
@@ -802,12 +801,12 @@ export const DashboardView: React.FC = () => {
           <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
             <div>
               <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
                 月別・エージェント別 推薦数（応募件数）の推移
               </h4>
               <p className="text-[11px] text-slate-500">毎月の各エージェントからの候補者推薦件数の月次グラフ</p>
             </div>
-            <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
               推薦数
             </span>
           </div>

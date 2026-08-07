@@ -374,7 +374,7 @@ export const AgencyMasterView: React.FC = () => {
                     <div className="grid grid-cols-2 gap-2 text-xs text-slate-700 bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 mb-3">
                       <div>
                         <span className="text-[10px] text-slate-500 block">紹介手数料率:</span>
-                        <span className="font-bold text-amber-600 text-xs">{agency.commissionRate}%</span>
+                        <span className="font-bold text-slate-900 text-xs">{agency.commissionRate}%</span>
                       </div>
                       <div>
                         <span className="text-[10px] text-slate-500 block">月間目標推薦数:</span>
@@ -409,7 +409,7 @@ export const AgencyMasterView: React.FC = () => {
                               <div className="flex items-center gap-1.5 font-bold text-slate-800 truncate">
                                 <span>{c.name || '担当者名未設定'}</span>
                                 {c.isPrimary && (
-                                  <span className="bg-rose-50 text-rose-600 border border-rose-200 text-[9px] px-1 py-0.2 rounded font-mono font-bold shrink-0">
+                                  <span className="bg-indigo-100 text-indigo-700 border border-indigo-200 text-[9px] px-1 py-0.2 rounded font-mono font-bold shrink-0">
                                     メイン窓口
                                   </span>
                                 )}
@@ -575,7 +575,7 @@ export const AgencyMasterView: React.FC = () => {
       {/* Add / Edit Agency Modal */}
       {isAgencyModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl p-6 shadow-xl animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-lg text-slate-900 mb-4">
               {editingAgency ? 'エージェント情報の編集' : '新規エージェント登録'}
             </h3>
@@ -791,7 +791,7 @@ export const AgencyMasterView: React.FC = () => {
       {/* Add / Edit Staff Modal */}
       {isStaffModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in-95">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-xl animate-in fade-in zoom-in-95">
             <h3 className="font-bold text-lg text-slate-900 mb-4">
               {editingStaff ? '採用担当者情報の編集' : '新規社内採用担当者の追加'}
             </h3>
@@ -878,7 +878,7 @@ export const AgencyMasterView: React.FC = () => {
       {/* Delete Confirmation Modal */}
       {deleteConfirmTarget && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-6 shadow-xl space-y-4">
             <div className="flex items-center gap-3 text-rose-600">
               <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
                 <Trash2 className="w-5 h-5" />

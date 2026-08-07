@@ -16,11 +16,11 @@ import {
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<SelectionPhase, { label: string; bg: string; text: string; border: string }> = {
-  CASUAL_INTERVIEW: { label: '面談', bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
-  DOCUMENT_SCREENING: { label: '書類', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  FIRST_INTERVIEW: { label: '1次面接', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
-  SECOND_INTERVIEW: { label: '2次面接', bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
-  FINAL_INTERVIEW: { label: '最終面接', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
+  CASUAL_INTERVIEW: { label: '面談', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
+  DOCUMENT_SCREENING: { label: '書類', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
+  FIRST_INTERVIEW: { label: '1次面接', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
+  SECOND_INTERVIEW: { label: '2次面接', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
+  FINAL_INTERVIEW: { label: '最終面接', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
   OFFER_ISSUED: { label: '内定提示', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   OFFER_ACCEPTED: { label: '承諾', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   REJECTED_DECLINED: { label: '辞退/不採用', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' }
@@ -323,7 +323,7 @@ export const InterviewScheduleCalendar: React.FC<InterviewScheduleCalendarProps>
                               e.stopPropagation();
                               setSelectedCandidateId(c.id);
                             }}
-                            className={`p-1 rounded text-[10px] font-medium border transition-all hover:scale-[1.02] cursor-pointer shadow-2xs truncate flex items-center justify-between gap-1 ${phaseInfo.bg} ${phaseInfo.text} ${phaseInfo.border}`}
+                            className={`p-1 rounded text-[10px] font-medium border transition-colors cursor-pointer shadow-2xs truncate flex items-center justify-between gap-1 ${phaseInfo.bg} ${phaseInfo.text} ${phaseInfo.border}`}
                             title={`${c.name} (${phaseInfo.label}) - クリックして詳細開く`}
                           >
                             <span className="font-bold truncate">{c.name}</span>

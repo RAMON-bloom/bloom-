@@ -24,62 +24,64 @@ import {
   Coffee
 } from 'lucide-react';
 
+// Color is reserved for real outcomes (accepted / rejected). Every in-progress phase shares one
+// neutral slate treatment so the board reads by label, not by a rainbow of column colors.
 const COLUMNS: { phase: SelectionPhase; label: string; icon: React.FC<{ className?: string }>; color: string; headerBg: string }[] = [
-  { 
-    phase: 'DOCUMENT_SCREENING', 
-    label: '書類選考', 
-    icon: FileText, 
-    color: 'text-blue-600', 
-    headerBg: 'bg-blue-50/90 border-blue-200 text-blue-900' 
+  {
+    phase: 'DOCUMENT_SCREENING',
+    label: '書類選考',
+    icon: FileText,
+    color: 'text-slate-500',
+    headerBg: 'bg-slate-50 border-slate-200 text-slate-800'
   },
-  { 
-    phase: 'CASUAL_INTERVIEW', 
-    label: 'カジュアル面談', 
-    icon: Coffee, 
-    color: 'text-teal-600', 
-    headerBg: 'bg-teal-50/90 border-teal-200 text-teal-900' 
+  {
+    phase: 'CASUAL_INTERVIEW',
+    label: 'カジュアル面談',
+    icon: Coffee,
+    color: 'text-slate-500',
+    headerBg: 'bg-slate-50 border-slate-200 text-slate-800'
   },
-  { 
-    phase: 'FIRST_INTERVIEW', 
-    label: '1次面接', 
-    icon: UserCheck, 
-    color: 'text-indigo-600', 
-    headerBg: 'bg-indigo-50/90 border-indigo-200 text-indigo-900' 
+  {
+    phase: 'FIRST_INTERVIEW',
+    label: '1次面接',
+    icon: UserCheck,
+    color: 'text-slate-500',
+    headerBg: 'bg-slate-50 border-slate-200 text-slate-800'
   },
-  { 
-    phase: 'SECOND_INTERVIEW', 
-    label: '2次面接', 
-    icon: UserCheck, 
-    color: 'text-cyan-600', 
-    headerBg: 'bg-cyan-50/90 border-cyan-200 text-cyan-900' 
+  {
+    phase: 'SECOND_INTERVIEW',
+    label: '2次面接',
+    icon: UserCheck,
+    color: 'text-slate-500',
+    headerBg: 'bg-slate-50 border-slate-200 text-slate-800'
   },
-  { 
-    phase: 'FINAL_INTERVIEW', 
-    label: '最終面接', 
-    icon: Award, 
-    color: 'text-purple-600', 
-    headerBg: 'bg-purple-50/90 border-purple-200 text-purple-900' 
+  {
+    phase: 'FINAL_INTERVIEW',
+    label: '最終面接',
+    icon: Award,
+    color: 'text-slate-500',
+    headerBg: 'bg-slate-50 border-slate-200 text-slate-800'
   },
-  { 
-    phase: 'OFFER_ISSUED', 
-    label: '内定', 
-    icon: Award, 
-    color: 'text-amber-600', 
-    headerBg: 'bg-amber-50/90 border-amber-200 text-amber-900' 
+  {
+    phase: 'OFFER_ISSUED',
+    label: '内定',
+    icon: Award,
+    color: 'text-indigo-600',
+    headerBg: 'bg-indigo-50 border-indigo-200 text-indigo-900'
   },
-  { 
-    phase: 'OFFER_ACCEPTED', 
-    label: '承諾', 
-    icon: CheckCircle2, 
-    color: 'text-emerald-600', 
-    headerBg: 'bg-emerald-50/90 border-emerald-200 text-emerald-900' 
+  {
+    phase: 'OFFER_ACCEPTED',
+    label: '承諾',
+    icon: CheckCircle2,
+    color: 'text-emerald-600',
+    headerBg: 'bg-emerald-50 border-emerald-200 text-emerald-900'
   },
-  { 
-    phase: 'REJECTED_DECLINED', 
-    label: '辞退 / 不採用', 
-    icon: XCircle, 
-    color: 'text-rose-600', 
-    headerBg: 'bg-rose-50/90 border-rose-200 text-rose-900' 
+  {
+    phase: 'REJECTED_DECLINED',
+    label: '辞退 / 不採用',
+    icon: XCircle,
+    color: 'text-rose-600',
+    headerBg: 'bg-rose-50 border-rose-200 text-rose-900'
   }
 ];
 
@@ -87,30 +89,21 @@ export const isFirstInterviewOrAbove = (phase: SelectionPhase) => {
   return ['FIRST_INTERVIEW', 'SECOND_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(phase);
 };
 
+// One uniform badge style for every position — they're distinguished by their label, not by hue.
 export const getPositionBadge = (pos: string, bcaDept?: 'F+' | 'AC' | 'BOTH') => {
-  switch (pos) {
-    case 'EC':
-      return <span className="bg-blue-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">EC</span>;
-    case 'BP':
-      return <span className="bg-emerald-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">BP</span>;
-    case 'AIX':
-      return <span className="bg-purple-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">AIX</span>;
-    case 'BRE':
-      return <span className="bg-amber-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">BRE</span>;
-    case 'BCA':
-      return (
-        <span className="inline-flex items-center gap-1 bg-indigo-700 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">
-          <span>BCA</span>
-          {bcaDept && (
-            <span className="bg-indigo-950 text-indigo-100 text-[10px] font-bold px-1 rounded">
-              {bcaDept === 'BOTH' ? 'F+/AC' : bcaDept}
-            </span>
-          )}
-        </span>
-      );
-    default:
-      return <span className="bg-indigo-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs">{pos}</span>;
+  if (pos === 'BCA') {
+    return (
+      <span className="inline-flex items-center gap-1 bg-indigo-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">
+        <span>BCA</span>
+        {bcaDept && (
+          <span className="bg-indigo-800 text-indigo-100 text-[10px] font-bold px-1 rounded">
+            {bcaDept === 'BOTH' ? 'F+/AC' : bcaDept}
+          </span>
+        )}
+      </span>
+    );
   }
+  return <span className="bg-indigo-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">{pos}</span>;
 };
 
 export const KanbanView: React.FC = () => {
@@ -153,15 +146,15 @@ export const KanbanView: React.FC = () => {
         );
       case 'PROPOSING_DATES':
         return (
-          <div className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
-            <Clock className="w-3 h-3 text-blue-600 animate-pulse shrink-0" />
+          <div className="flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
+            <Clock className="w-3 h-3 text-indigo-600 animate-pulse shrink-0" />
             <span>候補日提示中</span>
           </div>
         );
       case 'WAITING_RESULT':
         return (
-          <div className="flex items-center gap-1 bg-purple-50 text-purple-700 border border-purple-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
-            <Clock className="w-3 h-3 text-purple-600 shrink-0" />
+          <div className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-[11px] px-2 py-0.5 rounded-full font-medium">
+            <Clock className="w-3 h-3 text-amber-600 shrink-0" />
             <span>結果待ち</span>
           </div>
         );

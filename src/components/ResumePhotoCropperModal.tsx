@@ -74,7 +74,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
       setIsAiScanning(false);
       setZoom(135);
       setRotation(0);
-      setScanMessage('✨ AIが履歴書の顔写真枠 (右上3:4エリア) を自動検知・切り抜き完了');
+      setScanMessage('AIが履歴書の顔写真枠 (右上3:4エリア) を自動検知・切り抜き完了');
     }, 1200);
   };
 
@@ -85,7 +85,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
           <div className="flex items-center gap-2.5">
@@ -112,10 +112,10 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/30">
           {/* AI Auto Crop Banner */}
-          <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900 text-white rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md">
+          <div className="bg-indigo-600 text-white rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/10 rounded-lg shrink-0">
-                <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
+                <Sparkles className="w-5 h-5 text-white" />
               </div>
               <div>
                 <p className="font-bold text-sm">履歴書AI顔認識・自動切り抜き</p>
@@ -171,9 +171,9 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
                       証明写真枠
                     </span>
 
-                    {/* Laser Scanner Effect when AI is running */}
+                    {/* Scanner Effect when AI is running */}
                     {isAiScanning && (
-                      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-indigo-500/40 to-transparent animate-pulse z-20 border-t-2 border-indigo-400"></div>
+                      <div className="absolute inset-0 bg-indigo-500/20 animate-pulse z-20 border-t-2 border-indigo-400"></div>
                     )}
 
                     {/* Cropped Photo inside resume box */}
@@ -237,7 +237,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
 
                   {/* Header circle preview */}
                   <div className="flex flex-col items-center gap-1">
-                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md ring-2 ring-indigo-200">
+                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-200 shadow-md">
                       <img
                         src={selectedImage}
                         alt="Header Avatar"
@@ -360,8 +360,8 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
                         key={sample.id}
                         type="button"
                         onClick={() => setSelectedImage(sample.url)}
-                        className={`w-9 h-11 rounded overflow-hidden border-2 transition-all cursor-pointer ${
-                          selectedImage === sample.url ? 'border-indigo-600 ring-2 ring-indigo-300 scale-105' : 'border-slate-200 opacity-70 hover:opacity-100'
+                        className={`w-9 h-11 rounded overflow-hidden border-2 transition-colors cursor-pointer ${
+                          selectedImage === sample.url ? 'border-indigo-600' : 'border-slate-200 opacity-70 hover:opacity-100'
                         }`}
                       >
                         <img src={sample.url} alt={sample.label} className="w-full h-full object-cover" referrerPolicy="no-referrer" />

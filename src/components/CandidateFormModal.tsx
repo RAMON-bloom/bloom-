@@ -228,7 +228,7 @@ export const CandidateFormModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-xl p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-xl p-6 shadow-sm animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
@@ -606,7 +606,7 @@ export const CandidateFormModal: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsAddModalOpen(false)}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer font-medium"
+              className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-lg cursor-pointer font-medium"
             >
               キャンセル
             </button>

@@ -63,7 +63,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
             {isFiltered && (
               <button
                 onClick={handleResetFilters}
-                className="flex items-center gap-1 text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer font-bold text-[11px]"
+                className="flex items-center gap-1 text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer font-bold text-[11px]"
               >
                 <X className="w-3.5 h-3.5" />
                 <span>全条件リセット</span>
@@ -140,7 +140,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
         {/* Agency Select Box */}
         <div className="bg-slate-50/60 border border-slate-200 rounded-xl p-2 flex flex-col justify-between space-y-1">
           <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-            <Building2 className="w-3 h-3 text-blue-600" />
+            <Building2 className="w-3 h-3 text-slate-400" />
             <span>エージェント</span>
           </label>
           <select
@@ -160,7 +160,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
         {/* Schedule Status Select Box */}
         <div className="bg-slate-50/60 border border-slate-200 rounded-xl p-2 flex flex-col justify-between space-y-1">
           <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-            <Clock className="w-3 h-3 text-amber-600" />
+            <Clock className="w-3 h-3 text-slate-400" />
             <span>次回調整状況</span>
           </label>
           <select
@@ -179,7 +179,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
         {/* Applied Month Select Box */}
         <div className="bg-slate-50/60 border border-slate-200 rounded-xl p-2 flex flex-col justify-between space-y-1">
           <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-            <Calendar className="w-3 h-3 text-indigo-600" />
+            <Calendar className="w-3 h-3 text-slate-400" />
             <span>応募月</span>
           </label>
           <select
@@ -200,7 +200,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
         {showPhaseFilter && (
           <div className="bg-slate-50/60 border border-slate-200 rounded-xl p-2 flex flex-col justify-between space-y-1">
             <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-              <Layers className="w-3 h-3 text-emerald-600" />
+              <Layers className="w-3 h-3 text-slate-400" />
               <span>選考フェーズ</span>
             </label>
             <select
@@ -268,8 +268,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
             }}
             className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
               filters.positions.includes('EC') && filters.positions.includes('BP')
-                ? 'bg-amber-500 text-white shadow-2xs ring-2 ring-amber-300'
-                : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+                ? 'bg-slate-800 text-white shadow-2xs ring-2 ring-slate-400/50'
+                : 'bg-slate-50 text-slate-700 border border-slate-300 hover:bg-slate-100'
             }`}
             title="ECとBPを同時一括選択/解除"
           >

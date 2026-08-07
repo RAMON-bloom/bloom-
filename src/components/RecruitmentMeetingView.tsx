@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileText, 
   Calendar, 
@@ -99,11 +99,15 @@ export const RecruitmentMeetingView: React.FC = () => {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
-  // Scrolls the detail pane back into view on every switch, so picking a different card from
+  // Scrolls back to the top of the page on every switch, so picking a different card from
   // lower in a long list doesn't leave the (now-updated) header off-screen and unnoticed.
-  const detailTopRef = useRef<HTMLDivElement>(null);
+  // Instant, not smooth: an animated scroll plays out over several frames, and the browser's
+  // scroll-anchoring compensates mid-animation as the newly selected meeting's (differently
+  // sized) content lands above the fold, fighting the animation and settling somewhere other
+  // than the top entirely. Jumping straight there after the DOM has already committed sidesteps
+  // that race.
   useEffect(() => {
-    detailTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.scrollTo(0, 0);
   }, [selectedMeetingId]);
 
   const handleSaveNotes = (label?: string) => {
@@ -502,7 +506,7 @@ export const RecruitmentMeetingView: React.FC = () => {
         </div>
 
         {/* ACTIVE MEETING DETAIL */}
-        <div ref={detailTopRef} className="flex-1 min-w-0 space-y-4">
+        <div className="flex-1 min-w-0 space-y-4">
 
       {/* HEADER & CONTROL BAR */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">

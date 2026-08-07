@@ -138,8 +138,10 @@ export const DashboardView: React.FC = () => {
     };
   });
 
-  // Agencies are categories, not states — differentiate using indigo shades/opacity only
-  const agencyChartColors = ['#4f46e5', '#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#94a3b8'];
+  // Agencies are distinct categories, so each gets its own hue rather than shades of one
+  // color — order is a validated colorblind-safe categorical sequence, kept fixed (never
+  // reassigned by rank) so a given agency's color doesn't shift as filters change.
+  const agencyChartColors = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
 
   return (
     <div className="space-y-6 pb-12">

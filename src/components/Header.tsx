@@ -183,29 +183,31 @@ export const Header: React.FC = () => {
       {/* Navigation Tabs Bar */}
       <div className="border-t border-slate-200 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex items-center justify-between overflow-x-auto no-scrollbar">
-          <nav className="flex space-x-4 sm:space-x-6">
+          <nav className="flex items-end space-x-4 sm:space-x-6">
             {[
-              { tab: 'kanban' as ActiveTab, icon: Kanban, label: '選考サマリ', count: filteredCandidates.length },
-              { tab: 'list' as ActiveTab, icon: ListFilter, label: '候補者一覧テーブル' },
-              { tab: 'recruitment_meeting' as ActiveTab, icon: null, label: '採用MTG' },
+              { tab: 'kanban' as ActiveTab, icon: Kanban, label: '選考サマリ', count: filteredCandidates.length, primary: true },
+              { tab: 'list' as ActiveTab, icon: ListFilter, label: '候補者一覧テーブル', primary: true },
+              { tab: 'recruitment_meeting' as ActiveTab, icon: Users, label: '採用MTG', primary: true },
               { tab: 'dashboard' as ActiveTab, icon: BarChart3, label: '分析ダッシュボード' },
               { tab: 'onboarding' as ActiveTab, icon: UserCheck, label: '入社予定者管理', count: joiningScheduledCount || undefined },
               { tab: 'archived' as ActiveTab, icon: Archive, label: '過去候補者一覧', count: archivedCandidates.length || undefined },
               { tab: 'agency_master' as ActiveTab, icon: Building2, label: 'エージェントマスタ' }
-            ].map(({ tab, icon: Icon, label, count }) => (
+            ].map(({ tab, icon: Icon, label, count, primary }) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`flex items-center gap-1.5 py-2.5 text-xs sm:text-sm whitespace-nowrap cursor-pointer border-b-2 transition-colors ${
+                className={`flex items-center gap-1.5 whitespace-nowrap cursor-pointer border-b-2 transition-colors ${
+                  primary ? 'py-3 text-sm sm:text-base' : 'py-2.5 text-xs sm:text-sm'
+                } ${
                   activeTab === tab
-                    ? 'text-indigo-600 font-semibold border-indigo-600'
-                    : 'text-slate-500 hover:text-slate-800 border-transparent'
+                    ? `text-indigo-600 border-indigo-600 ${primary ? 'font-bold' : 'font-semibold'}`
+                    : `border-transparent ${primary ? 'text-slate-700 hover:text-slate-900 font-bold' : 'text-slate-500 hover:text-slate-800 font-medium'}`
                 }`}
               >
-                {Icon && <Icon className="w-4 h-4" />}
+                {Icon && <Icon className={primary ? 'w-5 h-5' : 'w-4 h-4'} />}
                 <span>{label}</span>
                 {count !== undefined && (
-                  <span className={`text-[11px] px-1.5 rounded-full font-mono ${
+                  <span className={`${primary ? 'text-xs px-2' : 'text-[11px] px-1.5'} rounded-full font-mono ${
                     activeTab === tab ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500'
                   }`}>
                     {count}

@@ -34,6 +34,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     meetingLogs,
     addMeetingLog,
     updateMeetingLog,
+    deleteMeetingLog,
     staffList,
     candidates,
     agencies,
@@ -42,6 +43,8 @@ export const RecruitmentMeetingView: React.FC = () => {
     driveAccessToken,
     connectDrive
   } = useATS();
+
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; title: string } | null>(null);
 
   // Selected Meeting Date/Log
   const [selectedMeetingId, setSelectedMeetingId] = useState<string>(
@@ -475,11 +478,10 @@ export const RecruitmentMeetingView: React.FC = () => {
               .join(' ');
 
             return (
-              <button
+              <div
                 key={m.id}
-                type="button"
                 onClick={() => setSelectedMeetingId(m.id)}
-                className={`w-full text-left p-3 rounded-xl border transition-colors cursor-pointer ${
+                className={`w-full text-left p-3 rounded-xl border transition-colors cursor-pointer group ${
                   isActive
                     ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-200'
                     : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
@@ -490,17 +492,30 @@ export const RecruitmentMeetingView: React.FC = () => {
                     <Calendar className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
                     <span className="truncate">{m.title}</span>
                   </div>
-                  {isActive && (
-                    <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.2 rounded-full">
-                      <CheckCircle2 className="w-3 h-3" />
-                      表示中
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {isActive && (
+                      <span className="flex items-center gap-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.2 rounded-full">
+                        <CheckCircle2 className="w-3 h-3" />
+                        表示中
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteConfirmTarget({ id: m.id, title: m.title });
+                      }}
+                      title={`${m.title} のMTGログを削除`}
+                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 cursor-pointer transition-opacity"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
                   {summaryExcerpt || '概要未入力'}
                 </p>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -1294,6 +1309,47 @@ export const RecruitmentMeetingView: React.FC = () => {
 
         </div>
       </div>
+
+      {/* DELETE MEETING LOG CONFIRMATION MODAL */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">MTGログの削除</h3>
+                <p className="text-xs text-slate-500 mt-0.5">本当に削除してもよろしいですか？</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">
+              対象: <span className="font-bold text-slate-900">{deleteConfirmTarget.title}</span>
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmTarget(null)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg cursor-pointer font-medium"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteMeetingLog(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer"
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* NEW MEETING LOG MODAL */}
       {isNewMeetingModalOpen && (

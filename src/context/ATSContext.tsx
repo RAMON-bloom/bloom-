@@ -57,6 +57,7 @@ interface ATSContextType {
   meetingLogs: MeetingLog[];
   addMeetingLog: (log: Omit<MeetingLog, 'id'>) => string;
   updateMeetingLog: (log: MeetingLog) => void;
+  deleteMeetingLog: (id: string) => void;
   
   // Actions
   updateCandidatePhase: (candidateId: string, newPhase: SelectionPhase) => void;
@@ -199,6 +200,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateMeetingLog = (updatedLog: MeetingLog) => {
     setMeetingLogs((prev) => prev.map((m) => (m.id === updatedLog.id ? updatedLog : m)));
     showToast(`MTGログを更新しました`, 'info');
+  };
+
+  const deleteMeetingLog = (id: string) => {
+    const target = meetingLogs.find((m) => m.id === id);
+    setMeetingLogs((prev) => prev.filter((m) => m.id !== id));
+    showToast(`MTGログ 「${target?.title || ''}」 を削除しました`, 'info');
   };
 
   const showToast = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
@@ -900,6 +907,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         meetingLogs,
         addMeetingLog,
         updateMeetingLog,
+        deleteMeetingLog,
         updateCandidatePhase,
         updateCandidateSchedule,
         updateOnboardingInfo,

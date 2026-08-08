@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase } from '../types';
+import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { 
   Sparkles, 
   Calendar as CalendarIcon, 
@@ -71,11 +72,10 @@ export const OnboardingView: React.FC = () => {
     return `${y}-${m}-${day}`;
   };
 
-  // Filter onboarding candidates (joining date set or OFFER_ACCEPTED / OFFER_ISSUED)
+  // Filter onboarding candidates (joining date set or OFFER_ACCEPTED / OFFER_ISSUED; excludes
+  // REJECTED_DECLINED even if joiningDate was set before they declined)
   const allJoiningCandidates = useMemo(() => {
-    return candidates.filter(
-      (c) => c.joiningDate || c.phase === 'OFFER_ACCEPTED' || c.phase === 'OFFER_ISSUED'
-    );
+    return candidates.filter(isJoiningScheduled);
   }, [candidates]);
 
   // Filtered Onboarding Candidates list according to filters

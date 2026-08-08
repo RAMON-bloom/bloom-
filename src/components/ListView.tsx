@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
 import { SelectionPhase, ScheduleStatus, EvaluationGrade } from '../types';
+import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { FilterBar } from './FilterBar';
 import { InterviewScheduleCalendar } from './InterviewScheduleCalendar';
 import { renderGradeBadge } from './CandidateDetailModal';
@@ -258,9 +259,7 @@ export const ListView: React.FC = () => {
     activeFilterLabels.push(`検索: "${filters.searchQuery}"`);
   }
 
-  const joiningScheduledCount = baseFilteredCandidates.filter(
-    (c) => c.joiningDate || c.phase === 'OFFER_ACCEPTED' || c.phase === 'OFFER_ISSUED'
-  ).length;
+  const joiningScheduledCount = baseFilteredCandidates.filter(isJoiningScheduled).length;
 
   const phaseCardsConfig: {
     key: SelectionPhase | 'ALL' | 'JOINING_SCHEDULED';

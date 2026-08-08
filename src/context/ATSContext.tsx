@@ -31,6 +31,7 @@ import {
   notifyDocScreeningNudge as notifyDocScreeningNudgeApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
+import { isJoiningScheduled } from '../lib/onboardingUtils';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -234,19 +235,24 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs };
   });
 
-  // Auto-backs-up to Drive a few seconds after MTG logs, agencies, or staff stop changing, so
-  // none of these only reach the team's shared Drive copy if someone remembers to click
-  //「Driveにバックアップ」afterward. Originally scoped to meetingLogs only; agencies/staffList were
-  // added because their edits previously never triggered a Drive write at all (not even
+  // Auto-backs-up to Drive a few seconds after candidates, MTG logs, agencies, or staff stop
+  // changing, so none of these only reach the team's shared Drive copy if someone remembers to
+  // click「Driveにバックアップ」afterward. Originally scoped to meetingLogs only; agencies/staffList
+  // were added because their edits previously never triggered a Drive write at all (not even
   // debounced) — a user could add/edit an agency or 採用担当者 and it would sit only in their own
   // browser's localStorage until someone happened to touch a meeting log or click the manual
-  // backup button. candidates deliberately stays out of this dependency list (changes far more
-  // often — every phase drag, every field edit — which would defeat the point of debouncing), but
-  // since the backup file is one shared JSON blob rather than per-domain, each write still carries
-  // the current candidates along for free. Skips the very first run (mount/initial hydration,
-  // including the auto-restore below populating these from Drive, is not a "change" worth writing
-  // straight back), and only failures get a toast — success is meant to be invisible, matching
-  // what "automatic" implies.
+  // backup button. candidates was deliberately left out for the same reason (changes far more
+  // often — every phase drag, every field edit), on the assumption that since the backup file is
+  // one shared JSON blob, each write would still carry the current candidates along "for free" —
+  // but that assumption breaks whenever a session touches only candidates and nothing else (e.g.
+  // just dragging someone to 辞退/不採用 and closing the tab): with candidates absent from this
+  // list, that phase change never got backed up at all, so the next login's auto-restore below
+  // would silently overwrite it with whatever stale phase (often still DOCUMENT_SCREENING, its
+  // very first backed-up state) was last actually written. candidates is included here now so a
+  // phase change is never more than a few seconds from being safe on Drive, same as the others.
+  // Skips the very first run (mount/initial hydration, including the auto-restore below populating
+  // these from Drive, is not a "change" worth writing straight back), and only failures get a
+  // toast — success is meant to be invisible, matching what "automatic" implies.
   const autoBackupMountedRef = useRef(false);
   const autoBackupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -266,7 +272,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     };
-  }, [agencies, staffList, meetingLogs, driveAccessToken]);
+  }, [candidates, agencies, staffList, meetingLogs, driveAccessToken]);
 
   // Auto-restores from Drive once per login. Without this, candidates/agencies/staffList/
   // meetingLogs were seeded purely from this browser's own localStorage (or, on a brand-new
@@ -1130,7 +1136,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (filters.scheduleStatus !== 'ALL' && c.scheduleStatus !== filters.scheduleStatus) return false;
     if (filters.phase !== 'ALL') {
       if (filters.phase === 'JOINING_SCHEDULED') {
-        if (!c.joiningDate && c.phase !== 'OFFER_ACCEPTED' && c.phase !== 'OFFER_ISSUED') return false;
+        if (!isJoiningScheduled(c)) return false;
       } else if (c.phase !== filters.phase) {
         return false;
       }

@@ -23,6 +23,7 @@ import {
 import { useATS, ActiveTab } from '../context/ATSContext';
 import { UserRole } from '../types';
 import { AttentionPanel } from './AttentionPanel';
+import { isJoiningScheduled } from '../lib/onboardingUtils';
 
 export const Header: React.FC = () => {
   const {
@@ -51,9 +52,7 @@ export const Header: React.FC = () => {
 
   const [isDriveMenuOpen, setIsDriveMenuOpen] = useState(false);
 
-  const joiningScheduledCount = candidates.filter(
-    (c) => c.joiningDate || c.phase === 'OFFER_ACCEPTED' || c.phase === 'OFFER_ISSUED'
-  ).length;
+  const joiningScheduledCount = candidates.filter(isJoiningScheduled).length;
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFilters((prev) => ({ ...prev, searchQuery: e.target.value }));
   };

@@ -40,6 +40,7 @@ export const ArchivedListView: React.FC = () => {
   } = useATS();
 
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   return (
     <div className="space-y-6 pb-12">
@@ -250,20 +251,27 @@ export const ArchivedListView: React.FC = () => {
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
+                disabled={isDeleting}
                 onClick={() => setDeleteConfirmTarget(null)}
-                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg cursor-pointer font-medium"
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg cursor-pointer font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 キャンセル
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  permanentlyDeleteCandidate(deleteConfirmTarget.id);
-                  setDeleteConfirmTarget(null);
+                disabled={isDeleting}
+                onClick={async () => {
+                  setIsDeleting(true);
+                  // Drive cleanup is awaited inside permanentlyDeleteCandidate; the modal stays
+                  // open on failure (with the warning toast explaining why) so the user can just
+                  // retry, instead of the confirmation disappearing while data is still stuck.
+                  const succeeded = await permanentlyDeleteCandidate(deleteConfirmTarget.id);
+                  setIsDeleting(false);
+                  if (succeeded) setDeleteConfirmTarget(null);
                 }}
-                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer"
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                完全に削除する
+                {isDeleting ? '削除中…' : '完全に削除する'}
               </button>
             </div>
           </div>

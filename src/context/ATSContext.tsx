@@ -85,7 +85,7 @@ interface ATSContextType {
   updateCandidate: (updatedCandidate: Candidate) => void;
   deleteCandidate: (id: string) => void;
   restoreCandidate: (id: string) => void;
-  permanentlyDeleteCandidate: (id: string) => void;
+  permanentlyDeleteCandidate: (id: string) => Promise<boolean>;
   
   // Agency Actions
   addAgency: (agency: Omit<Agency, 'id'>) => void;
@@ -478,19 +478,43 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Unlike deleteCandidate (which archives, kept recoverable), this removes the record from
   // state entirely — for candidates registered by mistake that shouldn't linger even in the
   // archive. Only meaningful from the archive view, so it doesn't touch selectedCandidateId.
-  // Also removes the candidate's Drive folder (resume, CV, anything else in it) for good —
-  // fire-and-forget so a Drive hiccup doesn't block removing the record locally, matching how
-  // moveResumeFolderIfNeeded handles the same kind of best-effort Drive side effect.
-  const permanentlyDeleteCandidate = (id: string) => {
+  // Also removes every Drive item on record for this candidate: the per-candidate folder (if
+  // any), the legacy bare resume file (kept separate when it predates that folder), and any
+  // document ids tracked individually — a Set instead of `resumeDriveFolderId || resumeDriveFileId`
+  // so a candidate whose files ended up split across more than one location (e.g. an old flat
+  // file plus a folder created later for further uploads) doesn't leave the un-chosen half behind
+  // in the phase folder forever. Deleting an id that's actually inside another id also being
+  // deleted here is harmless: delete-resume treats "already gone" (404) as success.
+  // Awaits every Drive deletion before touching local state — if any of them fail, the candidate
+  // record is kept in the archive (not silently discarded) so the failure is visible and the user
+  // can retry, instead of the app losing its only handle on the leftover Drive data.
+  const permanentlyDeleteCandidate = async (id: string): Promise<boolean> => {
     const candidate = candidates.find((c) => c.id === id);
-    const driveItemId = candidate?.resumeDriveFolderId || candidate?.resumeDriveFileId;
-    if (driveAccessToken && driveItemId) {
-      deleteResumeFromDriveApi(driveAccessToken, driveItemId).catch((err: any) => {
-        showToast(`${candidate?.name || ''} さんのDriveデータの削除に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-      });
+    const driveItemIds = new Set<string>();
+    if (candidate?.resumeDriveFolderId) driveItemIds.add(candidate.resumeDriveFolderId);
+    if (candidate?.resumeDriveFileId) driveItemIds.add(candidate.resumeDriveFileId);
+    (candidate?.resumeDocuments || []).forEach((doc) => {
+      if (doc.driveFileId) driveItemIds.add(doc.driveFileId);
+    });
+
+    if (driveAccessToken && driveItemIds.size > 0) {
+      const results = await Promise.allSettled(
+        Array.from(driveItemIds).map((itemId) => deleteResumeFromDriveApi(driveAccessToken, itemId))
+      );
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed.length > 0) {
+        const reasons = failed.map((r) => r.reason?.message || '不明なエラー').join(' / ');
+        showToast(
+          `${candidate?.name || ''} さんのDriveデータの削除に失敗したため、候補者データはまだ削除していません（過去候補者一覧に残っています）。時間を置いて再度お試しください: ${reasons}`,
+          'warning'
+        );
+        return false;
+      }
     }
+
     setCandidates((prev) => prev.filter((c) => c.id !== id));
     showToast(`候補者 「${candidate?.name || ''}」 を完全に削除しました`, 'info');
+    return true;
   };
 
   // Agency Master actions

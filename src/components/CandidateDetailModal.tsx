@@ -521,12 +521,28 @@ export const CandidateDetailModal: React.FC = () => {
         }
 
         if (uploadedCount > 0) {
+          // If this candidate's resumeDriveFileId still points at a legacy flat file (uploaded
+          // before the per-candidate folder existed, or before resumeDocuments was tracked at
+          // all) and we just created/reused a folder for these new uploads, that old file id is
+          // about to be overwritten below and would otherwise become permanently unreachable —
+          // never inside the folder that move/delete operate on, and not listed anywhere the user
+          // could still open or clean it up (this is how leftover files end up stranded in a
+          // phase folder even after the candidate is later deleted for good). Fold it into
+          // resumeDocuments first so it stays visible and reachable going forward.
+          const priorDocIds = new Set((candidate.resumeDocuments || []).map((d) => d.driveFileId));
+          const legacyFileId = candidate.resumeDriveFileId;
+          const preservedLegacyDoc =
+            legacyFileId && legacyFileId !== primaryUploaded?.file.id && !priorDocIds.has(legacyFileId)
+              ? [{ name: candidate.resumeFileName || '旧履歴書ファイル', driveUrl: candidate.resumeDriveUrl || '', driveFileId: legacyFileId }]
+              : [];
+
           patch.resumeDriveFolderId = folderId || candidate.resumeDriveFolderId;
           patch.resumeDriveFileId = primaryUploaded?.file.id || candidate.resumeDriveFileId;
           patch.resumeDriveUrl = primaryUploaded?.file.webViewLink || candidate.resumeDriveUrl;
           // Appended (not replaced) — earlier uploads (from registration or a previous document
           // drop) stay selectable alongside whatever's newly added here.
           patch.resumeDocuments = [
+            ...preservedLegacyDoc,
             ...(candidate.resumeDocuments || []),
             ...allUploaded.map((u) => ({ name: u.file.name, driveUrl: u.file.webViewLink || '', driveFileId: u.file.id }))
           ];

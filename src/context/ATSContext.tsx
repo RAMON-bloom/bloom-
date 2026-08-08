@@ -502,14 +502,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCandidates((prev) => [newCandidate, ...prev]);
     showToast(`候補者 「${newCandidate.name}」（${newCandidate.id}） を新規登録しました`, 'success');
 
-    // Best-effort Google Chat notification to the assigned staff member — only for candidates
-    // starting out in 書類選考 (every brand-new registration from the form does; a Drive-import
-    // discovered sitting in a later phase folder does not, and shouldn't ping anyone as if they
-    // were just freshly assigned document screening). Silently skipped if that staff member
-    // hasn't registered a Chat webhook in the担当者マスタ yet — this is a convenience notice,
-    // not a required step, so it must never block or fail candidate registration itself.
-    if (newCandidate.phase === 'DOCUMENT_SCREENING' && newCandidate.assignees[0]) {
-      const assigneeName = newCandidate.assignees[0];
+    // Best-effort Google Chat notification to whoever is actually handling 書類選考 — the main
+    // assignee by default, or the separately-chosen documentScreeningAssignee when the registration
+    // form's "弊社主担当者が書類選考も実施する" checkbox was unchecked. Only for candidates starting
+    // out in 書類選考 (every brand-new registration from the form does; a Drive-import discovered
+    // sitting in a later phase folder does not, and shouldn't ping anyone as if they were just
+    // freshly assigned document screening). Silently skipped if that staff member hasn't registered
+    // a Chat webhook in the担当者マスタ yet — this is a convenience notice, not a required step, so
+    // it must never block or fail candidate registration itself.
+    const docScreeningAssigneeName = newCandidate.documentScreeningAssignee || newCandidate.assignees[0];
+    if (newCandidate.phase === 'DOCUMENT_SCREENING' && docScreeningAssigneeName) {
+      const assigneeName = docScreeningAssigneeName;
       const assignee = staffList.find((s) => s.name === assigneeName);
       if (assignee?.googleChatWebhookUrl) {
         notifyCandidateRegisteredApi({

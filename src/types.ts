@@ -81,6 +81,7 @@ export interface Candidate {
   agencyId: string; // Foreign key to Agency
   agencyName: string; // e.g., A社, B社, 直接応募, リファラル
   assignees: string[]; // List of internal staff names
+  documentScreeningAssignee?: string; // 弊社主担当者とは別に書類選考のみを担当する社内スタッフ名（未設定/主担当者と同一の場合は主担当者がそのまま書類選考も担当）
   phase: SelectionPhase;
   scheduleStatus: ScheduleStatus;
   nextScheduleDate?: string; // YYYY-MM-DD THH:mm

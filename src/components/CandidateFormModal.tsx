@@ -17,7 +17,11 @@ export const CandidateFormModal: React.FC = () => {
     jobTitle: '',
     appliedDate: new Date().toISOString().split('T')[0],
     agencyId: agencies[0]?.id || 'ag-1',
-    assignees: agencies[0]?.assignedStaffNames || [staffList[0]?.name || '山田 太郎'],
+    assignees: agencies[0]?.assignedStaffNames && agencies[0].assignedStaffNames.length > 0
+      ? agencies[0].assignedStaffNames
+      : [staffList[0]?.name || '山田 太郎'],
+    documentScreeningSameAsMain: true,
+    documentScreeningAssignee: '',
     phase: 'DOCUMENT_SCREENING' as SelectionPhase,
     scheduleStatus: 'UNARRANGED' as ScheduleStatus,
     salaryExpectation: '',
@@ -365,6 +369,7 @@ export const CandidateFormModal: React.FC = () => {
       agencyId: formData.agencyId,
       agencyName: selectedAgency ? selectedAgency.name : '直接応募',
       assignees: formData.assignees,
+      documentScreeningAssignee: formData.documentScreeningSameAsMain ? undefined : formData.documentScreeningAssignee || undefined,
       phase: formData.phase,
       scheduleStatus: formData.scheduleStatus,
       salaryExpectation: formData.salaryExpectation,
@@ -706,6 +711,54 @@ export const CandidateFormModal: React.FC = () => {
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* Document screening assignee override — oversized + red so it isn't missed/misclicked
+              during registration, since getting this wrong means the wrong person (or nobody) gets
+              the Google Chat 書類選考 notification. */}
+          <div className="rounded-xl border-2 border-rose-300 bg-rose-50 p-4">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={formData.documentScreeningSameAsMain}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setFormData((prev) => ({
+                    ...prev,
+                    documentScreeningSameAsMain: checked,
+                    documentScreeningAssignee: checked
+                      ? prev.documentScreeningAssignee
+                      : prev.documentScreeningAssignee ||
+                        staffList.find((s) => s.name !== prev.assignees[0])?.name ||
+                        staffList[0]?.name ||
+                        ''
+                  }));
+                }}
+                className="w-6 h-6 accent-rose-600 cursor-pointer shrink-0"
+              />
+              <span className="text-base font-bold text-rose-700">弊社主担当者が書類選考も実施する</span>
+            </label>
+
+            {!formData.documentScreeningSameAsMain && (
+              <div className="mt-3 pl-9">
+                <label className="block text-rose-700 font-bold mb-1">書類選考担当者 *</label>
+                <select
+                  required
+                  value={formData.documentScreeningAssignee}
+                  onChange={(e) => setFormData({ ...formData, documentScreeningAssignee: e.target.value })}
+                  className="w-full bg-white border-2 border-rose-300 text-slate-900 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:border-rose-500 cursor-pointer"
+                >
+                  {staffList.map((st) => (
+                    <option key={st.id} value={st.name}>
+                      {st.name} ({st.department})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-rose-600 mt-1.5 font-medium">
+                  弊社主担当者とは別に、書類選考のみを担当する採用担当者を選択してください。
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Salary expectation & skills */}

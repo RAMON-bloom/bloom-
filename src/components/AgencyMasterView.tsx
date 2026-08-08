@@ -340,7 +340,9 @@ export const AgencyMasterView: React.FC = () => {
             {agencies.map((agency) => {
               const agencyCandidateCount = candidates.filter((c) => c.agencyId === agency.id).length;
               const acceptedCount = candidates.filter((c) => c.agencyId === agency.id && c.phase === 'OFFER_ACCEPTED').length;
-              const assignedStaff = agency.assignedStaffNames || ['山田 太郎'];
+              const assignedStaff = agency.assignedStaffNames && agency.assignedStaffNames.length > 0
+                ? agency.assignedStaffNames
+                : ['山田 太郎'];
               const contacts = agency.contacts || [
                 {
                   id: 'default-1',

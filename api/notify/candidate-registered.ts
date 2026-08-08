@@ -17,11 +17,14 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: '候補者情報（名前・ID）が必要です。' });
     }
 
+    // Incoming webhooks can't resolve a real (notification-triggering) Google Chat mention —
+    // that needs each person's numeric Chat user ID via the Chat API, which this integration
+    // deliberately avoids (see api/_lib/googleChat.ts). `*@name*` is a visual-only stand-in: bold
+    // text that reads as a mention, in what's already that staff member's own personal space.
     const link = appUrl || 'https://bloom-saiyou.vercel.app';
     const text =
-      `📋 書類選考の担当になりました\n` +
+      (staffName ? `📋 *@${staffName}* さん、書類選考の担当になりました\n` : `📋 書類選考の担当になりました\n`) +
       `候補者: ${candidateName} 様 (${candidateId})\n` +
-      (staffName ? `担当: ${staffName} 様\n` : '') +
       `アプリで確認する: ${link}`;
 
     await sendGoogleChatMessage(webhookUrl, text);

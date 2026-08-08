@@ -197,6 +197,45 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('ats_meeting_logs', JSON.stringify(meetingLogs));
   }, [meetingLogs]);
 
+  // Always-fresh snapshot of everything backupToDrive bundles together, read from inside the
+  // debounced timeout below rather than captured in its closure — by the time the timeout fires,
+  // candidates/agencies/staffList may have moved on from whatever they were when the meetingLogs
+  // change that scheduled it happened, and the Drive backup should reflect the latest, not a
+  // slightly-stale snapshot from several seconds earlier.
+  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs });
+  useEffect(() => {
+    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs };
+  });
+
+  // Auto-backs-up to Drive a few seconds after MTG logs stop changing, so a week's worth of
+  // meeting notes doesn't only reach the team's shared Drive copy if someone remembers to click
+  // "Driveにバックアップ" afterward. Scoped to meetingLogs changes only (not every candidate edit,
+  // which would fire far too often) — but since the backup file is one shared JSON blob rather
+  // than per-domain, each write still carries the current candidates/agencies/staffList along for
+  // free, which is a reasonable side effect rather than a reason not to do this. Skips the very
+  // first run (mount/initial hydration is not a "change"), and only failures get a toast — success
+  // is meant to be invisible, matching what "automatic" implies.
+  const meetingLogsMountedRef = useRef(false);
+  const autoBackupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!meetingLogsMountedRef.current) {
+      meetingLogsMountedRef.current = true;
+      return;
+    }
+    if (!driveAccessToken) return;
+
+    if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
+    autoBackupTimerRef.current = setTimeout(() => {
+      backupToDriveApi(driveAccessToken, latestBackupStateRef.current).catch((err: any) => {
+        showToast(`MTGログのDrive自動バックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      });
+    }, 5000);
+
+    return () => {
+      if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
+    };
+  }, [meetingLogs, driveAccessToken]);
+
   const addMeetingLog = (newLogData: Omit<MeetingLog, 'id'>) => {
     const id = `mtg-${Date.now()}`;
     const newLog: MeetingLog = { ...newLogData, id };

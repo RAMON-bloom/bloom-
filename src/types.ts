@@ -86,6 +86,7 @@ export interface Candidate {
   scheduleStatus: ScheduleStatus;
   nextScheduleDate?: string; // YYYY-MM-DD THH:mm
   nextInterviewers?: string[]; // 次回面接官リスト (1次面接以降)
+  interviewersByPhase?: Partial<Record<SelectionPhase, string[]>>; // 選考フローの各ステップ（1次面接・2次面接など）ごとの担当面接官リスト。nextInterviewersは「次に控えている1件」用の単一枠だが、こちらはステップごとに独立して保持するため、まだ現在のフェーズに到達していないステップにも事前アサインできる
   avatarUrl?: string; // 履歴書切り抜き顔写真 URL
   resumeSummary: string; // Brief career summary
   rawResumeContent?: string; // Original resume full text / document content

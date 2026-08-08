@@ -79,6 +79,7 @@ interface ATSContextType {
     nextDate?: string,
     nextInterviewers?: string[]
   ) => void;
+  updateInterviewersForPhase: (candidateId: string, phase: SelectionPhase, interviewers: string[]) => void;
   updateOnboardingInfo: (
     candidateId: string,
     info: {
@@ -485,6 +486,25 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       })
+    );
+  };
+
+  // 選考フロー・面接調整の各ステップ（1次面接・2次面接など）ごとに独立して担当面接官を保持する。
+  // nextInterviewersは「次に控えている1件」用の単一枠のため、候補者がまだそのフェーズに到達して
+  // いないステップへの事前アサインが他のステップの値を上書きしてしまい機能しなかった
+  // （選考フロー＆面接調整タブで1次面接以降のアサインが効かないバグ）。トーストはここでは出さず、
+  // 呼び出し元（handleAddInterviewer/handleRemoveInterviewer）が個別の成功/削除トーストを出す。
+  const updateInterviewersForPhase = (candidateId: string, phase: SelectionPhase, interviewers: string[]) => {
+    setCandidates((prev) =>
+      prev.map((c) =>
+        c.id === candidateId
+          ? {
+              ...c,
+              interviewersByPhase: { ...(c.interviewersByPhase || {}), [phase]: interviewers },
+              lastUpdated: new Date().toISOString().split('T')[0]
+            }
+          : c
+      )
     );
   };
 
@@ -1336,6 +1356,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         importHistoricalMeetingLogs,
         updateCandidatePhase,
         updateCandidateSchedule,
+        updateInterviewersForPhase,
         updateOnboardingInfo,
         addEvaluationNote,
         updateEvaluationNote,

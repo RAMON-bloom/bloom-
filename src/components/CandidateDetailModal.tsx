@@ -100,7 +100,8 @@ export const CandidateDetailModal: React.FC = () => {
     selectedCandidateId, 
     setSelectedCandidateId, 
     updateCandidatePhase, 
-    updateCandidateSchedule, 
+    updateCandidateSchedule,
+    updateInterviewersForPhase,
     updateOnboardingInfo,
     addEvaluationNote,
     updateEvaluationNote,
@@ -686,19 +687,17 @@ export const CandidateDetailModal: React.FC = () => {
     updateCandidateSchedule(candidate.id, status, nextDate, nextInterviewers);
   };
 
-  const handleAddInterviewer = (interviewerName: string) => {
-    const currentList = candidate.nextInterviewers || [];
+  const handleAddInterviewer = (phase: SelectionPhase, interviewerName: string) => {
+    const currentList = candidate.interviewersByPhase?.[phase] || [];
     if (!currentList.includes(interviewerName)) {
-      const newList = [...currentList, interviewerName];
-      updateCandidateSchedule(candidate.id, candidate.scheduleStatus, candidate.nextScheduleDate, newList);
+      updateInterviewersForPhase(candidate.id, phase, [...currentList, interviewerName]);
       showToast(`面接官 「${interviewerName}」 を追加しました`, 'success');
     }
   };
 
-  const handleRemoveInterviewer = (interviewerName: string) => {
-    const currentList = candidate.nextInterviewers || [];
-    const newList = currentList.filter((name) => name !== interviewerName);
-    updateCandidateSchedule(candidate.id, candidate.scheduleStatus, candidate.nextScheduleDate, newList);
+  const handleRemoveInterviewer = (phase: SelectionPhase, interviewerName: string) => {
+    const currentList = candidate.interviewersByPhase?.[phase] || [];
+    updateInterviewersForPhase(candidate.id, phase, currentList.filter((name) => name !== interviewerName));
     showToast(`面接官 「${interviewerName}」 を削除しました`, 'warning');
   };
 
@@ -1182,9 +1181,15 @@ export const CandidateDetailModal: React.FC = () => {
                       const isCurrent = candidate.phase === stg.phase;
                       const isTarget = evalTargetPhase === stg.phase;
 
-                      // 面接官リスト (メモに記録されているか、または次回面接官リスト)
+                      // 面接官リスト: 評価メモに記録済みならそれを優先し、なければこのステップ専用の
+                      // アサイン欄(interviewersByPhase、ステップごとに独立)を見る。現在のフェーズに
+                      // 限らずどのステップにも事前アサインできる。旧データ互換として、現在のフェーズ
+                      // でinterviewersByPhaseが空の場合のみ旧来の単一枠nextInterviewersにも
+                      // フォールバックする。
                       const stepInterviewers = (latestNote && latestNote.interviewers && latestNote.interviewers.length > 0)
                         ? latestNote.interviewers
+                        : (candidate.interviewersByPhase?.[stg.phase] && candidate.interviewersByPhase[stg.phase]!.length > 0)
+                        ? candidate.interviewersByPhase[stg.phase]!
                         : (isCurrent && candidate.nextInterviewers && candidate.nextInterviewers.length > 0)
                         ? candidate.nextInterviewers
                         : (latestNote?.author ? [latestNote.author] : []);
@@ -1259,16 +1264,14 @@ export const CandidateDetailModal: React.FC = () => {
                                   >
                                     <User className="w-3 h-3 text-indigo-600" />
                                     <span>{name}</span>
-                                    {isCurrent && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoveInterviewer(name)}
-                                        className="text-slate-400 hover:text-rose-600 transition-colors"
-                                        title="削除"
-                                      >
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveInterviewer(stg.phase, name)}
+                                      className="text-slate-400 hover:text-rose-600 transition-colors"
+                                      title="削除"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
                                   </span>
                                 ))
                               ) : (
@@ -1283,11 +1286,11 @@ export const CandidateDetailModal: React.FC = () => {
                                   if (e.target.value === '__CUSTOM__') {
                                     const customName = prompt('自由アサインする面接官のお名前を入力してください:');
                                     if (customName && customName.trim()) {
-                                      handleAddInterviewer(customName.trim());
+                                      handleAddInterviewer(stg.phase, customName.trim());
                                     }
                                     e.target.value = '';
                                   } else if (e.target.value) {
-                                    handleAddInterviewer(e.target.value);
+                                    handleAddInterviewer(stg.phase, e.target.value);
                                     e.target.value = '';
                                   }
                                 }}
@@ -1398,7 +1401,7 @@ export const CandidateDetailModal: React.FC = () => {
                           className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:bg-white focus:border-indigo-500"
                         >
                           <option value="DOCUMENT_SCREENING">書類選考</option>
-                          <option value="CASUAL_INTERVIEW">面談</option>
+                          <option value="CASUAL_INTERVIEW">カジュアル面談</option>
                           <option value="FIRST_INTERVIEW">1次面接</option>
                           <option value="SECOND_INTERVIEW">2次面接</option>
                           <option value="FINAL_INTERVIEW">最終面接</option>

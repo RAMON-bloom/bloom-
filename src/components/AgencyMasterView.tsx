@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
 import { Agency, InternalStaff, AgencyContact } from '../types';
-import { 
-  Building2, 
-  Plus, 
-  Mail, 
-  Percent, 
-  Target, 
-  CheckCircle, 
-  XCircle, 
-  Edit3, 
+import {
+  Building2,
+  Plus,
+  Mail,
+  Percent,
+  Target,
+  CheckCircle,
+  XCircle,
+  Edit3,
   Users,
   Search,
   Trash2,
@@ -20,7 +20,8 @@ import {
   Phone,
   User,
   Check,
-  Star
+  Star,
+  MessageSquare
 } from 'lucide-react';
 
 export const AgencyMasterView: React.FC = () => {
@@ -870,10 +871,22 @@ export const AgencyMasterView: React.FC = () => {
                   onChange={(e) => setStaffFormData({ ...staffFormData, googleChatWebhookUrl: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  設定すると、この担当者が書類選考担当として新規候補者に割り当てられた際にGoogle Chatへ通知が届きます。Google
-                  Chatで自分宛のスペースを作成し、「アプリ」→「Webhookを追加」で発行されたURLを貼り付けてください。
+                <p className="text-[11px] text-slate-500 mt-1">
+                  設定すると、この担当者が書類選考担当として新規候補者に割り当てられた際にGoogle Chatへ自動で通知が届きます。
                 </p>
+
+                <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
+                  <div className="flex items-center gap-1.5 text-indigo-700 font-semibold text-[11px]">
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Webhook URLの取得方法</span>
+                  </div>
+                  <ol className="mt-1.5 space-y-1 text-[11px] text-slate-600 list-decimal list-inside">
+                    <li>Google Chatで、自分宛の通知を受け取るためのスペース（例:「〇〇さんへの通知」）を新規作成する</li>
+                    <li>作成したスペースの名前をクリック →「アプリと連携機能」→「Webhookを管理」を開く</li>
+                    <li>「Webhookを追加」で名前（例: bloom採用管理）を入力して作成し、発行されたURLをコピーする</li>
+                    <li>コピーしたURLをこの欄に貼り付けて保存する</li>
+                  </ol>
+                </div>
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-200">

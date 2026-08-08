@@ -42,12 +42,14 @@ export default async function handler(req: any, res: any) {
           inlineData: { data: fileBase64, mimeType }
         },
         {
-          text: `この履歴書ファイルの1ページ目に貼付・埋め込まれている証明写真（顔写真）を探してください。
-見つかった場合、その写真領域のバウンディングボックスをページ全体を1000x1000とした正規化座標で返してください。
+          text: `この履歴書・応募書類ファイル（複数ページの場合あり。履歴書と職務経歴書が1つのPDFにまとめられているケースも多い）の中から、貼付・埋め込まれている証明写真（顔写真）を探してください。
+1ページ目とは限りません。全ページを確認し、見つかったページ番号（1始まり）も返してください。
+見つかった場合、その写真領域のバウンディングボックスを、そのページ全体を1000x1000とした正規化座標で返してください。
 見つからない場合は found を false にしてください。
 JSON形式のみで出力してください:
 {
   "found": true または false,
+  "page": 写真が見つかったページ番号（1始まりの整数）,
   "yMin": 0-1000の整数,
   "xMin": 0-1000の整数,
   "yMax": 0-1000の整数,
@@ -66,14 +68,28 @@ JSON形式のみで出力してください:
       return res.json({ found: false, fileBase64, mimeType });
     }
 
+    const box = {
+      xMin: Math.max(0, Math.min(1000, parsed.xMin)) / 1000,
+      yMin: Math.max(0, Math.min(1000, parsed.yMin)) / 1000,
+      xMax: Math.max(0, Math.min(1000, parsed.xMax)) / 1000,
+      yMax: Math.max(0, Math.min(1000, parsed.yMax)) / 1000
+    };
+
+    // Guards against a hallucinated/degenerate box — e.g. the whole page, or a sliver with near-
+    // zero area — which would otherwise get cropped and saved as an obviously-wrong "photo" with
+    // no indication anything went wrong. A real JIS-style ID photo box is a small fraction of the
+    // page, never most of it.
+    const width = box.xMax - box.xMin;
+    const height = box.yMax - box.yMin;
+    const area = width * height;
+    if (!(width > 0) || !(height > 0) || area > 0.35 || area < 0.005) {
+      return res.json({ found: false, fileBase64, mimeType });
+    }
+
     return res.json({
       found: true,
-      box: {
-        xMin: Math.max(0, Math.min(1000, parsed.xMin)) / 1000,
-        yMin: Math.max(0, Math.min(1000, parsed.yMin)) / 1000,
-        xMax: Math.max(0, Math.min(1000, parsed.xMax)) / 1000,
-        yMax: Math.max(0, Math.min(1000, parsed.yMax)) / 1000
-      },
+      box,
+      page: Number.isFinite(parsed.page) && parsed.page > 0 ? Math.round(parsed.page) : 1,
       fileBase64,
       mimeType
     });

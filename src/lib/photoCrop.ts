@@ -18,9 +18,11 @@ export async function renderImageToCanvas(base64: string, mimeType: string): Pro
   return canvas;
 }
 
-// Renders page 1 of a PDF (base64, no data: prefix) onto an offscreen canvas via pdfjs-dist,
-// loaded dynamically so it never bloats the main app bundle.
-export async function renderPdfPageToCanvas(base64: string): Promise<HTMLCanvasElement> {
+// Renders one page of a PDF (base64, no data: prefix) onto an offscreen canvas via pdfjs-dist,
+// loaded dynamically so it never bloats the main app bundle. pageNumber is 1-indexed — resumes
+// merged with a career-history doc or a cover sheet often don't have the photo on page 1, so the
+// caller (informed by Gemini's own page-number guess) can target whichever page actually has it.
+export async function renderPdfPageToCanvas(base64: string, pageNumber: number = 1): Promise<HTMLCanvasElement> {
   const pdfjsLib = await import('pdfjs-dist');
   const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
   pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -30,7 +32,8 @@ export async function renderPdfPageToCanvas(base64: string): Promise<HTMLCanvasE
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
   const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-  const page = await pdf.getPage(1);
+  const safePageNumber = Math.min(Math.max(1, Math.round(pageNumber) || 1), pdf.numPages);
+  const page = await pdf.getPage(safePageNumber);
   const viewport = page.getViewport({ scale: 2.5 });
 
   const canvas = document.createElement('canvas');
@@ -41,11 +44,12 @@ export async function renderPdfPageToCanvas(base64: string): Promise<HTMLCanvasE
   return canvas;
 }
 
-// Renders the source file and crops out the normalized (0-1) box Gemini identified,
-// returning the result as a data URL ready to use as an avatar.
-export async function renderAndCrop(fileBase64: string, mimeType: string, box: PhotoCropBox): Promise<string> {
+// Renders the source file and crops out the normalized (0-1) box Gemini identified, returning the
+// result as a data URL ready to use as an avatar. pageNumber only applies to PDFs (ignored for
+// plain images) and should be whatever page Gemini reported the photo box was found on.
+export async function renderAndCrop(fileBase64: string, mimeType: string, box: PhotoCropBox, pageNumber: number = 1): Promise<string> {
   const sourceCanvas = mimeType === 'application/pdf'
-    ? await renderPdfPageToCanvas(fileBase64)
+    ? await renderPdfPageToCanvas(fileBase64, pageNumber)
     : await renderImageToCanvas(fileBase64, mimeType);
 
   const sw = sourceCanvas.width;

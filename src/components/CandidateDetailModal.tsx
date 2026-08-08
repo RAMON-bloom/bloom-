@@ -531,7 +531,7 @@ export const CandidateDetailModal: React.FC = () => {
                 try {
                   const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.file.id);
                   if (detected.found && detected.box) {
-                    const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
+                    const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box, detected.page);
                     patch.avatarUrl = croppedDataUrl;
                     showToast('追加した書類から顔写真を自動抽出しました', 'success');
                     photoFound = true;
@@ -1000,6 +1000,40 @@ export const CandidateDetailModal: React.FC = () => {
           {/* TAB 1: Evaluation Timeline, Input & Gmail AI Sync */}
           {activeSubTab === 'evaluation' && (
             <div className="space-y-6">
+
+              {/* Quick access to the resume/CV original — evaluating a candidate almost always
+                  means wanting to glance at the source document, which previously required
+                  switching to the separate "履歴書・書類原本" tab first. */}
+              <div className="flex items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                  <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>履歴書・職務経歴書:</span>
+                  <span className="text-slate-500 font-normal truncate max-w-[220px]">
+                    {candidate.resumeFileName || 'ファイル名未登録'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {candidate.resumeDriveUrl && (
+                    <a
+                      href={candidate.resumeDriveUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>原本を開く</span>
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubTab('resume')}
+                    className="flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>書類内容を確認</span>
+                  </button>
+                </div>
+              </div>
 
               {/* Simplified Selection & Interview Adjustment Dashboard */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden space-y-0">

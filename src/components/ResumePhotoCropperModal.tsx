@@ -83,7 +83,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
         return;
       }
 
-      const croppedDataUrl = await renderAndCrop(result.fileBase64, result.mimeType, result.box);
+      const croppedDataUrl = await renderAndCrop(result.fileBase64, result.mimeType, result.box, result.page);
       setSelectedImage(croppedDataUrl);
       setZoom(100);
       setRotation(0);

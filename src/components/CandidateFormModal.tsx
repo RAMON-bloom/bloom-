@@ -282,7 +282,7 @@ export const CandidateFormModal: React.FC = () => {
               try {
                 const detected = await detectResumePhotoCrop(driveAccessToken, uploaded.file.id);
                 if (detected.found && detected.box) {
-                  const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
+                  const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box, detected.page);
                   setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
                   showToast('履歴書から顔写真を自動抽出しました', 'success');
                   photoFound = true;

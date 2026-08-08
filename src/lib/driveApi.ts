@@ -195,6 +195,7 @@ export interface PhotoCropBox {
 export interface DetectedPhotoCrop {
   found: boolean;
   box?: PhotoCropBox;
+  page?: number;
   fileBase64: string;
   mimeType: string;
 }

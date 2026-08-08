@@ -179,14 +179,10 @@ export const RecruitmentMeetingView: React.FC = () => {
 
     const initialReports: RecruiterReport[] = recruiterStaffList.map(s => ({
       recruiterName: s.name,
-      progressNotes: `${s.name}担当分：候補者選考進捗・面接設定状況を更新中。`,
-      recommendationNotes: `提携エージェントからの推薦件数・初期打率を管理中。`,
-      yieldNotes: `書類通過率・1次通過率は前週と同水準を維持。`,
-      upcomingInitiatives: [
-        '面接確定リードタイムの短縮',
-        '要件定義の最終確認'
-      ],
-      actionItemsCompleted: [false, false]
+      progressNotes: '',
+      recommendationNotes: '',
+      yieldNotes: '',
+      upcomingInitiatives: []
     }));
 
     const newId = addMeetingLog({
@@ -194,11 +190,9 @@ export const RecruitmentMeetingView: React.FC = () => {
       date: `${newMtgDate}T10:00`,
       meetUrl: '',
       attendees: recruiterStaffList.map(s => s.name),
-      overallSummary: `【採用全般メモ (${formattedTitle})】\n・実施日: ${formattedTitle}\n・参加者: ${recruiterStaffList.map(s => s.name).join(', ')}\n・定例協議内容：採用状況の確認と今後のアクション決定。`,
+      overallSummary: '',
       recruiterReports: initialReports,
-      actionItems: [
-        { id: `act-${Date.now()}-1`, text: '選考結果連絡の未入力を当日中にゼロにする', assignee: staffList[0]?.name || '担当者', done: false }
-      ]
+      actionItems: []
     });
 
     setSelectedMeetingId(newId);

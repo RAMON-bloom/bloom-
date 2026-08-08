@@ -303,6 +303,10 @@ export const CandidateDetailModal: React.FC = () => {
       const c = candidates.find((cand) => cand.id === selectedCandidateId);
       if (c) {
         setEvalTargetPhase(c.phase);
+        const currentPhaseInterviewers = c.interviewersByPhase?.[c.phase];
+        if (currentPhaseInterviewers && currentPhaseInterviewers.length === 1) {
+          setEvalAuthor(currentPhaseInterviewers[0]);
+        }
         setOnboardingJoiningDate(c.joiningDate || '');
         setOnboardingDinnerStatus(c.preJoinDinnerStatus || 'UNPLANNED');
         setOnboardingDinnerDate(c.preJoinDinnerDate || '');
@@ -674,6 +678,7 @@ export const CandidateDetailModal: React.FC = () => {
         if (nextPhase) {
           updateCandidatePhase(candidate.id, nextPhase);
           setEvalTargetPhase(nextPhase);
+          syncEvalAuthorToPhase(nextPhase, candidate.interviewersByPhase);
         }
       }
     }
@@ -687,11 +692,24 @@ export const CandidateDetailModal: React.FC = () => {
     updateCandidateSchedule(candidate.id, status, nextDate, nextInterviewers);
   };
 
+  // そのフェーズの担当面接官が1名だけ確定していれば、その人を評価入力者の初期値として連動させる
+  // (2名以上や未アサインの場合は誰が書くか一意に決まらないため、既存の選択を上書きしない)。
+  const syncEvalAuthorToPhase = (phase: SelectionPhase, interviewersByPhase?: Candidate['interviewersByPhase']) => {
+    const phaseInterviewers = interviewersByPhase?.[phase];
+    if (phaseInterviewers && phaseInterviewers.length === 1) {
+      setEvalAuthor(phaseInterviewers[0]);
+    }
+  };
+
   const handleAddInterviewer = (phase: SelectionPhase, interviewerName: string) => {
     const currentList = candidate.interviewersByPhase?.[phase] || [];
     if (!currentList.includes(interviewerName)) {
-      updateInterviewersForPhase(candidate.id, phase, [...currentList, interviewerName]);
+      const newList = [...currentList, interviewerName];
+      updateInterviewersForPhase(candidate.id, phase, newList);
       showToast(`面接官 「${interviewerName}」 を追加しました`, 'success');
+      if (phase === evalTargetPhase && newList.length === 1) {
+        setEvalAuthor(interviewerName);
+      }
     }
   };
 
@@ -699,6 +717,17 @@ export const CandidateDetailModal: React.FC = () => {
     const currentList = candidate.interviewersByPhase?.[phase] || [];
     updateInterviewersForPhase(candidate.id, phase, currentList.filter((name) => name !== interviewerName));
     showToast(`面接官 「${interviewerName}」 を削除しました`, 'warning');
+  };
+
+  // 評価入力者を手動で選び直した場合、そのフェーズにまだ誰も面接官がアサインされていなければ、
+  // 選んだ人をそのフェーズの担当面接官としても連動させる（既に複数名アサイン済みのパネル面接等は
+  // 上書きしない）。
+  const handleEvalAuthorChange = (name: string) => {
+    setEvalAuthor(name);
+    const currentInterviewers = candidate.interviewersByPhase?.[evalTargetPhase];
+    if (!currentInterviewers || currentInterviewers.length === 0) {
+      updateInterviewersForPhase(candidate.id, evalTargetPhase, [name]);
+    }
   };
 
   return (
@@ -1229,6 +1258,7 @@ export const CandidateDetailModal: React.FC = () => {
                               type="button"
                               onClick={() => {
                                 setEvalTargetPhase(stg.phase);
+                                syncEvalAuthorToPhase(stg.phase, candidate.interviewersByPhase);
                                 if (latestNote) {
                                   if (latestNote.interviewRating) setNewInterviewRating(latestNote.interviewRating);
                                   setNewComment(latestNote.comment);
@@ -1397,7 +1427,11 @@ export const CandidateDetailModal: React.FC = () => {
                         <label className="block text-slate-700 font-bold mb-1">対象フェーズ</label>
                         <select
                           value={evalTargetPhase}
-                          onChange={(e) => setEvalTargetPhase(e.target.value as SelectionPhase)}
+                          onChange={(e) => {
+                            const phase = e.target.value as SelectionPhase;
+                            setEvalTargetPhase(phase);
+                            syncEvalAuthorToPhase(phase, candidate.interviewersByPhase);
+                          }}
                           className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:bg-white focus:border-indigo-500"
                         >
                           <option value="DOCUMENT_SCREENING">書類選考</option>
@@ -1413,7 +1447,7 @@ export const CandidateDetailModal: React.FC = () => {
                         <label className="block text-slate-700 font-bold mb-1">評価入力者</label>
                         <select
                           value={evalAuthor}
-                          onChange={(e) => setEvalAuthor(e.target.value)}
+                          onChange={(e) => handleEvalAuthorChange(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-300 text-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:bg-white"
                         >
                           {staffList.map((s) => (

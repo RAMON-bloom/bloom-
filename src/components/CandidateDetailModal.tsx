@@ -7,6 +7,7 @@ import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
 import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
+import { getNextPhase } from '../lib/phaseUtils';
 import { 
   X, 
   Calendar, 
@@ -167,11 +168,13 @@ export const CandidateDetailModal: React.FC = () => {
 
   // Evaluation Note Form state
   const [evalTargetPhase, setEvalTargetPhase] = useState<SelectionPhase>('FIRST_INTERVIEW');
-  const [newInterviewRating, setNewInterviewRating] = useState<EvaluationGrade>('A-');
+  // 面接評価(A/B/C)・LCMは、未評価であることが分かるようどれも選択されていない状態を
+  // デフォルトにする(選ぶまでグレー表示のまま)。
+  const [newInterviewRating, setNewInterviewRating] = useState<EvaluationGrade | undefined>(undefined);
   const [newDesiredDepartment, setNewDesiredDepartment] = useState<BcaDesiredDepartment | undefined>(undefined);
-  const [newLRating, setNewLRating] = useState<LcmRating | undefined>('〇');
-  const [newCRating, setNewCRating] = useState<LcmRating | undefined>('〇');
-  const [newMRating, setNewMRating] = useState<LcmRating | undefined>('△');
+  const [newLRating, setNewLRating] = useState<LcmRating | undefined>(undefined);
+  const [newCRating, setNewCRating] = useState<LcmRating | undefined>(undefined);
+  const [newMRating, setNewMRating] = useState<LcmRating | undefined>(undefined);
   const [newLNote, setNewLNote] = useState<string>('');
   const [newCNote, setNewCNote] = useState<string>('');
   const [newMNote, setNewMNote] = useState<string>('');
@@ -304,10 +307,11 @@ export const CandidateDetailModal: React.FC = () => {
         setOnboardingDinnerDate(c.preJoinDinnerDate || '');
         setOnboardingResignationStatus(c.resignationNegotiationStatus || 'NOT_STARTED');
         setOnboardingNotesText(c.onboardingNotes || '');
+        setNewInterviewRating(c.interviewRating || undefined);
         setNewDesiredDepartment(c.bcaDesiredDepartment || undefined);
-        setNewLRating(c.lRating || '〇');
-        setNewCRating(c.cRating || '〇');
-        setNewMRating(c.mRating || '△');
+        setNewLRating(c.lRating || undefined);
+        setNewCRating(c.cRating || undefined);
+        setNewMRating(c.mRating || undefined);
         setNewLNote(c.lNote || '');
         setNewCNote(c.cNote || '');
         setNewMNote(c.mNote || '');
@@ -648,6 +652,30 @@ export const CandidateDetailModal: React.FC = () => {
     setNewConcerns('');
     setNewOtherNotes('');
     setNewComment('');
+
+    // 合格として保存したら、面接評価・LCMなど書き込み済みの欄を全てクリアして次の面接にすぐ
+    // 使える状態に戻し、面接評価・所感セクションを折りたたむ。現在地の自動進行は、いま記録した
+    // 評価が候補者の「現在のフェーズ」に対するものだった場合のみ行う(過去フェーズを遡って
+    // 記録しただけのときは現在地を勝手に動かさない)。
+    if (evalResultStatus === 'PASS') {
+      setNewInterviewRating(undefined);
+      setNewDesiredDepartment(undefined);
+      setNewLRating(undefined);
+      setNewCRating(undefined);
+      setNewMRating(undefined);
+      setNewLNote('');
+      setNewCNote('');
+      setNewMNote('');
+      setCollapsedSections((prev) => ({ ...prev, evalForm: true }));
+
+      if (evalTargetPhase === candidate.phase) {
+        const nextPhase = getNextPhase(candidate.phase);
+        if (nextPhase) {
+          updateCandidatePhase(candidate.id, nextPhase);
+          setEvalTargetPhase(nextPhase);
+        }
+      }
+    }
   };
 
   const handleScheduleChange = (

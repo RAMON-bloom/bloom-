@@ -30,6 +30,7 @@ import {
   Award,
   HeartHandshake,
   CheckCircle2,
+  XCircle,
   Loader2,
   Copy,
   FileCheck,
@@ -1459,6 +1460,51 @@ export const CandidateDetailModal: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* 判定結果: 合否を大きく明確なボタンで入力する */}
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1.5 text-sm">判定結果</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEvalResultStatus('PASS')}
+                          className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
+                            evalResultStatus === 'PASS'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
+                              : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-6 h-6" />
+                          合格 (次ステップへ)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEvalResultStatus('FAIL')}
+                          className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
+                            evalResultStatus === 'FAIL'
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-md'
+                              : 'bg-white text-rose-700 border-rose-200 hover:border-rose-400 hover:bg-rose-50'
+                          }`}
+                        >
+                          <XCircle className="w-6 h-6" />
+                          不採用 / 見送り
+                        </button>
+                      </div>
+                    </div>
+
+                    {evalResultStatus === 'FAIL' && (
+                      <div>
+                        <label className="block text-rose-700 font-bold mb-1">不採用理由</label>
+                        <input
+                          type="text"
+                          placeholder="例: 実務要件未達、希望条件不一致"
+                          value={failReason}
+                          onChange={(e) => setFailReason(e.target.value)}
+                          className="w-full bg-slate-50 border border-rose-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none"
+                        />
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {/* 面接評価 Grade Buttons */}
                       <div>
@@ -1639,48 +1685,6 @@ export const CandidateDetailModal: React.FC = () => {
                         </div>
                       </div>
                     </div>
-
-                    <div>
-                      <label className="block text-slate-700 font-bold mb-1">判定結果</label>
-                      <div className="flex items-center gap-6">
-                        <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800">
-                          <input
-                            type="radio"
-                            name="result"
-                            value="PASS"
-                            checked={evalResultStatus === 'PASS'}
-                            onChange={() => setEvalResultStatus('PASS')}
-                            className="accent-emerald-600"
-                          />
-                          <span className="text-emerald-700">合格 (次ステップへ)</span>
-                        </label>
-
-                        <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800">
-                          <input
-                            type="radio"
-                            name="result"
-                            value="FAIL"
-                            checked={evalResultStatus === 'FAIL'}
-                            onChange={() => setEvalResultStatus('FAIL')}
-                            className="accent-rose-600"
-                          />
-                          <span className="text-rose-700">不採用 / 見送り</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {evalResultStatus === 'FAIL' && (
-                      <div>
-                        <label className="block text-rose-700 font-bold mb-1">不採用理由</label>
-                        <input
-                          type="text"
-                          placeholder="例: 実務要件未達、希望条件不一致"
-                          value={failReason}
-                          onChange={(e) => setFailReason(e.target.value)}
-                          className="w-full bg-slate-50 border border-rose-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none"
-                        />
-                      </div>
-                    )}
 
                     {/* 分割された面接所感・コメント入力項目 */}
                     <div className="space-y-3 pt-1">

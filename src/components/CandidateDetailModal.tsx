@@ -131,6 +131,7 @@ export const CandidateDetailModal: React.FC = () => {
   const [isDetailCompressing, setIsDetailCompressing] = useState(false);
   const [isDetailDetectingPhoto, setIsDetailDetectingPhoto] = useState(false);
   const [isPhotoCropperOpen, setIsPhotoCropperOpen] = useState(false);
+  const [selectedResumeDocIndex, setSelectedResumeDocIndex] = useState(0);
 
   // Section Collapse State for Card Sections
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
@@ -333,6 +334,16 @@ export const CandidateDetailModal: React.FC = () => {
   const candidate = candidates.find((c) => c.id === selectedCandidateId);
   if (!candidate) return null;
 
+  // Falls back to the single legacy resumeDriveUrl/resumeFileName for candidates registered
+  // before multi-document tracking existed, so "原本を開く" still works for them with one option.
+  const resumeDocs = candidate.resumeDocuments && candidate.resumeDocuments.length > 0
+    ? candidate.resumeDocuments
+    : candidate.resumeDriveUrl
+    ? [{ name: candidate.resumeFileName || 'ファイル', driveUrl: candidate.resumeDriveUrl, driveFileId: candidate.resumeDriveFileId || '' }]
+    : [];
+  const activeResumeDocIndex = Math.min(selectedResumeDocIndex, Math.max(0, resumeDocs.length - 1));
+  const activeResumeDoc = resumeDocs[activeResumeDocIndex];
+
   const handleClose = () => setSelectedCandidateId(null);
 
   const handleSyncGmailLogs = async () => {
@@ -513,6 +524,12 @@ export const CandidateDetailModal: React.FC = () => {
           patch.resumeDriveFolderId = folderId || candidate.resumeDriveFolderId;
           patch.resumeDriveFileId = primaryUploaded?.file.id || candidate.resumeDriveFileId;
           patch.resumeDriveUrl = primaryUploaded?.file.webViewLink || candidate.resumeDriveUrl;
+          // Appended (not replaced) — earlier uploads (from registration or a previous document
+          // drop) stay selectable alongside whatever's newly added here.
+          patch.resumeDocuments = [
+            ...(candidate.resumeDocuments || []),
+            ...allUploaded.map((u) => ({ name: u.file.name, driveUrl: u.file.webViewLink || '', driveFileId: u.file.id }))
+          ];
           showToast(
             uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : `${files[0].name} をDriveフォルダに保存しました`,
             'success'
@@ -1004,23 +1021,35 @@ export const CandidateDetailModal: React.FC = () => {
               {/* Quick access to the resume/CV original — evaluating a candidate almost always
                   means wanting to glance at the source document, which previously required
                   switching to the separate "履歴書・書類原本" tab first. */}
-              <div className="flex items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 min-w-0">
                   <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span>履歴書・職務経歴書:</span>
-                  <span className="text-slate-500 font-normal truncate max-w-[220px]">
-                    {candidate.resumeFileName || 'ファイル名未登録'}
-                  </span>
+                  <span className="shrink-0">履歴書・職務経歴書:</span>
+                  {resumeDocs.length > 1 ? (
+                    <select
+                      value={activeResumeDocIndex}
+                      onChange={(e) => setSelectedResumeDocIndex(Number(e.target.value))}
+                      className="bg-slate-50 border border-slate-300 text-slate-800 font-bold rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[200px]"
+                    >
+                      {resumeDocs.map((doc, i) => (
+                        <option key={doc.driveFileId || i} value={i}>{doc.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-slate-500 font-normal truncate max-w-[220px]">
+                      {candidate.resumeFileName || 'ファイル名未登録'}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {candidate.resumeDriveUrl && (
+                  {activeResumeDoc?.driveUrl && (
                     <a
-                      href={candidate.resumeDriveUrl}
+                      href={activeResumeDoc.driveUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                      className="flex items-center gap-2 text-sm font-extrabold text-white bg-rose-600 hover:bg-rose-700 px-4 py-2.5 rounded-xl cursor-pointer transition-colors shadow-md ring-2 ring-rose-200"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-4 h-4" />
                       <span>原本を開く</span>
                     </a>
                   )}
@@ -2311,7 +2340,7 @@ export const CandidateDetailModal: React.FC = () => {
                 )}
               </div>
               
-              <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setDocCategory('cv')}
@@ -2342,25 +2371,38 @@ export const CandidateDetailModal: React.FC = () => {
                   </button>
                 </div>
 
-                {candidate.resumeDriveUrl ? (
-                  <a
-                    href={candidate.resumeDriveUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>原本を開く（{candidate.resumeFileName || 'ファイル名未登録'}）</span>
-                  </a>
-                ) : (
-                  <span
-                    title="この候補者にはDrive上の原本ファイルが紐づいていません"
-                    className="flex items-center gap-1.5 text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg cursor-not-allowed"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>原本未登録</span>
-                  </span>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {resumeDocs.length > 1 && (
+                    <select
+                      value={activeResumeDocIndex}
+                      onChange={(e) => setSelectedResumeDocIndex(Number(e.target.value))}
+                      className="bg-slate-50 border border-slate-300 text-slate-800 font-bold rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[180px]"
+                    >
+                      {resumeDocs.map((doc, i) => (
+                        <option key={doc.driveFileId || i} value={i}>{doc.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  {activeResumeDoc?.driveUrl ? (
+                    <a
+                      href={activeResumeDoc.driveUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-sm font-extrabold text-white bg-rose-600 hover:bg-rose-700 px-4 py-2.5 rounded-xl cursor-pointer transition-colors shadow-md ring-2 ring-rose-200"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>原本を開く{resumeDocs.length <= 1 ? `（${candidate.resumeFileName || 'ファイル名未登録'}）` : ''}</span>
+                    </a>
+                  ) : (
+                    <span
+                      title="この候補者にはDrive上の原本ファイルが紐づいていません"
+                      className="flex items-center gap-1.5 text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg cursor-not-allowed"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>原本未登録</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* CV View */}

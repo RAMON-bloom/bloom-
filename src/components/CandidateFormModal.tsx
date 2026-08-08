@@ -32,6 +32,7 @@ export const CandidateFormModal: React.FC = () => {
     resumeDriveUrl: '',
     resumeDriveFileId: '',
     resumeDriveFolderId: '',
+    resumeDocuments: [] as { name: string; driveUrl: string; driveFileId: string }[],
     avatarUrl: '',
     joiningDate: '',
     preJoinDinnerStatus: 'UNPLANNED' as const,
@@ -257,7 +258,12 @@ export const CandidateFormModal: React.FC = () => {
           ...prev,
           resumeDriveUrl: primaryUploaded?.file.webViewLink || prev.resumeDriveUrl,
           resumeDriveFileId: primaryUploaded?.file.id || prev.resumeDriveFileId,
-          resumeDriveFolderId: folderId || prev.resumeDriveFolderId
+          resumeDriveFolderId: folderId || prev.resumeDriveFolderId,
+          resumeDocuments: allUploaded.map((u) => ({
+            name: u.file.name,
+            driveUrl: u.file.webViewLink || '',
+            driveFileId: u.file.id
+          }))
         }));
         showToast(
           uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : '履歴書・応募書類をDriveフォルダに保存しました',
@@ -373,6 +379,7 @@ export const CandidateFormModal: React.FC = () => {
       resumeDriveUrl: formData.resumeDriveUrl || undefined,
       resumeDriveFileId: formData.resumeDriveFileId || undefined,
       resumeDriveFolderId: formData.resumeDriveFolderId || undefined,
+      resumeDocuments: formData.resumeDocuments.length > 0 ? formData.resumeDocuments : undefined,
       resumeSkills: formData.skills.split(',').map((s) => s.trim()).filter(Boolean),
       joiningDate: formData.joiningDate || undefined,
       preJoinDinnerStatus: formData.preJoinDinnerStatus,

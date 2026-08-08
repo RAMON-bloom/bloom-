@@ -89,9 +89,10 @@ export interface Candidate {
   resumeSummary: string; // Brief career summary
   rawResumeContent?: string; // Original resume full text / document content
   resumeFileName?: string;
-  resumeDriveUrl?: string; // Google Drive上に保存された履歴書・応募書類ファイルへのリンク
+  resumeDriveUrl?: string; // Google Drive上に保存された履歴書・応募書類ファイル（代表1件）へのリンク
   resumeDriveFileId?: string; // 上記ファイルのDrive ID
   resumeDriveFolderId?: string; // 候補者専用のDriveフォルダID（各フェーズフォルダ内、選考フェーズ変更時にこのフォルダごと移動する）
+  resumeDocuments?: { name: string; driveUrl: string; driveFileId: string }[]; // Driveに保存された全書類（履歴書・職務経歴書など複数アップロード時の一覧。resumeDriveUrl/FileIdはこの1件目と同じ）
   resumeSkills?: string[];
   evaluationNotes: EvaluationNote[];
   interviewRating?: EvaluationGrade; // 最新/総合面接評価 (A+, A-, B+, B, B-, C)

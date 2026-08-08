@@ -224,19 +224,24 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs };
   });
 
-  // Auto-backs-up to Drive a few seconds after MTG logs stop changing, so a week's worth of
-  // meeting notes doesn't only reach the team's shared Drive copy if someone remembers to click
-  // "Driveにバックアップ" afterward. Scoped to meetingLogs changes only (not every candidate edit,
-  // which would fire far too often) — but since the backup file is one shared JSON blob rather
-  // than per-domain, each write still carries the current candidates/agencies/staffList along for
-  // free, which is a reasonable side effect rather than a reason not to do this. Skips the very
-  // first run (mount/initial hydration is not a "change"), and only failures get a toast — success
-  // is meant to be invisible, matching what "automatic" implies.
-  const meetingLogsMountedRef = useRef(false);
+  // Auto-backs-up to Drive a few seconds after MTG logs, agencies, or staff stop changing, so
+  // none of these only reach the team's shared Drive copy if someone remembers to click
+  //「Driveにバックアップ」afterward. Originally scoped to meetingLogs only; agencies/staffList were
+  // added because their edits previously never triggered a Drive write at all (not even
+  // debounced) — a user could add/edit an agency or 採用担当者 and it would sit only in their own
+  // browser's localStorage until someone happened to touch a meeting log or click the manual
+  // backup button. candidates deliberately stays out of this dependency list (changes far more
+  // often — every phase drag, every field edit — which would defeat the point of debouncing), but
+  // since the backup file is one shared JSON blob rather than per-domain, each write still carries
+  // the current candidates along for free. Skips the very first run (mount/initial hydration,
+  // including the auto-restore below populating these from Drive, is not a "change" worth writing
+  // straight back), and only failures get a toast — success is meant to be invisible, matching
+  // what "automatic" implies.
+  const autoBackupMountedRef = useRef(false);
   const autoBackupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!meetingLogsMountedRef.current) {
-      meetingLogsMountedRef.current = true;
+    if (!autoBackupMountedRef.current) {
+      autoBackupMountedRef.current = true;
       return;
     }
     if (!driveAccessToken) return;
@@ -244,14 +249,33 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     autoBackupTimerRef.current = setTimeout(() => {
       backupToDriveApi(driveAccessToken, latestBackupStateRef.current).catch((err: any) => {
-        showToast(`MTGログのDrive自動バックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+        showToast(`Driveへの自動バックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
       });
     }, 5000);
 
     return () => {
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     };
-  }, [meetingLogs, driveAccessToken]);
+  }, [agencies, staffList, meetingLogs, driveAccessToken]);
+
+  // Auto-restores from Drive once per login. Without this, candidates/agencies/staffList/
+  // meetingLogs were seeded purely from this browser's own localStorage (or, on a brand-new
+  // browser, this app's built-in demo data — dummy agencies, a dummy 山田太郎 etc.) and stayed
+  // that way until someone remembered to open the Drive menu and click「Driveから復元」— so a new
+  // teammate's first login showed fake data, and a returning teammate's browser could silently
+  // drift out of sync with whatever anyone else had since backed up. Runs restoreFromDrive with
+  // {silent: true} (no success toast; a "nothing backed up yet" 404 — the very first time anyone
+  // on the team ever signs in — is treated as a no-op, not a scary warning). Guarded by a ref
+  // rather than depending on identity/mount timing, so a background token refresh later in the
+  // session (AuthGate re-fires driveAccessToken on a schedule) doesn't re-trigger this and
+  // overwrite whatever's been edited locally since login.
+  const hasAutoRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!driveAccessToken || hasAutoRestoredRef.current) return;
+    hasAutoRestoredRef.current = true;
+    restoreFromDrive({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveAccessToken]);
 
   const addMeetingLog = (newLogData: Omit<MeetingLog, 'id'>) => {
     const id = `mtg-${Date.now()}`;
@@ -852,9 +876,15 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const restoreFromDrive = async () => {
+  // `silent` is used by the auto-restore-on-login effect below: no success toast (that effect is
+  // meant to be invisible when it just works, same rationale as the auto-backup effect), and a
+  // "not backed up yet" 404 — completely normal the very first time anyone on the team ever
+  // signs in, before any backup exists — is treated as a no-op rather than a scary warning toast
+  // on every single login. Any other failure (auth/network/etc.) still surfaces normally, silent
+  // or not, since that's a real problem the user should know about.
+  const restoreFromDrive = async (options: { silent?: boolean } = {}) => {
     if (!driveAccessToken) {
-      showToast('先にGoogle Driveへログインしてください', 'warning');
+      if (!options.silent) showToast('先にGoogle Driveへログインしてください', 'warning');
       return;
     }
     try {
@@ -863,8 +893,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.agencies) setAgencies(data.agencies);
       if (data.staffList) setStaffList(data.staffList);
       if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
-      showToast('Driveのバックアップからデータを復元しました', 'success');
+      if (!options.silent) showToast('Driveのバックアップからデータを復元しました', 'success');
     } catch (err: any) {
+      const notBackedUpYet = String(err.message || '').includes('見つかりませんでした');
+      if (options.silent && notBackedUpYet) return;
       showToast(`Driveからの復元に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
     }
   };

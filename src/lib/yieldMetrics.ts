@@ -1,0 +1,59 @@
+import { Agency, Candidate, RecruiterYieldSnapshot, AgencyYieldSnapshot } from '../types';
+
+// Mirrors RecruitmentMeetingView's getAgencyStats (MONTH period) exactly, so a frozen snapshot and
+// a live fallback calculation for the same recruiter/month never disagree.
+function computeAgencyYield(agency: Agency, candidates: Candidate[], meetingMonth: string): AgencyYieldSnapshot {
+  const agCandidates = candidates.filter(
+    (c) => c.agencyId === agency.id && !!c.appliedDate && c.appliedDate.startsWith(meetingMonth)
+  );
+
+  const total = agCandidates.length;
+  const docPass = agCandidates.filter((c) => c.phase !== 'DOCUMENT_SCREENING').length;
+  const firstPass = agCandidates.filter((c) =>
+    ['SECOND_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)
+  ).length;
+  const acceptCount = agCandidates.filter((c) => c.phase === 'OFFER_ACCEPTED').length;
+
+  return {
+    agencyId: agency.id,
+    agencyName: agency.name,
+    total,
+    docPassRate: total > 0 ? Math.round((docPass / total) * 100) : 0,
+    firstPassRate: docPass > 0 ? Math.round((firstPass / docPass) * 100) : 0,
+    acceptCount,
+    overallYieldRate: total > 0 ? Math.round((acceptCount / total) * 100) : 0
+  };
+}
+
+// Freezes a recruiter's candidate pass rates and per-agency breakdown as of right now (candidates'
+// current phases), for storing on a MeetingLog's RecruiterReport at the moment it's created — so
+// re-opening that meeting later shows what was true when it was held, not whatever candidates'
+// phases have drifted to since.
+export function computeRecruiterYieldSnapshot(
+  recruiterName: string,
+  candidates: Candidate[],
+  agencies: Agency[],
+  meetingMonth: string
+): RecruiterYieldSnapshot {
+  const assigned = candidates.filter((c) => c.assignees.includes(recruiterName));
+  const candidateCount = assigned.length;
+
+  const docPassCount = assigned.filter((c) => c.phase !== 'DOCUMENT_SCREENING').length;
+  const docPassRate = candidateCount > 0 ? Math.round((docPassCount / candidateCount) * 100) : 0;
+
+  const firstPassCount = assigned.filter((c) =>
+    ['SECOND_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)
+  ).length;
+  const firstPassRate = docPassCount > 0 ? Math.round((firstPassCount / docPassCount) * 100) : 0;
+
+  const finalOfferCount = assigned.filter((c) =>
+    ['FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)
+  ).length;
+  const acceptCount = assigned.filter((c) => c.phase === 'OFFER_ACCEPTED').length;
+
+  const agencyStats = agencies
+    .filter((ag) => ag.assignedStaffNames?.includes(recruiterName))
+    .map((ag) => computeAgencyYield(ag, candidates, meetingMonth));
+
+  return { candidateCount, docPassRate, firstPassRate, finalOfferCount, acceptCount, agencyStats };
+}

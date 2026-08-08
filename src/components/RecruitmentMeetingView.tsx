@@ -29,6 +29,7 @@ import { useATS } from '../context/ATSContext';
 import { RecruiterReport, MeetingActionItem } from '../types';
 import { listDriveMeetingLogs, summarizeDriveMeetingLog, findCalendarMeetingNotes, DriveMeetingFile } from '../lib/driveApi';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
+import { computeRecruiterYieldSnapshot } from '../lib/yieldMetrics';
 
 export const RecruitmentMeetingView: React.FC = () => {
   const {
@@ -184,12 +185,16 @@ export const RecruitmentMeetingView: React.FC = () => {
     const dateObj = new Date(newMtgDate);
     const formattedTitle = `${dateObj.getFullYear()}年${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
 
+    // Frozen here (creation time) rather than left to compute live on every future render, so
+    // this meeting keeps showing what the pass rates/agency yields actually were when it was
+    // held — see computeRecruiterYieldSnapshot's doc comment.
     const initialReports: RecruiterReport[] = recruiterStaffList.map(s => ({
       recruiterName: s.name,
       progressNotes: '',
       recommendationNotes: '',
       yieldNotes: '',
-      upcomingInitiatives: []
+      upcomingInitiatives: [],
+      yieldSnapshot: computeRecruiterYieldSnapshot(s.name, candidates, agencies, newMtgDate.slice(0, 7))
     }));
 
     const newId = addMeetingLog({
@@ -426,7 +431,8 @@ export const RecruitmentMeetingView: React.FC = () => {
       progressNotes: '',
       recommendationNotes: '',
       yieldNotes: '',
-      upcomingInitiatives: []
+      upcomingInitiatives: [],
+      yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
     };
 
     const updatedReport = { ...targetReport, [field]: value };
@@ -454,7 +460,8 @@ export const RecruitmentMeetingView: React.FC = () => {
       progressNotes: '',
       recommendationNotes: '',
       yieldNotes: '',
-      upcomingInitiatives: []
+      upcomingInitiatives: [],
+      yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
     };
 
     const updatedInitiatives = [...(targetReport.upcomingInitiatives || []), newInitiativeInput.trim()];
@@ -587,25 +594,50 @@ export const RecruitmentMeetingView: React.FC = () => {
     };
   };
 
-  // Recruiter assigned candidates detail metrics
+  // Recruiter assigned candidates detail metrics — live calculation, used only as a fallback for
+  // meetings saved before yieldSnapshot existed (or a recruiter row that's somehow still missing
+  // one). Whenever a snapshot is present it wins, so a past meeting keeps showing what was true
+  // when it was held instead of drifting as candidates' phases change afterward.
   const assignedRecruiterCandidates = candidates.filter(
     c => c.assignees.includes(currentRecruiterStaff?.name || selectedRecruiter)
   );
 
   const totalAssignedAll = assignedRecruiterCandidates.length;
-  const docPassCount = assignedRecruiterCandidates.filter(c => c.phase !== 'DOCUMENT_SCREENING').length;
-  const docPassRate = totalAssignedAll > 0 ? Math.round((docPassCount / totalAssignedAll) * 100) : 0;
+  const liveDocPassCount = assignedRecruiterCandidates.filter(c => c.phase !== 'DOCUMENT_SCREENING').length;
+  const liveDocPassRate = totalAssignedAll > 0 ? Math.round((liveDocPassCount / totalAssignedAll) * 100) : 0;
 
-  const firstPassCount = assignedRecruiterCandidates.filter(c => 
+  const liveFirstPassCount = assignedRecruiterCandidates.filter(c =>
     ['SECOND_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)
   ).length;
-  const firstPassRate = docPassCount > 0 ? Math.round((firstPassCount / docPassCount) * 100) : 0;
+  const liveFirstPassRate = liveDocPassCount > 0 ? Math.round((liveFirstPassCount / liveDocPassCount) * 100) : 0;
 
-  const finalOfferCount = assignedRecruiterCandidates.filter(c => 
+  const liveFinalOfferCount = assignedRecruiterCandidates.filter(c =>
     ['FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)
   ).length;
 
-  const acceptCount = assignedRecruiterCandidates.filter(c => c.phase === 'OFFER_ACCEPTED').length;
+  const liveAcceptCount = assignedRecruiterCandidates.filter(c => c.phase === 'OFFER_ACCEPTED').length;
+
+  const yieldSnapshot = currentReport?.yieldSnapshot;
+  const docPassRate = yieldSnapshot?.docPassRate ?? liveDocPassRate;
+  const firstPassRate = yieldSnapshot?.firstPassRate ?? liveFirstPassRate;
+  const finalOfferCount = yieldSnapshot?.finalOfferCount ?? liveFinalOfferCount;
+  const acceptCount = yieldSnapshot?.acceptCount ?? liveAcceptCount;
+
+  // Same snapshot-first rule for the per-agency breakdown below.
+  const displayAgencyStats = yieldSnapshot
+    ? yieldSnapshot.agencyStats
+    : assignedAgencies.map((ag) => {
+        const s = getAgencyStats(ag.id);
+        return {
+          agencyId: ag.id,
+          agencyName: ag.name,
+          total: s.total,
+          docPassRate: s.docPassRate,
+          firstPassRate: s.firstPassRate,
+          acceptCount: s.acceptCount,
+          overallYieldRate: s.overallYieldRate
+        };
+      });
 
   return (
     <div className="space-y-4 pb-10 font-sans max-w-7xl mx-auto">
@@ -1062,7 +1094,12 @@ export const RecruitmentMeetingView: React.FC = () => {
 
             {/* Yield Quick Stats Pill */}
             <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/90 space-y-2 text-xs">
-              <span className="font-bold text-slate-700 block text-[11px]">【担当候補者の歩留まり指標】</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-slate-700 block text-[11px]">【担当候補者の歩留まり指標】</span>
+                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded shrink-0 ${yieldSnapshot ? 'text-slate-500 bg-slate-100 border border-slate-200' : 'text-amber-700 bg-amber-50 border border-amber-200'}`}>
+                  {yieldSnapshot ? 'この実施日時点' : '現在のデータ（未保存）'}
+                </span>
+              </div>
               <div className="grid grid-cols-2 gap-2 text-center">
                 <div className="bg-white p-2 rounded-lg border border-slate-200">
                   <span className="text-[10px] text-slate-500 font-medium block">書類通過率</span>
@@ -1091,44 +1128,41 @@ export const RecruitmentMeetingView: React.FC = () => {
                   【担当エージェントの選考歩留まり】
                 </span>
                 <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
-                  {assignedAgencies.length}社 紐づき
+                  {displayAgencyStats.length}社 紐づき
                 </span>
               </div>
 
-              {assignedAgencies.length > 0 ? (
+              {displayAgencyStats.length > 0 ? (
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-0.5">
-                  {assignedAgencies.map((ag) => {
-                    const agStats = getAgencyStats(ag.id);
-                    return (
-                      <div key={ag.id} className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5 shadow-2xs">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-bold text-slate-900 text-xs truncate">{ag.name}</span>
-                          <span className="text-[10px] font-mono font-extrabold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/80">
-                            決定打率 {agStats.overallYieldRate}%
-                          </span>
-                        </div>
+                  {displayAgencyStats.map((agStats) => (
+                    <div key={agStats.agencyId} className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-bold text-slate-900 text-xs truncate">{agStats.agencyName}</span>
+                        <span className="text-[10px] font-mono font-extrabold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/80">
+                          決定打率 {agStats.overallYieldRate}%
+                        </span>
+                      </div>
 
-                        <div className="grid grid-cols-4 gap-1 text-center text-[10px] bg-slate-50 p-1.5 rounded-md border border-slate-100 font-mono">
-                          <div>
-                            <span className="text-[9px] text-slate-400 block font-sans">推薦数</span>
-                            <span className="font-bold text-slate-900">{agStats.total}名</span>
-                          </div>
-                          <div>
-                            <span className="text-[9px] text-slate-400 block font-sans">書類通過</span>
-                            <span className="font-bold text-indigo-700">{agStats.docPassRate}%</span>
-                          </div>
-                          <div>
-                            <span className="text-[9px] text-slate-400 block font-sans">1次通過</span>
-                            <span className="font-bold text-indigo-700">{agStats.firstPassRate}%</span>
-                          </div>
-                          <div>
-                            <span className="text-[9px] text-slate-400 block font-sans">内定承諾</span>
-                            <span className="font-bold text-emerald-700">{agStats.acceptCount}名</span>
-                          </div>
+                      <div className="grid grid-cols-4 gap-1 text-center text-[10px] bg-slate-50 p-1.5 rounded-md border border-slate-100 font-mono">
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">推薦数</span>
+                          <span className="font-bold text-slate-900">{agStats.total}名</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">書類通過</span>
+                          <span className="font-bold text-indigo-700">{agStats.docPassRate}%</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">1次通過</span>
+                          <span className="font-bold text-indigo-700">{agStats.firstPassRate}%</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">内定承諾</span>
+                          <span className="font-bold text-emerald-700">{agStats.acceptCount}名</span>
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="p-3 bg-white rounded-lg border border-slate-200 text-center text-[11px] text-slate-400 italic">

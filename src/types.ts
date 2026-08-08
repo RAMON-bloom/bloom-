@@ -161,6 +161,25 @@ export interface YieldMetrics {
   overallYieldRate: number; // %
 }
 
+export interface AgencyYieldSnapshot {
+  agencyId: string;
+  agencyName: string;
+  total: number;
+  docPassRate: number; // %
+  firstPassRate: number; // %
+  acceptCount: number;
+  overallYieldRate: number; // %
+}
+
+export interface RecruiterYieldSnapshot {
+  candidateCount: number;
+  docPassRate: number; // %
+  firstPassRate: number; // %
+  finalOfferCount: number;
+  acceptCount: number;
+  agencyStats: AgencyYieldSnapshot[];
+}
+
 export interface RecruiterReport {
   recruiterName: string;
   progressNotes: string; // 担当候補者の進捗状況・ボトルネック (手打ちメモ)
@@ -170,6 +189,11 @@ export interface RecruiterReport {
   upcomingInitiatives: string[]; // 今後の取り組み・アクションアイテム (手打ち項目)
   initiativesLog?: string[]; // MTGログ取得時の取り組み・ToDoログ
   actionItemsCompleted?: boolean[];
+  // Frozen at the time this recruiter's row in this meeting was first created, so opening an old
+  // meeting log later shows what the numbers were back then instead of always recalculating from
+  // candidates' current (possibly since-changed) phases. Absent on meetings saved before this
+  // field existed — falls back to a live calculation in that case.
+  yieldSnapshot?: RecruiterYieldSnapshot;
 }
 
 export interface MeetingActionItem {

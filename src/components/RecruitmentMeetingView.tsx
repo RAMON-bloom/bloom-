@@ -22,12 +22,11 @@ import {
   BarChart3,
   Trash2,
   ChevronUp,
-  ExternalLink,
   X
 } from 'lucide-react';
 import { useATS } from '../context/ATSContext';
 import { RecruiterReport, MeetingActionItem } from '../types';
-import { listDriveMeetingLogs, summarizeDriveMeetingLog, findCalendarMeetingNotes, DriveMeetingFile } from '../lib/driveApi';
+import { summarizeDriveMeetingLog, findCalendarMeetingNotes } from '../lib/driveApi';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
 import { computeRecruiterYieldSnapshot } from '../lib/yieldMetrics';
 
@@ -83,8 +82,6 @@ export const RecruitmentMeetingView: React.FC = () => {
 
   // Modals & States
   const [isNewMeetingModalOpen, setIsNewMeetingModalOpen] = useState(false);
-  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
-  const [isGeneratingAiSummary, setIsGeneratingAiSummary] = useState(false);
 
   // New Meeting Form
   const [newMtgDate, setNewMtgDate] = useState(new Date().toISOString().slice(0, 10));
@@ -96,11 +93,6 @@ export const RecruitmentMeetingView: React.FC = () => {
   const [newActionItemText, setNewActionItemText] = useState('');
   const [newActionItemAssignee, setNewActionItemAssignee] = useState(staffList[0]?.name || '');
 
-  // Drive Import Modal States
-  const [driveFiles, setDriveFiles] = useState<DriveMeetingFile[]>([]);
-  const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
-  const [selectedDriveFileId, setSelectedDriveFileId] = useState<string | null>(null);
-  const [isImportingDriveFile, setIsImportingDriveFile] = useState(false);
   const [isSearchingCalendar, setIsSearchingCalendar] = useState(false);
 
   // Agency Stats Toggle for Meeting View
@@ -309,68 +301,9 @@ export const RecruitmentMeetingView: React.FC = () => {
     );
   }
 
-  // Open Drive Import Modal: fetch real file list from the shared recruitment Drive folder
-  const handleOpenDriveModal = async () => {
-    if (!driveAccessToken) {
-      showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
-      await connectDrive();
-      return;
-    }
-    setIsDriveModalOpen(true);
-    setIsLoadingDriveFiles(true);
-    setSelectedDriveFileId(null);
-    try {
-      const files = await listDriveMeetingLogs(driveAccessToken);
-      setDriveFiles(files);
-    } catch (err: any) {
-      showToast(`Driveファイル一覧の取得に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-    } finally {
-      setIsLoadingDriveFiles(false);
-    }
-  };
-
-  // Re-run AI summarization on the previously imported Drive doc (or prompt to import one)
-  const handleGenerateAiSummary = async () => {
-    if (!activeMeeting.sourceDriveFileId) {
-      showToast('先に「Driveから議事録取込」でDrive上の議事録ファイルを取り込んでください', 'warning');
-      return;
-    }
-    if (!driveAccessToken) {
-      showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
-      return;
-    }
-
-    setIsGeneratingAiSummary(true);
-    try {
-      const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, {
-        id: activeMeeting.sourceDriveFileId,
-        name: activeMeeting.sourceDriveFileName || 'ドキュメント',
-        mimeType: 'application/vnd.google-apps.document'
-      });
-
-      const updatedReports = (activeMeeting.recruiterReports || []).map((r) => ({
-        ...r,
-        progressLog: `【AI再抽出ログ】${r.recruiterName}担当分の選考進捗・面接設定状況ログを再分析・抽出完了。`
-      }));
-
-      updateMeetingLog({
-        ...activeMeeting,
-        rawTranscript: rawContent,
-        fetchedOverallLog: summary.summaryMarkdown,
-        recruiterReports: updatedReports
-      });
-
-      showToast('Drive議事録をAIで再要約しました', 'success');
-    } catch (err: any) {
-      showToast(`AI要約に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-    } finally {
-      setIsGeneratingAiSummary(false);
-    }
-  };
-
   // Finds this meeting's calendar event (matched by title + date, not a fixed Meet code — the
   // recurring series' Meet code has already changed a few times) and imports its auto-generated
-  // "Gemini によるメモ" doc directly, skipping the manual "Drive議事録取込" file browser entirely.
+  // "Gemini によるメモ" doc directly.
   const handleImportFromCalendar = async () => {
     if (!driveAccessToken) {
       showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
@@ -382,7 +315,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     try {
       const match = await findCalendarMeetingNotes(driveAccessToken, activeMeeting.date);
       if (!match.found || !match.fileId) {
-        showToast('この日付に一致する「採用社内MTG」の予定、またはGemini議事録の添付が見つかりませんでした。「Drive議事録取込」から手動で選択してください。', 'warning');
+        showToast('この日付に一致する「採用社内MTG」の予定、またはGemini議事録の添付が見つかりませんでした。', 'warning');
         return;
       }
 
@@ -501,39 +434,6 @@ export const RecruitmentMeetingView: React.FC = () => {
       recruiterReports: newReportsList
     });
     showToast('取り組み項目を削除しました', 'info');
-  };
-
-  // Import & AI-summarize the selected Drive meeting doc into the active meeting log
-  const handleImportDriveFile = async () => {
-    if (!selectedDriveFileId || !driveAccessToken) return;
-    const file = driveFiles.find((f) => f.id === selectedDriveFileId);
-    if (!file) return;
-
-    setIsImportingDriveFile(true);
-    try {
-      const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
-
-      const updatedReports = (activeMeeting.recruiterReports || []).map((r) => ({
-        ...r,
-        progressLog: `【Drive抽出ログ】議事録「${file.name}」より ${r.recruiterName} 担当分の協議内容ログを取り込み完了`
-      }));
-
-      updateMeetingLog({
-        ...activeMeeting,
-        rawTranscript: rawContent,
-        fetchedOverallLog: summary.summaryMarkdown,
-        recruiterReports: updatedReports,
-        sourceDriveFileId: file.id,
-        sourceDriveFileName: file.name
-      });
-
-      setIsDriveModalOpen(false);
-      showToast(`Drive議事録「${file.name}」を取り込み、AI要約しました`, 'success');
-    } catch (err: any) {
-      showToast(`Drive議事録の取り込みに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-    } finally {
-      setIsImportingDriveFile(false);
-    }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -757,27 +657,6 @@ export const RecruitmentMeetingView: React.FC = () => {
           >
             <Calendar className={`w-4 h-4 text-indigo-600 ${isSearchingCalendar ? 'animate-pulse' : ''}`} />
             <span className="hidden sm:inline">{isSearchingCalendar ? '検索中' : 'カレンダーから議事録取込'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleOpenDriveModal}
-            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-            title="Google Drive上の議事録ファイルを取り込みます"
-          >
-            <HardDrive className="w-4 h-4 text-indigo-600" />
-            <span className="hidden sm:inline">Drive議事録取込</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleGenerateAiSummary}
-            disabled={isGeneratingAiSummary}
-            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-            title="取り込み済みのDrive議事録をAIで再要約します"
-          >
-            <Sparkles className={`w-4 h-4 text-indigo-600 ${isGeneratingAiSummary ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">{isGeneratingAiSummary ? '解析中' : 'AI再要約'}</span>
           </button>
 
           <button
@@ -1555,115 +1434,6 @@ export const RecruitmentMeetingView: React.FC = () => {
 
       {/* NEW MEETING LOG MODAL */}
       {newMeetingModal}
-
-      {/* DRIVE IMPORT MODAL */}
-      {isDriveModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl border border-slate-200 space-y-5">
-
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <HardDrive className="w-5 h-5 text-indigo-600" />
-                <h3 className="font-extrabold text-slate-900 text-base">
-                  Google Drive 議事録ログの取り込み
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsDriveModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                <span className="text-xs text-slate-500 font-medium">
-                  連携フォルダ内のドキュメント・テキストファイルを検索
-                </span>
-                <button
-                  type="button"
-                  onClick={handleOpenDriveModal}
-                  className="text-[11px] font-bold text-indigo-600 hover:underline flex items-center gap-1 shrink-0"
-                >
-                  <RefreshCw className={`w-3 h-3 ${isLoadingDriveFiles ? 'animate-spin' : ''}`} />
-                  再読込
-                </button>
-              </div>
-
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {isLoadingDriveFiles ? (
-                  <div className="p-6 text-center text-xs text-slate-400 italic">Driveファイルを検索中...</div>
-                ) : driveFiles.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-slate-400 italic space-y-1">
-                    <p>連携フォルダ内にドキュメント・テキストファイルが見つかりません。</p>
-                    <p>Google Docs または .txt/.md 形式の議事録を連携フォルダに保存してください。</p>
-                  </div>
-                ) : (
-                  <>
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                      検索結果のファイル ({driveFiles.length}件):
-                    </span>
-                    {driveFiles.map((file) => (
-                      <div
-                        key={file.id}
-                        onClick={() => setSelectedDriveFileId(file.id)}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer space-y-1 ${
-                          selectedDriveFileId === file.id
-                            ? 'bg-indigo-50/90 border-indigo-400 shadow-2xs'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between text-xs gap-2">
-                          <span className="font-extrabold text-slate-900 truncate">
-                            {file.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                            {file.modifiedTime ? file.modifiedTime.slice(0, 10) : ''}
-                          </span>
-                        </div>
-                        {file.webViewLink && (
-                          <a
-                            href={file.webViewLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[11px] text-indigo-500 hover:underline flex items-center gap-1"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            Driveで開く
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setIsDriveModalOpen(false)}
-                className="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-slate-50 text-xs cursor-pointer"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={handleImportDriveFile}
-                disabled={!selectedDriveFileId || isImportingDriveFile}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${isImportingDriveFile ? 'animate-spin' : ''}`} />
-                <span>{isImportingDriveFile ? 'AI要約中...' : 'このファイルをMTGログに取り込みAI要約'}</span>
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
     </div>
   );

@@ -134,16 +134,6 @@ export const RecruitmentMeetingView: React.FC = () => {
     }, 250);
   };
 
-  if (!activeMeeting) {
-    return (
-      <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center text-slate-500 max-w-4xl mx-auto shadow-2xs">
-        <FileText className="w-12 h-12 text-indigo-400 mx-auto mb-3" />
-        <h3 className="text-lg font-bold text-slate-800">MTGログが登録されていません</h3>
-        <p className="text-sm mt-1">「新規MTGを作成」ボタンから作成してください。</p>
-      </div>
-    );
-  }
-
   // Active Selected Recruiter Object
   const currentRecruiterStaff = recruiterStaffList.find(s => s.name === selectedRecruiter) || recruiterStaffList[0];
 
@@ -215,6 +205,90 @@ export const RecruitmentMeetingView: React.FC = () => {
     setIsNewMeetingModalOpen(false);
     showToast(`新しい採用MTGログ（${formattedTitle}）を作成しました`, 'success');
   };
+
+  // Shared between the normal view and the "no MTG logs yet" empty state below — both need a way
+  // to actually create the first/next meeting, so this can't live inside the JSX that only renders
+  // once a meeting already exists.
+  const newMeetingModal = isNewMeetingModalOpen && (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+            <Plus className="w-5 h-5 text-indigo-600" />
+            新規採用MTGログの作成
+          </h3>
+          <button
+            type="button"
+            onClick={() => setIsNewMeetingModalOpen(false)}
+            className="text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleCreateMeetingLog} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              MTG実施日
+            </label>
+            <input
+              type="date"
+              required
+              value={newMtgDate}
+              onChange={(e) => setNewMtgDate(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
+            <span className="font-bold text-slate-800 block">自動初期化される項目:</span>
+            <p>・社内リクルーター全名の個別の報告枠を作成</p>
+            <p>・全体の初期アクションアイテム（未完了タスク）を設定</p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsNewMeetingModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-slate-50 text-xs cursor-pointer"
+            >
+              キャンセル
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-colors shadow-2xs cursor-pointer"
+            >
+              作成
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
+  // Previously this bailed out to a placeholder with no way to actually act on its own
+  // instructions ("「新規MTGを作成」ボタンから作成してください") — the real button only existed
+  // further down in the JSX below, which this early return skipped entirely. That left anyone who
+  // deleted every MTG log (or a fresh install with none yet) stuck: the page said to click a
+  // button that was never rendered. It now renders that same button here.
+  if (!activeMeeting) {
+    return (
+      <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center text-slate-500 max-w-4xl mx-auto shadow-2xs space-y-4">
+        <FileText className="w-12 h-12 text-indigo-400 mx-auto mb-3" />
+        <h3 className="text-lg font-bold text-slate-800">MTGログが登録されていません</h3>
+        <p className="text-sm mt-1">「新規MTGを作成」ボタンから作成してください。</p>
+        <button
+          type="button"
+          onClick={() => setIsNewMeetingModalOpen(true)}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
+        >
+          <Plus className="w-4 h-4 stroke-[2.5]" />
+          <span>新規MTG作成</span>
+        </button>
+        {newMeetingModal}
+      </div>
+    );
+  }
 
   // Open Drive Import Modal: fetch real file list from the shared recruitment Drive folder
   const handleOpenDriveModal = async () => {
@@ -1360,62 +1434,7 @@ export const RecruitmentMeetingView: React.FC = () => {
       )}
 
       {/* NEW MEETING LOG MODAL */}
-      {isNewMeetingModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                <Plus className="w-5 h-5 text-indigo-600" />
-                新規採用MTGログの作成
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsNewMeetingModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateMeetingLog} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  MTG実施日
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={newMtgDate}
-                  onChange={(e) => setNewMtgDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
-                <span className="font-bold text-slate-800 block">自動初期化される項目:</span>
-                <p>・社内リクルーター全名の個別の報告枠を作成</p>
-                <p>・全体の初期アクションアイテム（未完了タスク）を設定</p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsNewMeetingModalOpen(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-slate-50 text-xs cursor-pointer"
-                >
-                  キャンセル
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-colors shadow-2xs cursor-pointer"
-                >
-                  作成
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {newMeetingModal}
 
       {/* DRIVE IMPORT MODAL */}
       {isDriveModalOpen && (

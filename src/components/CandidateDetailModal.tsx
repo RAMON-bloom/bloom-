@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment } from '../types';
+import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
@@ -101,7 +101,9 @@ export const CandidateDetailModal: React.FC = () => {
     updateCandidatePhase, 
     updateCandidateSchedule, 
     updateOnboardingInfo,
-    addEvaluationNote, 
+    addEvaluationNote,
+    updateEvaluationNote,
+    deleteEvaluationNote,
     updateCandidate,
     deleteCandidate,
     restoreCandidate,
@@ -180,6 +182,101 @@ export const CandidateDetailModal: React.FC = () => {
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
   const [failReason, setFailReason] = useState<string>('');
 
+  // Evaluation Log edit/delete state
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [deleteConfirmNoteId, setDeleteConfirmNoteId] = useState<string | null>(null);
+  const [editNote, setEditNote] = useState<{
+    phase: SelectionPhase;
+    interviewRating?: EvaluationGrade;
+    bcaDesiredDepartment?: BcaDesiredDepartment;
+    lRating?: LcmRating;
+    cRating?: LcmRating;
+    mRating?: LcmRating;
+    lNote: string;
+    cNote: string;
+    mNote: string;
+    resultStatus: 'PASS' | 'FAIL' | 'PENDING';
+    failReason: string;
+    comment: string;
+  } | null>(null);
+
+  // Loads a note's fields into the inline edit form. Structured notes (goodPoints/concerns/
+  // otherNotes stored as separate fields) get reassembled into one editable block using the same
+  // 【見出し】format they were originally composed with, since there's no reliable way to keep
+  // three free-text fields independently editable and still guarantee they round-trip back into
+  // the single `comment` string exactly as before. Saving an edit always writes back through
+  // `comment` only — the note keeps working (shown as one block instead of three colored cards)
+  // even though it loses that visual separation after being edited once.
+  const startEditNote = (note: EvaluationNote) => {
+    const combinedComment = (note.goodPoints || note.concerns || note.otherNotes)
+      ? [
+          note.goodPoints ? `【評価ポイント】\n${note.goodPoints}` : null,
+          note.concerns ? `【懸念点】\n${note.concerns}` : null,
+          note.otherNotes ? `【その他メモ】\n${note.otherNotes}` : null
+        ].filter(Boolean).join('\n\n')
+      : note.comment;
+    setEditingNoteId(note.id);
+    setEditNote({
+      phase: note.phase,
+      interviewRating: note.interviewRating,
+      bcaDesiredDepartment: note.bcaDesiredDepartment,
+      lRating: note.lRating,
+      cRating: note.cRating,
+      mRating: note.mRating,
+      lNote: note.lNote || '',
+      cNote: note.cNote || '',
+      mNote: note.mNote || '',
+      resultStatus: note.resultStatus || 'PENDING',
+      failReason: note.failReason || '',
+      comment: combinedComment || ''
+    });
+  };
+
+  const cancelEditNote = () => {
+    setEditingNoteId(null);
+    setEditNote(null);
+  };
+
+  const saveEditNote = () => {
+    if (!editingNoteId || !editNote || !candidate) return;
+    const original = candidate.evaluationNotes.find((n) => n.id === editingNoteId);
+    if (!original) return;
+    updateEvaluationNote(candidate.id, editingNoteId, {
+      author: original.author,
+      authorRole: original.authorRole,
+      phase: editNote.phase,
+      interviewRating: editNote.interviewRating,
+      bcaDesiredDepartment: editNote.bcaDesiredDepartment,
+      lRating: editNote.lRating,
+      cRating: editNote.cRating,
+      mRating: editNote.mRating,
+      lNote: editNote.lNote || undefined,
+      cNote: editNote.cNote || undefined,
+      mNote: editNote.mNote || undefined,
+      // Explicitly cleared (not just omitted): updateEvaluationNote merges via `{...old, ...new}`,
+      // so omitting a key here would leave the note's stale pre-edit goodPoints/concerns/otherNotes
+      // in place and the history card would keep showing the old structured cards instead of the
+      // freshly edited comment text below.
+      goodPoints: undefined,
+      concerns: undefined,
+      otherNotes: undefined,
+      comment: editNote.comment.trim() || '（所感メモなし）',
+      resultStatus: editNote.resultStatus,
+      failReason: editNote.resultStatus === 'FAIL' ? editNote.failReason || undefined : undefined
+    });
+    setEditingNoteId(null);
+    setEditNote(null);
+  };
+
+  const handleDeleteNote = (noteId: string) => {
+    if (!candidate) return;
+    deleteEvaluationNote(candidate.id, noteId);
+    setDeleteConfirmNoteId(null);
+    if (editingNoteId === noteId) {
+      setEditingNoteId(null);
+      setEditNote(null);
+    }
+  };
 
   // Onboarding Form state
   const [onboardingJoiningDate, setOnboardingJoiningDate] = useState<string>('');
@@ -426,6 +523,8 @@ export const CandidateDetailModal: React.FC = () => {
           // candidate already has (manually cropped or previously auto-detected).
           if (!candidate.avatarUrl && allUploaded.length > 0) {
             setIsDetailDetectingPhoto(true);
+            let photoFound = false;
+            let lastPhotoError: string | null = null;
             try {
               for (const uploaded of allUploaded) {
                 if (!uploaded.file.id) continue;
@@ -435,10 +534,19 @@ export const CandidateDetailModal: React.FC = () => {
                     const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
                     patch.avatarUrl = croppedDataUrl;
                     showToast('追加した書類から顔写真を自動抽出しました', 'success');
+                    photoFound = true;
                     break;
                   }
-                } catch (photoErr) {
+                } catch (photoErr: any) {
                   console.error('Auto photo crop failed', photoErr);
+                  lastPhotoError = photoErr?.message || '不明なエラー';
+                }
+              }
+              if (!photoFound) {
+                if (lastPhotoError) {
+                  showToast(`顔写真の自動検出でエラーが発生しました: ${lastPhotoError}（「顔写真切抜」から手動で切り抜きできます）`, 'warning');
+                } else {
+                  showToast('追加した書類から証明写真を検出できませんでした。「顔写真切抜」から手動で設定できます。', 'info');
                 }
               }
             } finally {
@@ -1543,120 +1651,295 @@ export const CandidateDetailModal: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <span className="text-slate-400 font-mono text-[11px]">{note.createdAt || note.date}</span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-slate-400 font-mono text-[11px]">{note.createdAt || note.date}</span>
+                              {editingNoteId !== note.id && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditNote(note)}
+                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
+                                    title="このメモを編集"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteConfirmNoteId(note.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                    title="このメモを削除"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {renderGradeBadge('面接評価', note.interviewRating)}
-                            {note.bcaDesiredDepartment && (
-                              <span className="text-[10px] bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded font-bold">
-                                希望: {note.bcaDesiredDepartment === 'BOTH' ? 'F+ / AC (両方)' : note.bcaDesiredDepartment}
-                              </span>
-                            )}
-                            {note.resultStatus === 'PASS' && (
-                              <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-bold">
-                                合格
-                              </span>
-                            )}
-                            {note.resultStatus === 'FAIL' && (
-                              <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded font-bold">
-                                不採用 ({note.failReason || '要件未達'})
-                              </span>
-                            )}
-                          </div>
-
-                          {/* LCM Ratings in history note */}
-                          {(note.lRating || note.cRating || note.mRating) && (
-                            <div className="flex items-center gap-1.5 flex-wrap font-mono">
-                              {note.lRating && (
-                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
-                                  note.lRating === '〇' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                  note.lRating === '△' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                                  'bg-rose-50 text-rose-800 border-rose-200'
-                                }`}>
-                                  L: {note.lRating}
-                                </span>
-                              )}
-                              {note.cRating && (
-                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
-                                  note.cRating === '〇' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                  note.cRating === '△' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                                  'bg-rose-50 text-rose-800 border-rose-200'
-                                }`}>
-                                  C: {note.cRating}
-                                </span>
-                              )}
-                              {note.mRating && (
-                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
-                                  note.mRating === '〇' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                  note.mRating === '△' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                                  'bg-rose-50 text-rose-800 border-rose-200'
-                                }`}>
-                                  M: {note.mRating}
-                                </span>
-                              )}
+                          {deleteConfirmNoteId === note.id && (
+                            <div className="flex items-center justify-between gap-3 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                              <span className="text-[11px] font-bold text-rose-800">このメモを削除しますか？元に戻せません。</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteConfirmNoteId(null)}
+                                  className="px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer"
+                                >
+                                  キャンセル
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteNote(note.id)}
+                                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg cursor-pointer"
+                                >
+                                  削除する
+                                </button>
+                              </div>
                             </div>
                           )}
 
-                          {/* LCM Supplement Notes */}
-                          {(note.lNote || note.cNote || note.mNote) && (
-                            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs space-y-1 text-slate-700">
-                              {note.lNote && (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="font-bold text-indigo-700 shrink-0 font-mono">L (ルックス) 補足:</span>
-                                  <span className="leading-snug">{note.lNote}</span>
+                          {editingNoteId === note.id && editNote ? (
+                            <div className="space-y-3 bg-indigo-50/30 border border-indigo-200 rounded-xl p-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-slate-600 font-bold mb-1 text-[11px]">対象フェーズ</label>
+                                  <select
+                                    value={editNote.phase}
+                                    onChange={(e) => setEditNote({ ...editNote, phase: e.target.value as SelectionPhase })}
+                                    className="w-full bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500"
+                                  >
+                                    {(Object.keys(PHASE_LABELS) as SelectionPhase[]).map((p) => (
+                                      <option key={p} value={p}>{PHASE_LABELS[p]}</option>
+                                    ))}
+                                  </select>
                                 </div>
-                              )}
-                              {note.cNote && (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="font-bold text-indigo-700 shrink-0 font-mono">C (コミュニケーション) 補足:</span>
-                                  <span className="leading-snug">{note.cNote}</span>
+                                <div>
+                                  <label className="block text-slate-600 font-bold mb-1 text-[11px]">判定結果</label>
+                                  <div className="flex items-center gap-3 h-[30px]">
+                                    <label className="flex items-center gap-1.5 cursor-pointer font-bold text-[11px] text-slate-800">
+                                      <input type="radio" checked={editNote.resultStatus === 'PASS'} onChange={() => setEditNote({ ...editNote, resultStatus: 'PASS' })} className="accent-emerald-600" />
+                                      <span className="text-emerald-700">合格</span>
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer font-bold text-[11px] text-slate-800">
+                                      <input type="radio" checked={editNote.resultStatus === 'FAIL'} onChange={() => setEditNote({ ...editNote, resultStatus: 'FAIL' })} className="accent-rose-600" />
+                                      <span className="text-rose-700">不採用</span>
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer font-bold text-[11px] text-slate-800">
+                                      <input type="radio" checked={editNote.resultStatus === 'PENDING'} onChange={() => setEditNote({ ...editNote, resultStatus: 'PENDING' })} className="accent-slate-500" />
+                                      <span>結果待ち</span>
+                                    </label>
+                                  </div>
                                 </div>
-                              )}
-                              {note.mNote && (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="font-bold text-indigo-700 shrink-0 font-mono">M (マインド) 補足:</span>
-                                  <span className="leading-snug">{note.mNote}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                              </div>
 
-                          {/* Structured Comment Cards */}
-                          {(note.goodPoints || note.concerns || note.otherNotes) ? (
-                            <div className="space-y-2 pt-1 text-xs">
-                              {note.goodPoints && (
-                                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-lg p-2.5">
-                                  <div className="font-bold text-emerald-800 flex items-center gap-1 mb-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                                    評価ポイント (強み)
-                                  </div>
-                                  <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{note.goodPoints}</p>
-                                </div>
+                              {editNote.resultStatus === 'FAIL' && (
+                                <input
+                                  type="text"
+                                  placeholder="不採用理由"
+                                  value={editNote.failReason}
+                                  onChange={(e) => setEditNote({ ...editNote, failReason: e.target.value })}
+                                  className="w-full bg-white border border-rose-300 text-slate-900 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
+                                />
                               )}
-                              {note.concerns && (
-                                <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-2.5">
-                                  <div className="font-bold text-amber-800 flex items-center gap-1 mb-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
-                                    懸念点 (リスク)
-                                  </div>
-                                  <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{note.concerns}</p>
+
+                              <div>
+                                <label className="block text-slate-600 font-bold mb-1 text-[11px]">面接評価</label>
+                                <div className="flex flex-wrap gap-1 bg-white border border-slate-200 p-1 rounded-lg">
+                                  {EVALUATION_GRADES.map((g) => (
+                                    <button
+                                      type="button"
+                                      key={g}
+                                      onClick={() => setEditNote({ ...editNote, interviewRating: editNote.interviewRating === g ? undefined : g })}
+                                      className={`flex-1 min-w-[28px] py-1 rounded text-[11px] font-mono font-bold transition-colors cursor-pointer ${
+                                        editNote.interviewRating === g ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      {g}
+                                    </button>
+                                  ))}
                                 </div>
-                              )}
-                              {note.otherNotes && (
-                                <div className="bg-indigo-50/60 border border-indigo-200/70 rounded-lg p-2.5">
-                                  <div className="font-bold text-indigo-800 flex items-center gap-1 mb-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
-                                    その他メモ
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                {([
+                                  { key: 'lRating' as const, noteKey: 'lNote' as const, label: 'L' },
+                                  { key: 'cRating' as const, noteKey: 'cNote' as const, label: 'C' },
+                                  { key: 'mRating' as const, noteKey: 'mNote' as const, label: 'M' }
+                                ]).map(({ key, noteKey, label }) => (
+                                  <div key={key} className="bg-white p-2 rounded-lg border border-slate-200 space-y-1">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-slate-700 text-[11px] font-mono">{label}</span>
+                                      <div className="flex items-center gap-1">
+                                        {(['〇', '△', '✕'] as LcmRating[]).map((r) => (
+                                          <button
+                                            type="button"
+                                            key={r}
+                                            onClick={() => setEditNote({ ...editNote, [key]: editNote[key] === r ? undefined : r })}
+                                            className={`w-6 h-6 rounded text-[11px] font-bold cursor-pointer ${
+                                              editNote[key] === r
+                                                ? r === '〇' ? 'bg-emerald-600 text-white' : r === '△' ? 'bg-amber-500 text-white' : 'bg-rose-600 text-white'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }`}
+                                          >
+                                            {r}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      placeholder={`${label} 補足`}
+                                      value={editNote[noteKey]}
+                                      onChange={(e) => setEditNote({ ...editNote, [noteKey]: e.target.value })}
+                                      className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-[11px] rounded px-2 py-1 focus:outline-none focus:border-indigo-500"
+                                    />
                                   </div>
-                                  <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{note.otherNotes}</p>
-                                </div>
-                              )}
+                                ))}
+                              </div>
+
+                              <div>
+                                <label className="block text-slate-600 font-bold mb-1 text-[11px]">所感・メモ</label>
+                                <textarea
+                                  rows={4}
+                                  value={editNote.comment}
+                                  onChange={(e) => setEditNote({ ...editNote, comment: e.target.value })}
+                                  className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 leading-relaxed"
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-end gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={cancelEditNote}
+                                  className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer"
+                                >
+                                  キャンセル
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={saveEditNote}
+                                  className="px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>保存</span>
+                                </button>
+                              </div>
                             </div>
                           ) : (
-                            <p className="text-slate-700 leading-relaxed whitespace-pre-wrap pt-1 text-xs">
-                              {note.comment}
-                            </p>
+                            <>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {renderGradeBadge('面接評価', note.interviewRating)}
+                                {note.bcaDesiredDepartment && (
+                                  <span className="text-[10px] bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded font-bold">
+                                    希望: {note.bcaDesiredDepartment === 'BOTH' ? 'F+ / AC (両方)' : note.bcaDesiredDepartment}
+                                  </span>
+                                )}
+                                {note.resultStatus === 'PASS' && (
+                                  <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-bold">
+                                    合格
+                                  </span>
+                                )}
+                                {note.resultStatus === 'FAIL' && (
+                                  <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded font-bold">
+                                    不採用 ({note.failReason || '要件未達'})
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* LCM Ratings in history note */}
+                              {(note.lRating || note.cRating || note.mRating) && (
+                                <div className="flex items-center gap-1.5 flex-wrap font-mono">
+                                  {note.lRating && (
+                                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                                      note.lRating === '〇' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                      note.lRating === '△' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                      'bg-rose-50 text-rose-800 border-rose-200'
+                                    }`}>
+                                      L: {note.lRating}
+                                    </span>
+                                  )}
+                                  {note.cRating && (
+                                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                                      note.cRating === '〇' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                      note.cRating === '△' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                      'bg-rose-50 text-rose-800 border-rose-200'
+                                    }`}>
+                                      C: {note.cRating}
+                                    </span>
+                                  )}
+                                  {note.mRating && (
+                                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                                      note.mRating === '〇' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                      note.mRating === '△' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                      'bg-rose-50 text-rose-800 border-rose-200'
+                                    }`}>
+                                      M: {note.mRating}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* LCM Supplement Notes */}
+                              {(note.lNote || note.cNote || note.mNote) && (
+                                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs space-y-1 text-slate-700">
+                                  {note.lNote && (
+                                    <div className="flex items-start gap-1.5">
+                                      <span className="font-bold text-indigo-700 shrink-0 font-mono">L (ルックス) 補足:</span>
+                                      <span className="leading-snug">{note.lNote}</span>
+                                    </div>
+                                  )}
+                                  {note.cNote && (
+                                    <div className="flex items-start gap-1.5">
+                                      <span className="font-bold text-indigo-700 shrink-0 font-mono">C (コミュニケーション) 補足:</span>
+                                      <span className="leading-snug">{note.cNote}</span>
+                                    </div>
+                                  )}
+                                  {note.mNote && (
+                                    <div className="flex items-start gap-1.5">
+                                      <span className="font-bold text-indigo-700 shrink-0 font-mono">M (マインド) 補足:</span>
+                                      <span className="leading-snug">{note.mNote}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Structured Comment Cards */}
+                              {(note.goodPoints || note.concerns || note.otherNotes) ? (
+                                <div className="space-y-2 pt-1 text-xs">
+                                  {note.goodPoints && (
+                                    <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-lg p-2.5">
+                                      <div className="font-bold text-emerald-800 flex items-center gap-1 mb-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                                        評価ポイント (強み)
+                                      </div>
+                                      <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{note.goodPoints}</p>
+                                    </div>
+                                  )}
+                                  {note.concerns && (
+                                    <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-2.5">
+                                      <div className="font-bold text-amber-800 flex items-center gap-1 mb-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                                        懸念点 (リスク)
+                                      </div>
+                                      <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{note.concerns}</p>
+                                    </div>
+                                  )}
+                                  {note.otherNotes && (
+                                    <div className="bg-indigo-50/60 border border-indigo-200/70 rounded-lg p-2.5">
+                                      <div className="font-bold text-indigo-800 flex items-center gap-1 mb-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+                                        その他メモ
+                                      </div>
+                                      <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{note.otherNotes}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-slate-700 leading-relaxed whitespace-pre-wrap pt-1 text-xs">
+                                  {note.comment}
+                                </p>
+                              )}
+                            </>
                           )}
                         </div>
                       ))

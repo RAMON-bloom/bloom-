@@ -79,6 +79,8 @@ interface ATSContextType {
     }
   ) => void;
   addEvaluationNote: (candidateId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
+  updateEvaluationNote: (candidateId: string, noteId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
+  deleteEvaluationNote: (candidateId: string, noteId: string) => void;
   addCandidate: (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => void;
   updateCandidate: (updatedCandidate: Candidate) => void;
   deleteCandidate: (id: string) => void;
@@ -345,6 +347,64 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           };
         }
         return c;
+      })
+    );
+  };
+
+  // Edits an existing note in place (keeps its id/createdAt/position in the list). The candidate's
+  // rollup fields (interviewRating, L/C/M, etc.) always re-sync to whatever is now the first note
+  // in the array — same "most recent note wins" rule addEvaluationNote uses — so editing the
+  // current top note updates the rollup, and editing an older one leaves it alone. Unlike adding,
+  // this fully overwrites the rollup (including clearing it to undefined) since an explicit edit
+  // is the user correcting the record, not just adding to it.
+  const updateEvaluationNote = (candidateId: string, noteId: string, noteData: Omit<EvaluationNote, 'id' | 'createdAt'>) => {
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (c.id !== candidateId) return c;
+        // Full replacement (not a merge) — noteData is meant to be the note's complete new state,
+        // same as when it's first created by addEvaluationNote. Merging with the old note would
+        // leave any field the caller omitted (e.g. a cleared goodPoints/concerns/otherNotes) stuck
+        // at its stale pre-edit value instead of actually being cleared.
+        const updatedNotes = c.evaluationNotes.map((n) => (n.id === noteId ? { ...noteData, id: n.id, createdAt: n.createdAt } : n));
+        const latest = updatedNotes[0];
+        showToast('評価メモを更新しました', 'success');
+        return {
+          ...c,
+          evaluationNotes: updatedNotes,
+          interviewRating: latest?.interviewRating,
+          bcaDesiredDepartment: latest?.bcaDesiredDepartment,
+          lRating: latest?.lRating,
+          cRating: latest?.cRating,
+          mRating: latest?.mRating,
+          lNote: latest?.lNote,
+          cNote: latest?.cNote,
+          mNote: latest?.mNote,
+          lastUpdated: new Date().toISOString().split('T')[0]
+        };
+      })
+    );
+  };
+
+  const deleteEvaluationNote = (candidateId: string, noteId: string) => {
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (c.id !== candidateId) return c;
+        const updatedNotes = c.evaluationNotes.filter((n) => n.id !== noteId);
+        const latest = updatedNotes[0];
+        showToast('評価メモを削除しました', 'info');
+        return {
+          ...c,
+          evaluationNotes: updatedNotes,
+          interviewRating: latest?.interviewRating,
+          bcaDesiredDepartment: latest?.bcaDesiredDepartment,
+          lRating: latest?.lRating,
+          cRating: latest?.cRating,
+          mRating: latest?.mRating,
+          lNote: latest?.lNote,
+          cNote: latest?.cNote,
+          mNote: latest?.mNote,
+          lastUpdated: new Date().toISOString().split('T')[0]
+        };
       })
     );
   };
@@ -966,6 +1026,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCandidateSchedule,
         updateOnboardingInfo,
         addEvaluationNote,
+        updateEvaluationNote,
+        deleteEvaluationNote,
         addCandidate,
         updateCandidate,
         deleteCandidate,

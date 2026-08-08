@@ -206,6 +206,13 @@ export const CandidateFormModal: React.FC = () => {
     // first successful upload creates the folder, the rest reuse it. Runs regardless of whether
     // AI parsing above succeeded, so an oversized/failed primary file doesn't block uploading the
     // rest of the drop, and one extra file failing doesn't stop the primary's photo-crop below.
+    if (!driveAccessToken) {
+      // Photo auto-detection needs the resume in Drive first (it re-downloads the uploaded file
+      // to hand to Gemini), so without a Drive connection it's silently never attempted — tell the
+      // user why instead of leaving them to wonder if it's still running or just broken.
+      showToast('Drive未接続のため、顔写真の自動検出・保存はスキップされました。詳細画面から手動で切り抜き設定できます。', 'info');
+    }
+
     if (driveAccessToken) {
       setIsUploadingToDrive(true);
       const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
@@ -263,6 +270,12 @@ export const CandidateFormModal: React.FC = () => {
         // so try every uploaded file in order and stop at the first one that actually has a photo.
         if (allUploaded.length > 0) {
           setIsDetectingPhoto(true);
+          // Tracks why no photo ended up set, so the user gets a concrete toast either way instead
+          // of silence — previously a not-found result and a hard API/network error looked
+          // identical (nothing happened), which is indistinguishable from "still processing" and
+          // was the main source of "顔写真が反映されない" reports with no way to tell what failed.
+          let photoFound = false;
+          let lastPhotoError: string | null = null;
           try {
             for (const uploaded of allUploaded) {
               if (!uploaded.file.id) continue;
@@ -272,10 +285,19 @@ export const CandidateFormModal: React.FC = () => {
                   const croppedDataUrl = await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box);
                   setFormData((prev) => ({ ...prev, avatarUrl: croppedDataUrl }));
                   showToast('履歴書から顔写真を自動抽出しました', 'success');
+                  photoFound = true;
                   break;
                 }
-              } catch (photoErr) {
+              } catch (photoErr: any) {
                 console.error('Auto photo crop failed', photoErr);
+                lastPhotoError = photoErr?.message || '不明なエラー';
+              }
+            }
+            if (!photoFound) {
+              if (lastPhotoError) {
+                showToast(`顔写真の自動検出でエラーが発生しました: ${lastPhotoError}（詳細画面から手動で切り抜きできます）`, 'warning');
+              } else {
+                showToast('アップロードした書類から証明写真を検出できませんでした。詳細画面の「顔写真切抜」から手動で設定できます。', 'info');
               }
             }
           } finally {

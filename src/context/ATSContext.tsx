@@ -480,7 +480,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // The ref-backed counter (rather than reading `candidates.length` directly) still guarantees
     // unique IDs when addCandidate is called multiple times back-to-back in the same tick — e.g.
     // importing several unregistered Drive resumes in a loop.
-    nextCandidateIdNumRef.current = Math.max(candidates.length, nextCandidateIdNumRef.current) + 1;
+    // The floor must be the highest CAND-#### number currently in use, not just the live count:
+    // permanently deleting a candidate shrinks candidates.length without freeing up its number for
+    // reuse by anyone still on the list, so on a fresh page load (ref reset to 0) `candidates.length`
+    // could fall below another still-existing candidate's number and collide with it — two candidates
+    // sharing one id, where deleting either one deletes both (since delete/permanentlyDelete filter
+    // by id match, which then matches both records).
+    const maxExistingIdNum = candidates.reduce((max, c) => {
+      const num = parseInt(c.id.replace('CAND-', ''), 10);
+      return Number.isNaN(num) ? max : Math.max(max, num);
+    }, 0);
+    nextCandidateIdNumRef.current = Math.max(maxExistingIdNum, nextCandidateIdNumRef.current) + 1;
     const newCandidate: Candidate = {
       ...candidateData,
       id: `CAND-${String(nextCandidateIdNumRef.current).padStart(4, '0')}`,

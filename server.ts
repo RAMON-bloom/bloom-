@@ -19,6 +19,7 @@ import driveImportResume from './api/drive/import-resume';
 import driveDetectPhotoCrop from './api/drive/detect-photo-crop';
 import driveDeleteResume from './api/drive/delete-resume';
 import calendarFindMeetingNotes from './api/calendar/find-meeting-notes';
+import notifyCandidateRegistered from './api/notify/candidate-registered';
 
 async function startServer() {
   const app = express();
@@ -41,6 +42,7 @@ async function startServer() {
   app.post('/api/drive/detect-photo-crop', driveDetectPhotoCrop);
   app.post('/api/drive/delete-resume', driveDeleteResume);
   app.post('/api/calendar/find-meeting-notes', calendarFindMeetingNotes);
+  app.post('/api/notify/candidate-registered', notifyCandidateRegistered);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

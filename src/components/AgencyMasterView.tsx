@@ -61,7 +61,8 @@ export const AgencyMasterView: React.FC = () => {
   const [staffFormData, setStaffFormData] = useState({
     name: '',
     department: '人事部',
-    role: '採用担当 (リクルーター)'
+    role: '採用担当 (リクルーター)',
+    googleChatWebhookUrl: ''
   });
 
   // Delete Confirm Modal State
@@ -222,7 +223,8 @@ export const AgencyMasterView: React.FC = () => {
     setStaffFormData({
       name: '',
       department: '人事部',
-      role: '採用担当 (リクルーター)'
+      role: '採用担当 (リクルーター)',
+      googleChatWebhookUrl: ''
     });
     setIsStaffModalOpen(true);
   };
@@ -232,7 +234,8 @@ export const AgencyMasterView: React.FC = () => {
     setStaffFormData({
       name: staff.name,
       department: staff.department,
-      role: staff.role
+      role: staff.role,
+      googleChatWebhookUrl: staff.googleChatWebhookUrl || ''
     });
     setIsStaffModalOpen(true);
   };
@@ -247,20 +250,23 @@ export const AgencyMasterView: React.FC = () => {
         ...editingStaff,
         name: staffFormData.name,
         department: staffFormData.department,
-        role: staffFormData.role
+        role: staffFormData.role,
+        googleChatWebhookUrl: staffFormData.googleChatWebhookUrl.trim() || undefined
       });
     } else {
       addStaff({
         name: staffFormData.name,
         department: staffFormData.department,
-        role: staffFormData.role
+        role: staffFormData.role,
+        googleChatWebhookUrl: staffFormData.googleChatWebhookUrl.trim() || undefined
       });
     }
 
     setStaffFormData({
       name: '',
       department: '人事部',
-      role: '採用担当 (リクルーター)'
+      role: '採用担当 (リクルーター)',
+      googleChatWebhookUrl: ''
     });
     setEditingStaff(null);
     setIsStaffModalOpen(false);
@@ -853,6 +859,21 @@ export const AgencyMasterView: React.FC = () => {
                   <option value="営業マネージャー" />
                   <option value="採用アシスタント" />
                 </datalist>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Google Chat Webhook URL（任意）</label>
+                <input
+                  type="url"
+                  placeholder="https://chat.googleapis.com/v1/spaces/..."
+                  value={staffFormData.googleChatWebhookUrl}
+                  onChange={(e) => setStaffFormData({ ...staffFormData, googleChatWebhookUrl: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  設定すると、この担当者が書類選考担当として新規候補者に割り当てられた際にGoogle Chatへ通知が届きます。Google
+                  Chatで自分宛のスペースを作成し、「アプリ」→「Webhookを追加」で発行されたURLを貼り付けてください。
+                </p>
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-200">

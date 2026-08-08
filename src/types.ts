@@ -142,6 +142,7 @@ export interface InternalStaff {
   name: string;
   department: string;
   role: string;
+  googleChatWebhookUrl?: string; // 本人のGoogle Chatスペースの着信Webhook URL。設定されていれば書類選考担当に割り当てられた際に通知を送る
 }
 
 export interface YieldMetrics {

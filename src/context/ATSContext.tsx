@@ -23,6 +23,7 @@ import {
   importDriveResume as importDriveResumeApi,
   deleteResumeFromDrive as deleteResumeFromDriveApi
 } from '../lib/driveApi';
+import { notifyCandidateRegistered as notifyCandidateRegisteredApi } from '../lib/notifyApi';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -500,6 +501,28 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setCandidates((prev) => [newCandidate, ...prev]);
     showToast(`候補者 「${newCandidate.name}」（${newCandidate.id}） を新規登録しました`, 'success');
+
+    // Best-effort Google Chat notification to the assigned staff member — only for candidates
+    // starting out in 書類選考 (every brand-new registration from the form does; a Drive-import
+    // discovered sitting in a later phase folder does not, and shouldn't ping anyone as if they
+    // were just freshly assigned document screening). Silently skipped if that staff member
+    // hasn't registered a Chat webhook in the担当者マスタ yet — this is a convenience notice,
+    // not a required step, so it must never block or fail candidate registration itself.
+    if (newCandidate.phase === 'DOCUMENT_SCREENING' && newCandidate.assignees[0]) {
+      const assigneeName = newCandidate.assignees[0];
+      const assignee = staffList.find((s) => s.name === assigneeName);
+      if (assignee?.googleChatWebhookUrl) {
+        notifyCandidateRegisteredApi({
+          webhookUrl: assignee.googleChatWebhookUrl,
+          staffName: assigneeName,
+          candidateName: newCandidate.name,
+          candidateId: newCandidate.id
+        }).catch((err) => {
+          console.error('Candidate-registered Chat notify failed:', err);
+          showToast(`${assigneeName} さんへのChat通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+        });
+      }
+    }
   };
 
   const updateCandidate = (updatedCandidate: Candidate) => {

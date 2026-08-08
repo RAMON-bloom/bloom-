@@ -10,6 +10,14 @@ interface FilterBarProps {
 export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false }) => {
   const { filters, setFilters, agencies, staffList, candidates } = useATS();
 
+  // Only staff actually linked to at least one agency make sense as a "社内担当者" filter option
+  // here (same rule 採用MTG's recruiter picker uses) — falls back to the full staff list if no
+  // agency has an assignee yet, so the picker never ends up empty.
+  const agencyAssignedStaffList = staffList.filter((st) =>
+    agencies.some((ag) => ag.assignedStaffNames?.includes(st.name))
+  );
+  const filterableStaffList = agencyAssignedStaffList.length > 0 ? agencyAssignedStaffList : staffList;
+
   // Extract unique months from candidates
   const availableMonths = Array.from(new Set<string>(candidates.map((c) => c.appliedMonth))).sort().reverse();
 
@@ -94,7 +102,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
           </button>
 
           {/* Individual Staff Tabs */}
-          {staffList.map((st) => {
+          {filterableStaffList.map((st) => {
             const isSelected = filters.assigneeName === st.name;
             const count = getStaffCandidateCount(st.name);
 

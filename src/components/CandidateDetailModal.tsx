@@ -1460,102 +1460,6 @@ export const CandidateDetailModal: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* 判定結果: 合否を大きく明確なボタンで入力する */}
-                    <div>
-                      <label className="block text-slate-700 font-bold mb-1.5 text-sm">判定結果</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setEvalResultStatus('PASS')}
-                          className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
-                            evalResultStatus === 'PASS'
-                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
-                              : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-6 h-6" />
-                          合格 (次ステップへ)
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setEvalResultStatus('FAIL')}
-                          className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
-                            evalResultStatus === 'FAIL'
-                              ? 'bg-rose-600 text-white border-rose-600 shadow-md'
-                              : 'bg-white text-rose-700 border-rose-200 hover:border-rose-400 hover:bg-rose-50'
-                          }`}
-                        >
-                          <XCircle className="w-6 h-6" />
-                          不採用 / 見送り
-                        </button>
-                      </div>
-                    </div>
-
-                    {evalResultStatus === 'FAIL' && (
-                      <div>
-                        <label className="block text-rose-700 font-bold mb-1">不採用理由</label>
-                        <input
-                          type="text"
-                          placeholder="例: 実務要件未達、希望条件不一致"
-                          value={failReason}
-                          onChange={(e) => setFailReason(e.target.value)}
-                          className="w-full bg-slate-50 border border-rose-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none"
-                        />
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {/* 面接評価 Grade Buttons */}
-                      <div>
-                        <label className="block text-slate-700 font-bold mb-1">面接評価</label>
-                        <div className="flex flex-wrap gap-1 bg-slate-50 border border-slate-200 p-1 rounded-lg">
-                          {EVALUATION_GRADES.map((g) => (
-                            <button
-                              type="button"
-                              key={g}
-                              onClick={() => setNewInterviewRating(g)}
-                              className={`flex-1 min-w-[32px] py-1 rounded text-xs font-mono font-bold transition-colors cursor-pointer ${
-                                newInterviewRating === g
-                                  ? 'bg-indigo-600 text-white shadow-2xs'
-                                  : 'text-slate-600 hover:bg-slate-200'
-                              }`}
-                            >
-                              {g}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* 希望事業部 (F+ / AC) */}
-                      <div>
-                        <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
-                          <span>希望事業部</span>
-                          <span className="text-[10px] text-indigo-700 font-semibold">(F+ / AC)</span>
-                        </label>
-                        <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-1 rounded-lg">
-                          {([
-                            { value: 'F+', label: 'F+' },
-                            { value: 'AC', label: 'AC' },
-                            { value: 'BOTH', label: '両方 (F+/AC)' }
-                          ] as const).map((dept) => (
-                            <button
-                              type="button"
-                              key={dept.value}
-                              onClick={() => setNewDesiredDepartment(newDesiredDepartment === dept.value ? undefined : dept.value)}
-                              className={`flex-1 py-1 px-1.5 rounded text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
-                                newDesiredDepartment === dept.value
-                                  ? 'bg-indigo-600 text-white shadow-2xs'
-                                  : 'text-slate-600 hover:bg-slate-200'
-                              }`}
-                            >
-                              {dept.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
                     {/* LCM 評価要素 (L, C, M) 及び 各評価の補足メモ */}
                     <div className="bg-slate-50/90 p-3.5 rounded-xl border border-slate-200 space-y-3">
                       <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
@@ -1682,6 +1586,102 @@ export const CandidateDetailModal: React.FC = () => {
                               className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:bg-white focus:border-indigo-500"
                             />
                           </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 判定結果: 合否を大きく明確なボタンで入力する */}
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1.5 text-sm">判定結果</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEvalResultStatus('PASS')}
+                          className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
+                            evalResultStatus === 'PASS'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
+                              : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-6 h-6" />
+                          合格 (次ステップへ)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEvalResultStatus('FAIL')}
+                          className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
+                            evalResultStatus === 'FAIL'
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-md'
+                              : 'bg-white text-rose-700 border-rose-200 hover:border-rose-400 hover:bg-rose-50'
+                          }`}
+                        >
+                          <XCircle className="w-6 h-6" />
+                          不採用 / 見送り
+                        </button>
+                      </div>
+                    </div>
+
+                    {evalResultStatus === 'FAIL' && (
+                      <div>
+                        <label className="block text-rose-700 font-bold mb-1">不採用理由</label>
+                        <input
+                          type="text"
+                          placeholder="例: 実務要件未達、希望条件不一致"
+                          value={failReason}
+                          onChange={(e) => setFailReason(e.target.value)}
+                          className="w-full bg-slate-50 border border-rose-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none"
+                        />
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* 面接評価 Grade Buttons */}
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1">面接評価</label>
+                        <div className="flex flex-wrap gap-1 bg-slate-50 border border-slate-200 p-1 rounded-lg">
+                          {EVALUATION_GRADES.map((g) => (
+                            <button
+                              type="button"
+                              key={g}
+                              onClick={() => setNewInterviewRating(g)}
+                              className={`flex-1 min-w-[32px] py-1 rounded text-xs font-mono font-bold transition-colors cursor-pointer ${
+                                newInterviewRating === g
+                                  ? 'bg-indigo-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >
+                              {g}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 希望事業部 (F+ / AC) */}
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
+                          <span>希望事業部</span>
+                          <span className="text-[10px] text-indigo-700 font-semibold">(F+ / AC)</span>
+                        </label>
+                        <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-1 rounded-lg">
+                          {([
+                            { value: 'F+', label: 'F+' },
+                            { value: 'AC', label: 'AC' },
+                            { value: 'BOTH', label: '両方 (F+/AC)' }
+                          ] as const).map((dept) => (
+                            <button
+                              type="button"
+                              key={dept.value}
+                              onClick={() => setNewDesiredDepartment(newDesiredDepartment === dept.value ? undefined : dept.value)}
+                              className={`flex-1 py-1 px-1.5 rounded text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                                newDesiredDepartment === dept.value
+                                  ? 'bg-indigo-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >
+                              {dept.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
                     </div>

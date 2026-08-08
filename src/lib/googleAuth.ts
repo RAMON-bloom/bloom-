@@ -19,7 +19,10 @@ interface StoredSession {
 const SESSION_KEY = 'atsGoogleSession';
 const LAST_EMAIL_KEY = 'atsLastSignedInEmail';
 const ALLOWED_DOMAIN = 'bloom-firm.com';
-const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive';
+// calendar.readonly is best-effort (not scope-gated like Drive below): it only powers the
+// "採用MTG" calendar-linked import, and denying/skipping it shouldn't block sign-in or any of the
+// Drive-dependent features the rest of the app actually needs to function.
+const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.readonly';
 
 declare global {
   interface Window {

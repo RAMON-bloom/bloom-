@@ -13,6 +13,7 @@ import {
   MeetingLog
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
+import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
 import { useAuth } from './AuthContext';
 import {
   backupToDrive as backupToDriveApi,
@@ -59,6 +60,7 @@ interface ATSContextType {
   addMeetingLog: (log: Omit<MeetingLog, 'id'>) => string;
   updateMeetingLog: (log: MeetingLog) => void;
   deleteMeetingLog: (id: string) => void;
+  importHistoricalMeetingLogs: () => number;
   
   // Actions
   updateCandidatePhase: (candidateId: string, newPhase: SelectionPhase) => void;
@@ -212,6 +214,25 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = meetingLogs.find((m) => m.id === id);
     setMeetingLogs((prev) => prev.filter((m) => m.id !== id));
     showToast(`MTGログ 「${target?.title || ''}」 を削除しました`, 'info');
+  };
+
+  // One-time backfill for the pre-app 採用社内MTG history (see src/data/historicalMeetingLogs.ts).
+  // Keyed by id rather than a single "already imported" flag so it stays safe to click again —
+  // e.g. after a manual edit accidentally removed one of the historical entries — without ever
+  // duplicating the ones already present. Purely local (localStorage); the user still has to use
+  // "Driveにバックアップ" themselves to make these part of the shared team data, same as any other
+  // local change, since nothing here should silently overwrite whatever the team's Drive backup
+  // currently holds.
+  const importHistoricalMeetingLogs = (): number => {
+    const existingIds = new Set(meetingLogs.map((m) => m.id));
+    const missing = HISTORICAL_MEETING_LOGS.filter((m) => !existingIds.has(m.id));
+    if (missing.length === 0) {
+      showToast('過去の議事録はすでにすべて取り込み済みです', 'info');
+      return 0;
+    }
+    setMeetingLogs((prev) => [...prev, ...missing].sort((a, b) => (a.date < b.date ? 1 : -1)));
+    showToast(`過去の採用社内MTG議事録を${missing.length}件取り込みました。反映するには「Driveにバックアップ」を実行してください`, 'success');
+    return missing.length;
   };
 
   const showToast = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
@@ -1046,6 +1067,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addMeetingLog,
         updateMeetingLog,
         deleteMeetingLog,
+        importHistoricalMeetingLogs,
         updateCandidatePhase,
         updateCandidateSchedule,
         updateOnboardingInfo,

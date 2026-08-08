@@ -69,6 +69,26 @@ export async function summarizeDriveMeetingLog(
   });
 }
 
+export interface CalendarMeetingNotesMatch {
+  found: boolean;
+  eventSummary?: string;
+  eventStart?: string;
+  fileId?: string;
+  fileName?: string;
+}
+
+// Looks up the calendar event for the recurring "採用社内MTG" series closest to `dateStr` and
+// returns its auto-generated "Gemini によるメモ" attachment, if any. That doc is the per-occurrence
+// meeting notes Google Meet's note-taker creates and attaches straight to the calendar event — it
+// never lands in the app's own shared Drive folder, so listDriveMeetingLogs can't find it.
+export async function findCalendarMeetingNotes(
+  accessToken: string,
+  dateStr: string,
+  titleKeyword = '採用社内MTG'
+): Promise<CalendarMeetingNotesMatch> {
+  return postJson('/api/calendar/find-meeting-notes', { accessToken, date: dateStr, titleKeyword });
+}
+
 export async function backupToDrive(accessToken: string, data: object): Promise<void> {
   await postJson('/api/drive/backup', {
     accessToken,

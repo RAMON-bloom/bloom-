@@ -27,7 +27,8 @@ import {
 } from 'lucide-react';
 import { useATS } from '../context/ATSContext';
 import { RecruiterReport, MeetingActionItem } from '../types';
-import { listDriveMeetingLogs, summarizeDriveMeetingLog, DriveMeetingFile } from '../lib/driveApi';
+import { listDriveMeetingLogs, summarizeDriveMeetingLog, findCalendarMeetingNotes, DriveMeetingFile } from '../lib/driveApi';
+import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
 
 export const RecruitmentMeetingView: React.FC = () => {
   const {
@@ -35,6 +36,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     addMeetingLog,
     updateMeetingLog,
     deleteMeetingLog,
+    importHistoricalMeetingLogs,
     staffList,
     candidates,
     agencies,
@@ -43,6 +45,10 @@ export const RecruitmentMeetingView: React.FC = () => {
     driveAccessToken,
     connectDrive
   } = useATS();
+
+  const hasMissingHistoricalLogs = HISTORICAL_MEETING_LOGS.some(
+    (h) => !meetingLogs.some((m) => m.id === h.id)
+  );
 
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; title: string } | null>(null);
 
@@ -94,6 +100,7 @@ export const RecruitmentMeetingView: React.FC = () => {
   const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
   const [selectedDriveFileId, setSelectedDriveFileId] = useState<string | null>(null);
   const [isImportingDriveFile, setIsImportingDriveFile] = useState(false);
+  const [isSearchingCalendar, setIsSearchingCalendar] = useState(false);
 
   // Agency Stats Toggle for Meeting View
   const [agencyStatsPeriod, setAgencyStatsPeriod] = useState<'MONTH' | 'ALL'>('MONTH');
@@ -271,14 +278,27 @@ export const RecruitmentMeetingView: React.FC = () => {
         <FileText className="w-12 h-12 text-indigo-400 mx-auto mb-3" />
         <h3 className="text-lg font-bold text-slate-800">MTGログが登録されていません</h3>
         <p className="text-sm mt-1">「新規MTGを作成」ボタンから作成してください。</p>
-        <button
-          type="button"
-          onClick={() => setIsNewMeetingModalOpen(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
-        >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>新規MTG作成</span>
-        </button>
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsNewMeetingModalOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>新規MTG作成</span>
+          </button>
+          {hasMissingHistoricalLogs && (
+            <button
+              type="button"
+              onClick={() => importHistoricalMeetingLogs()}
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              title="アプリ導入以前の採用社内MTG議事録（2026年6月〜8月分）を取り込みます"
+            >
+              <HardDrive className="w-4 h-4 text-indigo-600" />
+              <span>過去の議事録を取り込む</span>
+            </button>
+          )}
+        </div>
         {newMeetingModal}
       </div>
     );
@@ -340,6 +360,55 @@ export const RecruitmentMeetingView: React.FC = () => {
       showToast(`AI要約に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
     } finally {
       setIsGeneratingAiSummary(false);
+    }
+  };
+
+  // Finds this meeting's calendar event (matched by title + date, not a fixed Meet code — the
+  // recurring series' Meet code has already changed a few times) and imports its auto-generated
+  // "Gemini によるメモ" doc directly, skipping the manual "Drive議事録取込" file browser entirely.
+  const handleImportFromCalendar = async () => {
+    if (!driveAccessToken) {
+      showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
+      await connectDrive();
+      return;
+    }
+
+    setIsSearchingCalendar(true);
+    try {
+      const match = await findCalendarMeetingNotes(driveAccessToken, activeMeeting.date);
+      if (!match.found || !match.fileId) {
+        showToast('この日付に一致する「採用社内MTG」の予定、またはGemini議事録の添付が見つかりませんでした。「Drive議事録取込」から手動で選択してください。', 'warning');
+        return;
+      }
+
+      const file = { id: match.fileId, name: match.fileName || 'Gemini によるメモ', mimeType: 'application/vnd.google-apps.document' };
+      const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
+
+      const updatedReports = (activeMeeting.recruiterReports || []).map((r) => ({
+        ...r,
+        progressLog: `【カレンダー抽出ログ】議事録「${file.name}」より ${r.recruiterName} 担当分の協議内容ログを取り込み完了`
+      }));
+
+      updateMeetingLog({
+        ...activeMeeting,
+        rawTranscript: rawContent,
+        fetchedOverallLog: summary.summaryMarkdown,
+        recruiterReports: updatedReports,
+        sourceDriveFileId: file.id,
+        sourceDriveFileName: file.name
+      });
+
+      showToast(`カレンダーの予定「${match.eventSummary}」から議事録を取り込み、AI要約しました`, 'success');
+    } catch (err: any) {
+      const message = err.message || '不明なエラー';
+      showToast(
+        message.includes('403') || message.includes('401')
+          ? 'カレンダーへのアクセス権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
+          : `カレンダーからの議事録取り込みに失敗しました: ${message}`,
+        'warning'
+      );
+    } finally {
+      setIsSearchingCalendar(false);
     }
   };
 
@@ -649,6 +718,17 @@ export const RecruitmentMeetingView: React.FC = () => {
 
           <button
             type="button"
+            onClick={handleImportFromCalendar}
+            disabled={isSearchingCalendar}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+            title="この実施日のカレンダー予定（採用社内MTG）に添付されたGemini議事録を自動で探して取り込みます"
+          >
+            <Calendar className={`w-4 h-4 text-indigo-600 ${isSearchingCalendar ? 'animate-pulse' : ''}`} />
+            <span className="hidden sm:inline">{isSearchingCalendar ? '検索中' : 'カレンダーから議事録取込'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleOpenDriveModal}
             className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
             title="Google Drive上の議事録ファイルを取り込みます"
@@ -676,6 +756,18 @@ export const RecruitmentMeetingView: React.FC = () => {
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>新規MTG作成</span>
           </button>
+
+          {hasMissingHistoricalLogs && (
+            <button
+              type="button"
+              onClick={() => importHistoricalMeetingLogs()}
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+              title="アプリ導入以前の採用社内MTG議事録（2026年6月〜8月分）を取り込みます"
+            >
+              <HardDrive className="w-4 h-4 text-indigo-600" />
+              <span className="hidden sm:inline">過去の議事録を取り込む</span>
+            </button>
+          )}
         </div>
       </div>
 

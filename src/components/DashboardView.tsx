@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
-import { SelectionPhase } from '../types';
+import { SelectionPhase, STANDARD_POSITIONS } from '../types';
 import { 
   BarChart, 
   Bar, 
@@ -41,14 +41,19 @@ import {
 export const DashboardView: React.FC = () => {
   const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId } = useATS();
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [selectedPositions, setSelectedPositions] = useState<string[]>([]);
   const [trendMetric, setTrendMetric] = useState<'referrals' | 'acceptances' | 'both'>('referrals');
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
   const [matrixDisplayMode, setMatrixDisplayMode] = useState<'both' | 'count' | 'rate'>('both');
 
-  // Filter candidates for metrics
-  const displayCandidates = selectedMonth === 'ALL'
-    ? candidates
-    : candidates.filter((c) => c.appliedMonth === selectedMonth);
+  // Filter candidates for metrics — own local filters (month + position), independent of the
+  // sidebar's global filters (this view analyzes across agencies/staff/phase regardless of what
+  // the Kanban/list screens happen to be filtered to).
+  const displayCandidates = candidates.filter((c) => {
+    if (selectedMonth !== 'ALL' && c.appliedMonth !== selectedMonth) return false;
+    if (selectedPositions.length > 0 && !selectedPositions.includes(c.jobTitle)) return false;
+    return true;
+  });
 
   // Total KPIs
   const totalApps = displayCandidates.length;
@@ -178,6 +183,53 @@ export const DashboardView: React.FC = () => {
             <option value="2026-06">2026年6月</option>
             <option value="2026-05">2026年5月</option>
           </select>
+        </div>
+
+        {/* Position filter — own local selection, same STANDARD_POSITIONS toggle pattern as the
+            sidebar FilterBar, but scoped to this dashboard only. */}
+        <div className="w-full pt-3 border-t border-slate-200/80 flex flex-wrap items-center gap-1.5">
+          <span className="text-slate-600 font-medium flex items-center gap-1 shrink-0 text-xs">
+            <Briefcase className="w-3.5 h-3.5 text-indigo-600" />
+            選考ポジション:
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedPositions([])}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              selectedPositions.length === 0
+                ? 'bg-slate-800 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+            }`}
+          >
+            全ポジション
+          </button>
+          {STANDARD_POSITIONS.map((pos) => {
+            const isSelected = selectedPositions.includes(pos);
+            return (
+              <button
+                key={pos}
+                type="button"
+                onClick={() =>
+                  setSelectedPositions((prev) =>
+                    prev.includes(pos) ? prev.filter((p) => p !== pos) : [...prev, pos]
+                  )
+                }
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  isSelected
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span>{pos}</span>
+                {isSelected && <Check className="w-3 h-3" />}
+              </button>
+            );
+          })}
+          {selectedPositions.length > 0 && (
+            <span className="ml-auto text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full font-mono font-medium">
+              選択中: <strong className="font-bold">{selectedPositions.join(', ')}</strong> ({selectedPositions.length}ポジション)
+            </span>
+          )}
         </div>
       </div>
 

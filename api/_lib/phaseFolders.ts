@@ -5,6 +5,11 @@
 
 export const RESUME_ROOT_SUBFOLDER = '履歴書・応募書類';
 
+// Sibling of the phase folders below, but deliberately NOT listed in PHASE_FOLDER_NAMES — that's
+// what keeps scan-resumes.ts (which only walks PHASE_FOLDER_NAMES) from ever finding what's moved
+// in here and re-importing it as a "new" candidate. See api/drive/move-to-deleted.ts.
+export const DELETED_FOLDER_NAME = '99_完全削除済み';
+
 export const PHASE_FOLDER_NAMES: Record<string, string> = {
   DOCUMENT_SCREENING: '01_書類選考',
   CASUAL_INTERVIEW: '02_カジュアル面談',

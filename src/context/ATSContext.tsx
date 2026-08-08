@@ -21,7 +21,7 @@ import {
   moveResumeToPhaseFolder as moveResumeToPhaseFolderApi,
   scanDriveResumes as scanDriveResumesApi,
   importDriveResume as importDriveResumeApi,
-  deleteResumeFromDrive as deleteResumeFromDriveApi
+  moveResumeToDeletedFolder as moveResumeToDeletedFolderApi
 } from '../lib/driveApi';
 import { notifyCandidateRegistered as notifyCandidateRegisteredApi } from '../lib/notifyApi';
 
@@ -156,6 +156,18 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_MEETING_LOGS;
   });
 
+  // Every Drive item id (folder/file) permanentlyDeleteCandidate has ever deleted — checked by
+  // syncWithDrive so it never re-imports something we ourselves just deleted as if it were a
+  // brand-new unregistered resume. Needed because Drive's own file-list index can lag a few
+  // seconds behind a delete, and because deletion can leave residue for reasons outside this
+  // app's control — either way, "I explicitly deleted this" should always win over "sync found
+  // an orphan," regardless of why the orphan is still there. Grows without pruning; at realistic
+  // candidate volumes this stays tiny (a few KB of ids) for years.
+  const [deletedDriveItemIds, setDeletedDriveItemIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem('ats_deleted_drive_item_ids');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   // AuthGate already requires a signed-in bloom-firm.com Google account (Drive-scoped) before
   // this provider ever renders, so the Drive token/email are sourced straight from that session
   // rather than tracked as separate state here.
@@ -197,6 +209,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem('ats_meeting_logs', JSON.stringify(meetingLogs));
   }, [meetingLogs]);
+
+  useEffect(() => {
+    localStorage.setItem('ats_deleted_drive_item_ids', JSON.stringify(deletedDriveItemIds));
+  }, [deletedDriveItemIds]);
 
   // Always-fresh snapshot of everything backupToDrive bundles together, read from inside the
   // debounced timeout below rather than captured in its closure — by the time the timeout fires,
@@ -574,14 +590,20 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Unlike deleteCandidate (which archives, kept recoverable), this removes the record from
   // state entirely — for candidates registered by mistake that shouldn't linger even in the
   // archive. Only meaningful from the archive view, so it doesn't touch selectedCandidateId.
-  // Also removes every Drive item on record for this candidate: the per-candidate folder (if
-  // any), the legacy bare resume file (kept separate when it predates that folder), and any
-  // document ids tracked individually — a Set instead of `resumeDriveFolderId || resumeDriveFileId`
-  // so a candidate whose files ended up split across more than one location (e.g. an old flat
-  // file plus a folder created later for further uploads) doesn't leave the un-chosen half behind
-  // in the phase folder forever. Deleting an id that's actually inside another id also being
-  // deleted here is harmless: delete-resume treats "already gone" (404) as success.
-  // Awaits every Drive deletion before touching local state — if any of them fail, the candidate
+  //
+  // Doesn't actually delete the candidate's Drive data — moves every Drive item on record (the
+  // per-candidate folder if any, the legacy bare resume file kept separate when it predates that
+  // folder, and any document ids tracked individually — a Set instead of
+  // `resumeDriveFolderId || resumeDriveFileId` so a candidate whose files ended up split across
+  // more than one location doesn't leave the un-chosen half behind) into a dedicated 削除済み
+  // folder instead. A real Drive delete used to live here, but scan-resumes.ts (powering
+  // 「Driveと同期」) can't tell "we just deleted this" from "this is a genuinely new unregistered
+  // resume" — Drive's own list index lagging a few seconds behind the delete, or any other reason
+  // residue is still there, was enough for a synced-shortly-after-deleting candidate to come right
+  // back as a "new" one. Moving it into 99_完全削除済み (outside every folder scan-resumes.ts
+  // walks) rules that out structurally instead of relying on timing. Trade-off: the candidate's
+  // resume data stays on Drive indefinitely rather than actually being purged.
+  // Awaits every Drive move before touching local state — if any of them fail, the candidate
   // record is kept in the archive (not silently discarded) so the failure is visible and the user
   // can retry, instead of the app losing its only handle on the leftover Drive data.
   const permanentlyDeleteCandidate = async (id: string): Promise<boolean> => {
@@ -593,19 +615,40 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (doc.driveFileId) driveItemIds.add(doc.driveFileId);
     });
 
-    if (driveAccessToken && driveItemIds.size > 0) {
+    if (driveItemIds.size > 0) {
+      // Drive未接続（トークン切れ・サイレント再ログイン未完了などで一時的にnullの場合を含む）だと
+      // このガードがないままDrive側の移動処理をまるごとスキップして下のsetCandidatesに進んでしまい、
+      // Drive上のフォルダ・ファイルがフェーズフォルダに残ったまま候補者だけローカルから消えていた。
+      // その後「Driveと同期」を実行すると、誰も参照しなくなったそのDrive残骸が「未登録の履歴書」と
+      // して検出され、削除したはずの候補者がそのまま新規候補者として復活してしまう（アプリ⇔Drive
+      // 移動失敗時と同じ扱いにして、未接続なら候補者データを過去候補者一覧に残し、Drive再接続後の
+      // 再実行に委ねる）。
+      if (!driveAccessToken) {
+        showToast(
+          `${candidate?.name || ''} さんはDriveにデータが残っていますが、Drive未接続のため削除できませんでした（候補者データはまだ削除していません）。Googleでログインし直してから再度お試しください。`,
+          'warning'
+        );
+        return false;
+      }
       const results = await Promise.allSettled(
-        Array.from(driveItemIds).map((itemId) => deleteResumeFromDriveApi(driveAccessToken, itemId))
+        Array.from(driveItemIds).map((itemId) => moveResumeToDeletedFolderApi(driveAccessToken, itemId))
       );
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
       if (failed.length > 0) {
         const reasons = failed.map((r) => r.reason?.message || '不明なエラー').join(' / ');
         showToast(
-          `${candidate?.name || ''} さんのDriveデータの削除に失敗したため、候補者データはまだ削除していません（過去候補者一覧に残っています）。時間を置いて再度お試しください: ${reasons}`,
+          `${candidate?.name || ''} さんのDriveデータの整理に失敗したため、候補者データはまだ削除していません（過去候補者一覧に残っています）。時間を置いて再度お試しください: ${reasons}`,
           'warning'
         );
         return false;
       }
+    }
+
+    // Belt-and-suspenders on top of the move above: recorded even when driveItemIds was empty
+    // (nothing to add) or the items were already gone, harmless either way. Covers edge cases the
+    // move alone doesn't — e.g. someone manually drags the folder back into a phase folder later.
+    if (driveItemIds.size > 0) {
+      setDeletedDriveItemIds((prev) => Array.from(new Set([...prev, ...driveItemIds])));
     }
 
     setCandidates((prev) => prev.filter((c) => c.id !== id));
@@ -864,8 +907,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const knownFolderIds = new Set(candidates.map((c) => c.resumeDriveFolderId).filter(Boolean));
       const knownFileIds = new Set(candidates.map((c) => c.resumeDriveFileId).filter(Boolean));
+      const deletedIds = new Set(deletedDriveItemIds);
+      // A folder/file we ourselves permanently deleted must never come back as a "new" candidate,
+      // even if it's still showing up in this scan (Drive's list index lagging behind the delete,
+      // or leftover residue for any other reason) — see permanentlyDeleteCandidate.
       const isKnown = (e: (typeof entries)[number]) =>
-        e.folderId ? knownFolderIds.has(e.folderId) : knownFileIds.has(e.file.id);
+        e.folderId
+          ? knownFolderIds.has(e.folderId) || deletedIds.has(e.folderId)
+          : knownFileIds.has(e.file.id) || deletedIds.has(e.file.id);
 
       // Several files can sit in one unregistered candidate folder — import once per folder
       // (using its first file to parse candidate info from) rather than once per file.

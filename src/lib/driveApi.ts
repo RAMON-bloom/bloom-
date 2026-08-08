@@ -139,10 +139,21 @@ export async function uploadResumeToDrive(
   return { file: data.file, folderId: data.folderId };
 }
 
-// Permanently deletes a candidate's resume file/folder from Drive — used when a candidate is
-// deleted for good from the archive (not the soft-delete/archive step, which leaves Drive alone).
+// Permanently deletes a candidate's resume file/folder from Drive. Superseded by
+// moveResumeToDeletedFolder below for permanentlyDeleteCandidate's own use (an actual Drive
+// delete made "Driveと同期" occasionally resurrect a just-deleted candidate — see that function's
+// comments) but left in place as a real hard-delete primitive in case it's needed again.
 export async function deleteResumeFromDrive(accessToken: string, fileId: string): Promise<void> {
   await postJson('/api/drive/delete-resume', { accessToken, fileId });
+}
+
+// Moves a candidate's resume file/folder into a dedicated 削除済み folder that "Driveと同期"'s
+// scan never walks, instead of deleting it — used when a candidate is deleted for good from the
+// archive (not the soft-delete/archive step, which leaves Drive alone). Keeps the underlying
+// files recoverable (and, deliberately, keeps the candidate's personal data on Drive
+// indefinitely) in exchange for structurally ruling out sync ever re-importing it.
+export async function moveResumeToDeletedFolder(accessToken: string, fileId: string): Promise<void> {
+  await postJson('/api/drive/move-to-deleted', { accessToken, folderId: RECRUITMENT_DRIVE_FOLDER_ID, fileId });
 }
 
 export async function moveResumeToPhaseFolder(

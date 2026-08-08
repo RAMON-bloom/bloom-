@@ -12,6 +12,7 @@ import { CandidateDetailModal } from './components/CandidateDetailModal';
 import { CandidateFormModal } from './components/CandidateFormModal';
 import { ToastContainer } from './components/ToastContainer';
 import { AuthGate } from './components/AuthGate';
+import { SelfRegistrationPrompt } from './components/SelfRegistrationPrompt';
 
 const MainContent: React.FC = () => {
   const { activeTab } = useATS();
@@ -35,6 +36,7 @@ export default function App() {
       <ATSProvider>
         <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-500 selection:text-white antialiased">
           <Header />
+          <SelfRegistrationPrompt />
           <MainContent />
           <CandidateDetailModal />
           <CandidateFormModal />

@@ -144,6 +144,8 @@ export interface InternalStaff {
   department: string;
   role: string;
   googleChatWebhookUrl?: string; // 本人のGoogle Chatスペースの着信Webhook URL。設定されていれば書類選考担当に割り当てられた際に通知を送る
+  email?: string; // Googleログインアカウントのメールアドレス。自己登録・自己編集の識別キー（管理者が手動追加した過去のレコードでは未設定のことがある）
+  isRecruitingAssistant?: boolean; // 採用アシスタント（新規候補者登録・進捗管理を主に担当）フラグ。roleの自由記述とは別に、抜け防止通知の送信対象判定に使う
 }
 
 export interface YieldMetrics {
@@ -219,5 +221,16 @@ export interface MeetingLog {
   sourceDriveFileName?: string; // 取り込み元のDriveファイル名
   recruiterReports: RecruiterReport[];
   actionItems: MeetingActionItem[];
+}
+
+export interface StalledCandidateInfo {
+  candidate: Candidate;
+  daysSinceUpdate: number;
+}
+
+export interface OverdueDocScreeningInfo {
+  candidate: Candidate;
+  assigneeName: string;
+  daysSinceUpdate: number;
 }
 

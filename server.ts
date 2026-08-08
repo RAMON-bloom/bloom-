@@ -20,6 +20,7 @@ import driveDeleteResume from './api/drive/delete-resume';
 import driveMoveToDeleted from './api/drive/move-to-deleted';
 import calendarFindMeetingNotes from './api/calendar/find-meeting-notes';
 import notifyCandidateRegistered from './api/notify/candidate-registered';
+import notifyAttention from './api/notify/attention';
 
 async function startServer() {
   const app = express();
@@ -43,6 +44,7 @@ async function startServer() {
   app.post('/api/drive/move-to-deleted', driveMoveToDeleted);
   app.post('/api/calendar/find-meeting-notes', calendarFindMeetingNotes);
   app.post('/api/notify/candidate-registered', notifyCandidateRegistered);
+  app.post('/api/notify/attention', notifyAttention);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

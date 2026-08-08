@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useATS, ActiveTab } from '../context/ATSContext';
 import { UserRole } from '../types';
+import { AttentionPanel } from './AttentionPanel';
 
 export const Header: React.FC = () => {
   const {
@@ -160,6 +161,8 @@ export const Header: React.FC = () => {
                 </div>
               )}
             </div>
+
+            <AttentionPanel />
 
             <button
               onClick={exportCSV}

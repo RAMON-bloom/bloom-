@@ -31,8 +31,9 @@ export const AgencyMasterView: React.FC = () => {
     updateAgency, 
     deleteAgency,
     toggleAgencyActive, 
-    candidates, 
+    candidates,
     userRole,
+    driveUserEmail,
     staffList,
     addStaff,
     deleteStaff,
@@ -63,6 +64,8 @@ export const AgencyMasterView: React.FC = () => {
     name: '',
     department: '人事部',
     role: '採用担当 (リクルーター)',
+    email: '',
+    isRecruitingAssistant: false,
     googleChatWebhookUrl: ''
   });
 
@@ -225,6 +228,8 @@ export const AgencyMasterView: React.FC = () => {
       name: '',
       department: '人事部',
       role: '採用担当 (リクルーター)',
+      email: '',
+      isRecruitingAssistant: false,
       googleChatWebhookUrl: ''
     });
     setIsStaffModalOpen(true);
@@ -236,6 +241,8 @@ export const AgencyMasterView: React.FC = () => {
       name: staff.name,
       department: staff.department,
       role: staff.role,
+      email: staff.email || '',
+      isRecruitingAssistant: staff.isRecruitingAssistant || false,
       googleChatWebhookUrl: staff.googleChatWebhookUrl || ''
     });
     setIsStaffModalOpen(true);
@@ -252,6 +259,8 @@ export const AgencyMasterView: React.FC = () => {
         name: staffFormData.name,
         department: staffFormData.department,
         role: staffFormData.role,
+        email: staffFormData.email.trim() || undefined,
+        isRecruitingAssistant: staffFormData.isRecruitingAssistant,
         googleChatWebhookUrl: staffFormData.googleChatWebhookUrl.trim() || undefined
       });
     } else {
@@ -259,6 +268,8 @@ export const AgencyMasterView: React.FC = () => {
         name: staffFormData.name,
         department: staffFormData.department,
         role: staffFormData.role,
+        email: staffFormData.email.trim() || undefined,
+        isRecruitingAssistant: staffFormData.isRecruitingAssistant,
         googleChatWebhookUrl: staffFormData.googleChatWebhookUrl.trim() || undefined
       });
     }
@@ -267,6 +278,8 @@ export const AgencyMasterView: React.FC = () => {
       name: '',
       department: '人事部',
       role: '採用担当 (リクルーター)',
+      email: '',
+      isRecruitingAssistant: false,
       googleChatWebhookUrl: ''
     });
     setEditingStaff(null);
@@ -543,11 +556,22 @@ export const AgencyMasterView: React.FC = () => {
                     </div>
 
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-slate-900 text-sm">{staff.name}</h4>
                         <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-medium">
                           {staff.department}
                         </span>
+                        {staff.isRecruitingAssistant && (
+                          <span className="flex items-center gap-0.5 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">
+                            <UserCheck className="w-3 h-3" />
+                            採用アシスタント
+                          </span>
+                        )}
+                        {staff.email === driveUserEmail && (
+                          <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                            あなた
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">{staff.role}</p>
                       <p className="text-[11px] text-indigo-700 font-mono mt-1 font-medium">
@@ -556,7 +580,7 @@ export const AgencyMasterView: React.FC = () => {
                     </div>
                   </div>
 
-                  {userRole === 'ADMIN' && (
+                  {(userRole === 'ADMIN' || staff.email === driveUserEmail) && (
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleOpenEditStaff(staff)}
@@ -565,13 +589,15 @@ export const AgencyMasterView: React.FC = () => {
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => setDeleteConfirmTarget({ type: 'staff', id: staff.id, name: staff.name })}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                        title="削除"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {userRole === 'ADMIN' && (
+                        <button
+                          onClick={() => setDeleteConfirmTarget({ type: 'staff', id: staff.id, name: staff.name })}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="削除"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -862,6 +888,36 @@ export const AgencyMasterView: React.FC = () => {
                   <option value="営業マネージャー" />
                   <option value="採用アシスタント" />
                 </datalist>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Googleログインのメールアドレス（任意）</label>
+                <input
+                  type="email"
+                  placeholder="例: yourname@bloom-firm.com"
+                  value={staffFormData.email}
+                  onChange={(e) => setStaffFormData({ ...staffFormData, email: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  設定すると、このGoogleアカウントでログインした本人が自分の情報を編集できるようになります。
+                </p>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 p-3">
+                <input
+                  type="checkbox"
+                  id="isRecruitingAssistant"
+                  checked={staffFormData.isRecruitingAssistant}
+                  onChange={(e) => setStaffFormData({ ...staffFormData, isRecruitingAssistant: e.target.checked })}
+                  className="mt-0.5 cursor-pointer"
+                />
+                <label htmlFor="isRecruitingAssistant" className="text-xs text-slate-700 cursor-pointer">
+                  <span className="font-semibold text-amber-800">採用アシスタントとして登録する</span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    新規候補者登録・進捗管理のリマインド対象になります（進捗停滞・書類選考対応漏れのダイジェスト通知が届きます）。
+                  </p>
+                </label>
               </div>
 
               <div>

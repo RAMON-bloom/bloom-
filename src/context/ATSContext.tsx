@@ -10,7 +10,9 @@ import {
   InternalStaff,
   PreJoinDinnerStatus,
   ResignationNegotiationStatus,
-  MeetingLog
+  MeetingLog,
+  StalledCandidateInfo,
+  OverdueDocScreeningInfo
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -23,7 +25,12 @@ import {
   importDriveResume as importDriveResumeApi,
   moveResumeToDeletedFolder as moveResumeToDeletedFolderApi
 } from '../lib/driveApi';
-import { notifyCandidateRegistered as notifyCandidateRegisteredApi } from '../lib/notifyApi';
+import {
+  notifyCandidateRegistered as notifyCandidateRegisteredApi,
+  notifyAttentionDigest as notifyAttentionDigestApi,
+  notifyDocScreeningNudge as notifyDocScreeningNudgeApi
+} from '../lib/notifyApi';
+import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -105,6 +112,9 @@ interface ATSContextType {
   yieldMetrics: YieldMetrics[];
   filteredCandidates: Candidate[];
   archivedCandidates: Candidate[];
+  myStaffRecord: InternalStaff | undefined;
+  stalledCandidates: StalledCandidateInfo[];
+  overdueDocScreening: OverdueDocScreeningInfo[];
   toasts: Toast[];
   showToast: (message: string, type?: 'info' | 'success' | 'warning') => void;
   resetToDefaultData: () => void;
@@ -274,6 +284,87 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!driveAccessToken || hasAutoRestoredRef.current) return;
     hasAutoRestoredRef.current = true;
     restoreFromDrive({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveAccessToken]);
+
+  // Always-fresh snapshot for the attention-notify effect below, same reasoning as
+  // latestBackupStateRef — the 8s delay exists so this reads data *after* auto-restore above has
+  // had a chance to replace whatever this browser started with, not the stale mount-time values.
+  const latestAttentionStateRef = useRef({ candidates, staffList });
+  useEffect(() => {
+    latestAttentionStateRef.current = { candidates, staffList };
+  });
+
+  // 抜け防止のGoogle Chat通知（進捗停滞ダイジェスト・書類選考対応漏れの個別督促）を、ログイン後
+  // 1日1回だけこのブラウザから送信する。サーバーcron・サービスアカウントが存在しない構成上、
+  // 実際にアプリを開いている誰かのブラウザから送るしかない — 同じ日に複数人が別々のブラウザで
+  // ログインすれば、それぞれ独立して1回ずつ発火する（チーム全体で1日1回に統一されるわけではない、
+  // 既知の制約）。送信先はWebhook URLで決まるため、発火した本人が採用アシスタントである必要はない。
+  const ATTENTION_NOTIFY_THROTTLE_KEY = 'ats_attention_notify_last_run';
+  const hasCheckedAttentionRef = useRef(false);
+  useEffect(() => {
+    if (!driveAccessToken || hasCheckedAttentionRef.current) return;
+    hasCheckedAttentionRef.current = true;
+
+    const today = new Date().toISOString().split('T')[0];
+    if (localStorage.getItem(ATTENTION_NOTIFY_THROTTLE_KEY) === today) return;
+
+    // Intentionally no cleanup/clearTimeout here — hasCheckedAttentionRef already guarantees this
+    // only schedules once per mount, and in dev-only React StrictMode a cleanup would cancel this
+    // timer on the synthetic double-invoke's fake unmount while the ref guard then blocks the
+    // second real invocation from ever rescheduling it, so the notify would never fire in dev.
+    // Same reasoning/pattern as hasAutoRestoredRef above (no cleanup there either). Production
+    // builds don't double-invoke effects, so this never actually leaks a stray timer there.
+    setTimeout(() => {
+      const { candidates: latestCandidates, staffList: latestStaffList } = latestAttentionStateRef.current;
+      const stalled = getStalledCandidates(latestCandidates);
+      const overdue = getOverdueDocScreening(latestCandidates);
+
+      if (stalled.length === 0 && overdue.length === 0) {
+        localStorage.setItem(ATTENTION_NOTIFY_THROTTLE_KEY, today);
+        return;
+      }
+
+      const notifyPromises: Promise<void>[] = [];
+
+      latestStaffList
+        .filter((s) => s.isRecruitingAssistant && s.googleChatWebhookUrl)
+        .forEach((staff) => {
+          notifyPromises.push(
+            notifyAttentionDigestApi({
+              webhookUrl: staff.googleChatWebhookUrl!,
+              staffName: staff.name,
+              stalledCount: stalled.length,
+              overdueCount: overdue.length
+            })
+          );
+        });
+
+      overdue.forEach(({ candidate, assigneeName, daysSinceUpdate }) => {
+        const assignee = latestStaffList.find((s) => s.name === assigneeName);
+        if (assignee?.googleChatWebhookUrl) {
+          notifyPromises.push(
+            notifyDocScreeningNudgeApi({
+              webhookUrl: assignee.googleChatWebhookUrl,
+              staffName: assigneeName,
+              candidateName: candidate.name,
+              candidateId: candidate.id,
+              daysSinceUpdate
+            })
+          );
+        }
+      });
+
+      Promise.allSettled(notifyPromises).then((results) => {
+        const failedCount = results.filter((r) => r.status === 'rejected').length;
+        if (failedCount > 0) {
+          console.error(`Attention Chat notify: ${failedCount}件の送信に失敗しました`);
+          showToast(`抜け防止通知の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+        }
+      });
+
+      localStorage.setItem(ATTENTION_NOTIFY_THROTTLE_KEY, today);
+    }, 8000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
 
@@ -1077,6 +1168,19 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   });
 
+  // The InternalStaff record (if any) linked to the currently signed-in Google account — the
+  // bridge between "who's logged in" and "who they are in 担当者マスタ". Undefined until they've
+  // self-registered (see SelfRegistrationPrompt) or an admin has added their email manually.
+  const myStaffRecord = driveUserEmail
+    ? staffList.find((s) => s.email?.toLowerCase() === driveUserEmail.toLowerCase())
+    : undefined;
+
+  // 抜け防止: 進捗が止まっている候補者 / 書類選考の対応が止まっている候補者。毎レンダー
+  // candidatesから再計算する軽量な派生値（filteredCandidates等と同じ扱い）。しきい値は
+  // attentionUtils.tsで定義。
+  const stalledCandidates = getStalledCandidates(candidates);
+  const overdueDocScreening = getOverdueDocScreening(candidates);
+
   // Yield Metrics Computation per Agency
   const yieldMetrics: YieldMetrics[] = agencies.map((agency) => {
     const agencyCandidates = candidates.filter((c) => c.agencyId === agency.id);
@@ -1245,6 +1349,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         yieldMetrics,
         filteredCandidates,
         archivedCandidates,
+        myStaffRecord,
+        stalledCandidates,
+        overdueDocScreening,
         toasts,
         showToast,
         resetToDefaultData,

@@ -14,7 +14,7 @@ import {
   ImageOff
 } from 'lucide-react';
 import { detectResumePhotoCrop } from '../lib/driveApi';
-import { renderAndCrop } from '../lib/photoCrop';
+import { renderAndCrop, bakeAdjustedCrop } from '../lib/photoCrop';
 
 interface ResumePhotoCropperModalProps {
   isOpen: boolean;
@@ -44,6 +44,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
   const [scanMessage, setScanMessage] = useState<string>('');
   const [scanFailed, setScanFailed] = useState<boolean>(false);
   const [rotation, setRotation] = useState<number>(0);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -96,10 +97,20 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!selectedImage) return;
-    onSavePhoto(selectedImage);
-    onClose();
+    setIsSaving(true);
+    try {
+      const baked = await bakeAdjustedCrop(selectedImage, zoom, rotation, aspectRatio);
+      onSavePhoto(baked);
+      onClose();
+    } catch {
+      // Falls back to the unadjusted image rather than blocking the save entirely.
+      onSavePhoto(selectedImage);
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -405,11 +416,15 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
             </button>
             <button
               onClick={handleSave}
-              disabled={!selectedImage}
+              disabled={!selectedImage || isSaving}
               className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <UserCheck className="w-4 h-4" />
-              <span>切り抜き顔写真を保存・適用</span>
+              {isSaving ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <UserCheck className="w-4 h-4" />
+              )}
+              <span>{isSaving ? '適用中...' : '切り抜き顔写真を保存・適用'}</span>
             </button>
           </div>
         </div>

@@ -44,6 +44,50 @@ export async function renderPdfPageToCanvas(base64: string, pageNumber: number =
   return canvas;
 }
 
+// Bakes the interactive zoom/rotation/aspect-ratio adjustments a user makes in
+// ResumePhotoCropperModal into an actual cropped image, matching what the live CSS preview
+// (`object-cover` + `transform: scale() rotate()` inside a fixed-size box) shows on screen.
+// Without this, saving only ever persisted the untouched source image and silently discarded
+// every adjustment the user made.
+export async function bakeAdjustedCrop(
+  dataUrl: string,
+  zoomPercent: number,
+  rotationDeg: number,
+  aspectRatio: '3:4' | '1:1' | 'circle'
+): Promise<string> {
+  const img = new Image();
+  // Lets cross-origin sources (e.g. an existing hotlinked avatarUrl) that send permissive CORS
+  // headers still be drawn to canvas; same-origin data: URLs are unaffected either way.
+  img.crossOrigin = 'anonymous';
+  const loaded = new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+  });
+  img.src = dataUrl;
+  await loaded;
+
+  const outW = 480;
+  const outH = aspectRatio === '3:4' ? 640 : 480;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext('2d')!;
+
+  // object-fit: cover base scale, then the same user zoom multiplier the preview applies on top.
+  const coverScale = Math.max(outW / img.naturalWidth, outH / img.naturalHeight);
+  const totalScale = coverScale * (zoomPercent / 100);
+
+  ctx.save();
+  ctx.translate(outW / 2, outH / 2);
+  ctx.rotate((rotationDeg * Math.PI) / 180);
+  ctx.scale(totalScale, totalScale);
+  ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+  ctx.restore();
+
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
 // Renders the source file and crops out the normalized (0-1) box Gemini identified, returning the
 // result as a data URL ready to use as an avatar. pageNumber only applies to PDFs (ignored for
 // plain images) and should be whatever page Gemini reported the photo box was found on.

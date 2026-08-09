@@ -106,6 +106,7 @@ export async function notifyEvaluationSummaryThread(params: {
   mNote?: string;
   goodPoints?: string;
   concerns?: string;
+  otherNotes?: string;
   failReason?: string;
   nextPhaseLabel?: string;
   nextInterviewerNames?: string[];

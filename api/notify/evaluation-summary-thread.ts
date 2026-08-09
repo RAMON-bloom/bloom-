@@ -29,6 +29,7 @@ export default async function handler(req: any, res: any) {
       mNote,
       goodPoints,
       concerns,
+      otherNotes,
       failReason,
       nextPhaseLabel,
       nextInterviewerNames
@@ -57,6 +58,7 @@ export default async function handler(req: any, res: any) {
 
     if (goodPoints) lines.push(`評価ポイント: ${goodPoints}`);
     if (concerns) lines.push(`懸念点: ${concerns}`);
+    if (otherNotes) lines.push(`その他メモ: ${otherNotes}`);
     if (resultStatus === 'FAIL' && failReason) lines.push(`見送り理由: ${failReason}`);
 
     if (resultStatus === 'PASS' && nextPhaseLabel) {

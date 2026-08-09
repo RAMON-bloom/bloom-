@@ -786,6 +786,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           mNote: noteData.mNote,
           goodPoints: noteData.goodPoints,
           concerns: noteData.concerns,
+          otherNotes: noteData.otherNotes,
           failReason: noteData.resultStatus === 'FAIL' ? noteData.failReason : undefined,
           nextPhaseLabel,
           nextInterviewerNames

@@ -678,7 +678,7 @@ export const ListView: React.FC = () => {
                                 }
                               </span>
                             )}
-                            {c.preJoinDinnerStatus && c.preJoinDinnerStatus !== 'NOT_SET' && c.preJoinDinnerStatus !== 'NOT_REQUIRED' && (
+                            {c.preJoinDinnerStatus && c.preJoinDinnerStatus !== 'UNPLANNED' && c.preJoinDinnerStatus !== 'NOT_REQUIRED' && (
                               <span className={`inline-flex items-center text-[10px] px-1.5 py-0.2 rounded font-medium border ${
                                 c.preJoinDinnerStatus === 'COMPLETED' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
                                 'bg-amber-50 text-amber-800 border-amber-200'

@@ -362,7 +362,7 @@ export const KanbanView: React.FC = () => {
                                     }</strong>
                                   </span>
                                 )}
-                                {candidate.preJoinDinnerStatus && candidate.preJoinDinnerStatus !== 'NOT_SET' && candidate.preJoinDinnerStatus !== 'NOT_REQUIRED' && (
+                                {candidate.preJoinDinnerStatus && candidate.preJoinDinnerStatus !== 'UNPLANNED' && candidate.preJoinDinnerStatus !== 'NOT_REQUIRED' && (
                                   <span>
                                     会食: <strong className="text-slate-800">{
                                       candidate.preJoinDinnerStatus === 'COMPLETED' ? '済' :

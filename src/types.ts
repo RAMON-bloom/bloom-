@@ -182,7 +182,6 @@ export interface InternalStaff {
   googleChatWebhookUrl?: string; // 旧・単一Webhook欄（後方互換のため残置、用途を限定せず全種別の送信対象として扱う）。読み取り側は必ずgetStaffWebhooksForKind()経由で使うこと
   googleChatWebhooks?: StaffWebhook[]; // 本人のGoogle Chatスペースの着信Webhook URL一覧。1件ごとに送る通知の種類(kinds)を指定できる
   email?: string; // Googleログインアカウントのメールアドレス。自己登録・自己編集の識別キー（管理者が手動追加した過去のレコードでは未設定のことがある）
-  isRecruitingAssistant?: boolean; // 採用アシスタント（新規候補者登録・進捗管理を主に担当）フラグ。roleの自由記述とは別に、抜け防止通知の送信対象判定に使う
 }
 
 export interface YieldMetrics {

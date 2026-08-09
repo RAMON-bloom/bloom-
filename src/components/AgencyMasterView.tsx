@@ -66,7 +66,6 @@ export const AgencyMasterView: React.FC = () => {
     department: '人事部',
     role: '採用担当 (リクルーター)',
     email: '',
-    isRecruitingAssistant: false,
     googleChatWebhooks: [] as StaffWebhook[]
   });
 
@@ -232,7 +231,6 @@ export const AgencyMasterView: React.FC = () => {
       department: '人事部',
       role: '採用担当 (リクルーター)',
       email: '',
-      isRecruitingAssistant: false,
       googleChatWebhooks: []
     });
     setIsStaffModalOpen(true);
@@ -250,7 +248,6 @@ export const AgencyMasterView: React.FC = () => {
       department: staff.department,
       role: staff.role,
       email: staff.email || '',
-      isRecruitingAssistant: staff.isRecruitingAssistant || false,
       googleChatWebhooks: [...(staff.googleChatWebhooks || []), ...legacyEntry]
     });
     setIsStaffModalOpen(true);
@@ -307,7 +304,6 @@ export const AgencyMasterView: React.FC = () => {
         department: staffFormData.department,
         role: staffFormData.role,
         email: staffFormData.email.trim() || undefined,
-        isRecruitingAssistant: staffFormData.isRecruitingAssistant,
         googleChatWebhooks: validWebhooks.length > 0 ? validWebhooks : undefined,
         // このフォームから保存した時点で新形式に一本化するため、旧欄はクリアする。
         googleChatWebhookUrl: undefined
@@ -318,7 +314,6 @@ export const AgencyMasterView: React.FC = () => {
         department: staffFormData.department,
         role: staffFormData.role,
         email: staffFormData.email.trim() || undefined,
-        isRecruitingAssistant: staffFormData.isRecruitingAssistant,
         googleChatWebhooks: validWebhooks.length > 0 ? validWebhooks : undefined
       });
     }
@@ -328,7 +323,6 @@ export const AgencyMasterView: React.FC = () => {
       department: '人事部',
       role: '採用担当 (リクルーター)',
       email: '',
-      isRecruitingAssistant: false,
       googleChatWebhooks: []
     });
     setEditingStaff(null);
@@ -610,12 +604,6 @@ export const AgencyMasterView: React.FC = () => {
                         <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-medium">
                           {staff.department}
                         </span>
-                        {staff.isRecruitingAssistant && (
-                          <span className="flex items-center gap-0.5 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">
-                            <UserCheck className="w-3 h-3" />
-                            採用アシスタント
-                          </span>
-                        )}
                         {getAllStaffWebhookUrls(staff).length > 0 && (
                           <span className="flex items-center gap-0.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
                             <MessageSquare className="w-3 h-3" />
@@ -957,22 +945,6 @@ export const AgencyMasterView: React.FC = () => {
                 <p className="text-[11px] text-slate-500 mt-1">
                   設定すると、このGoogleアカウントでログインした本人が自分の情報を編集できるようになります。
                 </p>
-              </div>
-
-              <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 p-3">
-                <input
-                  type="checkbox"
-                  id="isRecruitingAssistant"
-                  checked={staffFormData.isRecruitingAssistant}
-                  onChange={(e) => setStaffFormData({ ...staffFormData, isRecruitingAssistant: e.target.checked })}
-                  className="mt-0.5 cursor-pointer"
-                />
-                <label htmlFor="isRecruitingAssistant" className="text-xs text-slate-700 cursor-pointer">
-                  <span className="font-semibold text-amber-800">採用アシスタントとして登録する</span>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    新規候補者登録・進捗管理のリマインド対象になります（進捗停滞・書類選考対応漏れのダイジェスト通知が届きます）。
-                  </p>
-                </label>
               </div>
 
               <div>

@@ -1,9 +1,9 @@
 import { sendGoogleChatMessage } from '../_lib/googleChat.js';
 
 // Fired from ATSContext's addEvaluationNote whenever a note is saved with a final result
-// (合格/不採用, 書類選考含む — PENDING doesn't fire this), to every 採用アシスタント
-// （isRecruitingAssistant）with a Chat webhook on file. Best-effort: the caller doesn't block
-// saving the evaluation note on this succeeding.
+// (合格/不採用, 書類選考含む — PENDING doesn't fire this), to every staff Chat webhook that has
+// the EVALUATION_RESULT kind enabled. Best-effort: the caller doesn't block saving the evaluation
+// note on this succeeding.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });

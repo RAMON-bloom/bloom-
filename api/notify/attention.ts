@@ -4,7 +4,7 @@ import { sendGoogleChatMessage } from '../_lib/googleChat.js';
 // browser per day — there's no server cron/service account in this app, see attentionUtils.ts).
 // Two message shapes share one endpoint since both are thin wrappers around the same
 // sendGoogleChatMessage call, just with different text:
-//   - 'digest': sent to each 採用アシスタント（isRecruitingAssistant）with a Chat webhook on file,
+//   - 'digest': sent to every staff Chat webhook that has the ATTENTION_DIGEST kind enabled,
 //     summarizing how many candidates are stalled / how many document-screening cases are overdue.
 //   - 'doc_screening_nudge': sent to the specific document-screening assignee of one overdue
 //     candidate, mirroring the existing candidate-registered notice's `*@name*` bold-text mention.

@@ -339,20 +339,21 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const notifyPromises: Promise<void>[] = [];
 
-      latestStaffList
-        .filter((s) => s.isRecruitingAssistant)
-        .forEach((staff) => {
-          getStaffWebhooksForKind(staff, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
-            notifyPromises.push(
-              notifyAttentionDigestApi({
-                webhookUrl,
-                staffName: staff.name,
-                stalledCount: stalled.length,
-                overdueCount: overdue.length
-              })
-            );
-          });
+      // 宛先は「このWebhookでこの種類の通知を受け取る」という各リンクのkinds選択だけで決まる
+      // （役職フラグ等での絞り込みは行わない。以前isRecruitingAssistantフラグで絞り込んでいた際、
+      // フラグを立て忘れただけで登録済みWebhookに何も届かなくなる不具合があったため撤廃した）。
+      latestStaffList.forEach((staff) => {
+        getStaffWebhooksForKind(staff, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
+          notifyPromises.push(
+            notifyAttentionDigestApi({
+              webhookUrl,
+              staffName: staff.name,
+              stalledCount: stalled.length,
+              overdueCount: overdue.length
+            })
+          );
         });
+      });
 
       overdue.forEach(({ candidate, assigneeName, daysSinceUpdate }) => {
         const assignee = latestStaffList.find((s) => s.name === assigneeName);
@@ -595,9 +596,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    // Best-effort Google Chat notification to every 採用アシスタント when a selection result is
-    // finalized (合格/不採用、書類選考も含む) — PENDINGでは発火しない。抜け防止ダイジェスト等と
-    // 同じくWebhook未設定なら黙ってスキップする、必須ではない付随通知。
+    // Best-effort Google Chat notification when a selection result is finalized (合格/不採用、
+    // 書類選考も含む) — PENDINGでは発火しない。宛先は各Webhookのkinds選択のみで決まる。
     if (target && (noteData.resultStatus === 'PASS' || noteData.resultStatus === 'FAIL')) {
       const phaseLabels: Record<SelectionPhase, string> = {
         DOCUMENT_SCREENING: '書類選考',
@@ -610,7 +610,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         REJECTED_DECLINED: '辞退 / 不採用'
       };
 
-      const recipients = staffList.filter((s) => s.isRecruitingAssistant);
+      const recipients = staffList;
       const notifyCalls: Promise<void>[] = [];
       recipients.forEach((staff) => {
         getStaffWebhooksForKind(staff, 'EVALUATION_RESULT').forEach((webhookUrl) => {

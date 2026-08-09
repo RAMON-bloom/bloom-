@@ -30,8 +30,7 @@ export const SelfRegistrationPrompt: React.FC = () => {
       name: name.trim(),
       department: department.trim(),
       role: '採用担当 (リクルーター)',
-      email: driveUserEmail,
-      isRecruitingAssistant: false
+      email: driveUserEmail
     });
   };
 

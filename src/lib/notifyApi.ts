@@ -100,7 +100,7 @@ export async function notifyDocumentScreeningThread(params: {
   const res = await fetch('/api/notify/document-screening-thread', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params)
+    body: JSON.stringify({ ...params, appUrl: window.location.origin })
   });
 
   const rawText = await res.text();

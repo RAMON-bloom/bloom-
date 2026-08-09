@@ -3,16 +3,14 @@ import { sendGoogleChatMessage } from '../_lib/googleChat.js';
 // Fired from ATSContext's addEvaluationNote when a 書類選考 evaluation is saved as 合格, to every
 // staff Chat webhook that has the DOCUMENT_SCREENING_THREAD kind enabled. Starts a new
 // Google Chat thread (keyed by candidateId, so it stays stable if this ever fires more than once —
-// e.g. a re-save — and is ready to be reused as a home for that candidate's later updates). The
-// opening message is deliberately just "候補者名 様（エージェント名）" — no extra wording, id, or
-// app link — so the thread's own title carries the only content that matters here.
+// e.g. a re-save — and is ready to be reused as a home for that candidate's later updates).
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { webhookUrl, candidateName, candidateId, agencyName } = req.body || {};
+    const { webhookUrl, candidateName, candidateId, agencyName, appUrl } = req.body || {};
 
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrlが必要です。' });
@@ -21,7 +19,8 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: '候補者情報（名前・ID）が必要です。' });
     }
 
-    const text = `${candidateName} 様（${agencyName || '推薦元不明'}）`;
+    const link = appUrl || 'https://bloom-saiyou.vercel.app';
+    const text = `${candidateName} 様（${agencyName || '推薦元不明'}）\nアプリで確認する: ${link}`;
 
     await sendGoogleChatMessage(webhookUrl, text, `cand-${candidateId}`);
 

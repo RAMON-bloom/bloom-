@@ -161,10 +161,11 @@ export interface Agency {
 // 「このリンクには合否確定だけ、あのリンクには新規アサイン通知だけ」という主旨ごとの振り分けを可能にする。
 // 将来的に通知種別を追加する際はここに追記する。
 export type ChatNotificationKind =
-  | 'CANDIDATE_REGISTERED'  // 書類選考担当への新規候補者アサイン通知
-  | 'ATTENTION_DIGEST'      // 進捗停滞・書類選考対応漏れの定期ダイジェスト（採用アシスタント向け）
-  | 'DOC_SCREENING_NUDGE'   // 書類選考の対応が止まっている候補者の個別督促
-  | 'EVALUATION_RESULT';    // 選考結果（合格/不採用、書類選考含む）確定の通知
+  | 'CANDIDATE_REGISTERED'        // 書類選考担当への新規候補者アサイン通知
+  | 'ATTENTION_DIGEST'            // 進捗停滞・書類選考対応漏れの定期ダイジェスト（採用アシスタント向け）
+  | 'DOC_SCREENING_NUDGE'         // 書類選考の対応が止まっている候補者の個別督促
+  | 'EVALUATION_RESULT'           // 選考結果（合格/不採用、書類選考含む）確定の通知
+  | 'DOCUMENT_SCREENING_THREAD';  // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
 
 export interface StaffWebhook {
   id: string;

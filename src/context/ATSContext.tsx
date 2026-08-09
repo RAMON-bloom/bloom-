@@ -30,7 +30,8 @@ import {
   notifyCandidateRegistered as notifyCandidateRegisteredApi,
   notifyAttentionDigest as notifyAttentionDigestApi,
   notifyDocScreeningNudge as notifyDocScreeningNudgeApi,
-  notifyEvaluationResult as notifyEvaluationResultApi
+  notifyEvaluationResult as notifyEvaluationResultApi,
+  notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
@@ -636,6 +637,34 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             showToast(`選考結果のChat通知の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
           }
         });
+      }
+
+      // 書類選考を通過した瞬間だけ、追加で「候補者名＋エージェント名」の新規スレッドを立てる通知も
+      // 送る（DOCUMENT_SCREENING_THREAD種別を選んだWebhookのみが対象）。threadKeyを候補者IDに固定
+      // しているので、万一この通知が複数回発火しても同じスレッドに収束する。
+      if (noteData.phase === 'DOCUMENT_SCREENING' && noteData.resultStatus === 'PASS') {
+        const threadNotifyCalls: Promise<void>[] = [];
+        recipients.forEach((staff) => {
+          getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
+            threadNotifyCalls.push(
+              notifyDocumentScreeningThreadApi({
+                webhookUrl,
+                candidateName: target.name,
+                candidateId: target.id,
+                agencyName: target.agencyName
+              })
+            );
+          });
+        });
+        if (threadNotifyCalls.length > 0) {
+          Promise.allSettled(threadNotifyCalls).then((results) => {
+            const failedCount = results.filter((r) => r.status === 'rejected').length;
+            if (failedCount > 0) {
+              console.error(`Document-screening-thread Chat notify: ${failedCount}件の送信に失敗しました`);
+              showToast(`選考スレッド作成の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+            }
+          });
+        }
       }
     }
   };

@@ -7,23 +7,25 @@ import {
   Building2,
   Plus,
   Download,
-  RotateCcw,
   Search,
   ShieldAlert,
   UserCheck,
-  Sparkles,
   Archive,
   HardDrive,
   UploadCloud,
   DownloadCloud,
   LogOut,
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  HelpCircle,
+  MessageCircle
 } from 'lucide-react';
 import { useATS, ActiveTab } from '../context/ATSContext';
 import { UserRole } from '../types';
 import { AttentionPanel } from './AttentionPanel';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
+import { HelpGuideModal } from './HelpGuideModal';
+import { InquiryModal } from './InquiryModal';
 
 export const Header: React.FC = () => {
   const {
@@ -35,7 +37,6 @@ export const Header: React.FC = () => {
     filters,
     setFilters,
     exportCSV,
-    resetToDefaultData,
     filteredCandidates,
     archivedCandidates,
     candidates,
@@ -51,6 +52,8 @@ export const Header: React.FC = () => {
   } = useATS();
 
   const [isDriveMenuOpen, setIsDriveMenuOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isInquiryOpen, setIsInquiryOpen] = useState(false);
 
   const joiningScheduledCount = candidates.filter(isJoiningScheduled).length;
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -172,11 +175,19 @@ export const Header: React.FC = () => {
             </button>
 
             <button
-              onClick={resetToDefaultData}
-              title="初期デモデータにリセット"
-              className="p-1.5 text-slate-400 hover:text-amber-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+              onClick={() => setIsHelpOpen(true)}
+              title="このアプリの使い方"
+              className="p-1.5 text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
             >
-              <RotateCcw className="w-4 h-4" />
+              <HelpCircle className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => setIsInquiryOpen(true)}
+              title="開発者にお問い合わせ"
+              className="p-1.5 text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              <MessageCircle className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -239,6 +250,9 @@ export const Header: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {isHelpOpen && <HelpGuideModal onClose={() => setIsHelpOpen(false)} />}
+      {isInquiryOpen && <InquiryModal onClose={() => setIsInquiryOpen(false)} />}
     </header>
   );
 };

@@ -165,7 +165,8 @@ export type ChatNotificationKind =
   | 'ATTENTION_DIGEST'            // 進捗停滞・書類選考対応漏れの定期ダイジェスト（採用アシスタント向け）
   | 'DOC_SCREENING_NUDGE'         // 書類選考の対応が止まっている候補者の個別督促
   | 'EVALUATION_RESULT'           // 選考結果（合格/不採用、書類選考含む）確定の通知
-  | 'DOCUMENT_SCREENING_THREAD';  // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
+  | 'DOCUMENT_SCREENING_THREAD'   // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
+  | 'DEVELOPER_INQUIRY';          // アプリ内「お問い合わせ」からのメッセージ送信
 
 // 個人用・グループ用どちらのWebhook登録にも使う共通の形。「誰に属するか」は保持先（InternalStaff.
 // googleChatWebhooksか、組織全体のgroupChatWebhooksか）で決まる。
@@ -270,5 +271,25 @@ export interface OverdueDocScreeningInfo {
   candidate: Candidate;
   assigneeName: string;
   daysSinceUpdate: number;
+}
+
+// アプリ内「お問い合わせ」機能。開発者との1スレッド分のやり取りをチャット形式で保持する。
+// 返信は今のところGoogle Chat側（開発者が個別に対応）で行われるため、messagesは基本的に
+// 送信側（自分）の発言のみが積み上がっていく想定。
+export type InquiryCategory = 'BUG' | 'SUGGESTION' | 'OTHER';
+
+export interface InquiryMessage {
+  id: string;
+  text: string;
+  senderName: string; // 送信した担当者名（未登録の場合はログインメールアドレス）
+  createdAt: string; // ISO timestamp
+}
+
+export interface Inquiry {
+  id: string;
+  category: InquiryCategory;
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+  messages: InquiryMessage[];
 }
 

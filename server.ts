@@ -23,6 +23,7 @@ import notifyCandidateRegistered from './api/notify/candidate-registered';
 import notifyAttention from './api/notify/attention';
 import notifyEvaluationResult from './api/notify/evaluation-result';
 import notifyDocumentScreeningThread from './api/notify/document-screening-thread';
+import notifyDeveloperInquiry from './api/notify/developer-inquiry';
 
 async function startServer() {
   const app = express();
@@ -49,6 +50,7 @@ async function startServer() {
   app.post('/api/notify/attention', notifyAttention);
   app.post('/api/notify/evaluation-result', notifyEvaluationResult);
   app.post('/api/notify/document-screening-thread', notifyDocumentScreeningThread);
+  app.post('/api/notify/developer-inquiry', notifyDeveloperInquiry);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

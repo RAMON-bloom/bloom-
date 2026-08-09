@@ -14,7 +14,9 @@ import {
   StalledCandidateInfo,
   OverdueDocScreeningInfo,
   ImportedInterviewLog,
-  ChatWebhook
+  ChatWebhook,
+  Inquiry,
+  InquiryCategory
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -32,7 +34,8 @@ import {
   notifyAttentionDigest as notifyAttentionDigestApi,
   notifyDocScreeningNudge as notifyDocScreeningNudgeApi,
   notifyEvaluationResult as notifyEvaluationResultApi,
-  notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi
+  notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi,
+  notifyDeveloperInquiry as notifyDeveloperInquiryApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
@@ -120,6 +123,10 @@ interface ATSContextType {
   groupChatWebhooks: ChatWebhook[];
   updateGroupChatWebhooks: (webhooks: ChatWebhook[]) => void;
 
+  // アプリ内「お問い合わせ」。開発者とのチャット形式のスレッド一覧。
+  inquiries: Inquiry[];
+  addInquiryMessage: (category: InquiryCategory, text: string, inquiryId?: string) => string;
+
   // Utils & Yields
   yieldMetrics: YieldMetrics[];
   filteredCandidates: Candidate[];
@@ -129,7 +136,6 @@ interface ATSContextType {
   overdueDocScreening: OverdueDocScreeningInfo[];
   toasts: Toast[];
   showToast: (message: string, type?: 'info' | 'success' | 'warning') => void;
-  resetToDefaultData: () => void;
   exportCSV: () => void;
 
   // Google Drive Integration
@@ -182,6 +188,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // と同じ形(ChatWebhook)だが、担当者マスタ設定の独立したセクションで管理する。
   const [groupChatWebhooks, setGroupChatWebhooks] = useState<ChatWebhook[]>(() => {
     const saved = localStorage.getItem('ats_group_chat_webhooks');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // アプリ内「お問い合わせ」スレッド一覧。他のバックアップ対象データと同じ扱い（localStorage
+  // 即時保存＋Driveへも他データと合わせてバックアップ）。
+  const [inquiries, setInquiries] = useState<Inquiry[]>(() => {
+    const saved = localStorage.getItem('ats_inquiries');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -244,6 +257,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [groupChatWebhooks]);
 
   useEffect(() => {
+    localStorage.setItem('ats_inquiries', JSON.stringify(inquiries));
+  }, [inquiries]);
+
+  useEffect(() => {
     localStorage.setItem('ats_deleted_drive_item_ids', JSON.stringify(deletedDriveItemIds));
   }, [deletedDriveItemIds]);
 
@@ -252,9 +269,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // candidates/agencies/staffList may have moved on from whatever they were when the meetingLogs
   // change that scheduled it happened, and the Drive backup should reflect the latest, not a
   // slightly-stale snapshot from several seconds earlier.
-  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks });
+  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries });
   useEffect(() => {
-    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks };
+    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries };
   });
 
   // Auto-backs-up to Drive a few seconds after candidates, MTG logs, agencies, or staff stop
@@ -294,7 +311,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     };
-  }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, driveAccessToken]);
+  }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries, driveAccessToken]);
 
   // Auto-restores from Drive once per login. Without this, candidates/agencies/staffList/
   // meetingLogs were seeded purely from this browser's own localStorage (or, on a brand-new
@@ -1126,17 +1143,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('グループ通知用Webhookを更新しました', 'success');
   };
 
-  const resetToDefaultData = () => {
-    setCandidates(INITIAL_CANDIDATES);
-    setAgencies(INITIAL_AGENCIES);
-    setStaffList(INITIAL_STAFF);
-    setMeetingLogs(INITIAL_MEETING_LOGS);
-    localStorage.removeItem('ats_candidates');
-    localStorage.removeItem('ats_agencies');
-    localStorage.removeItem('ats_staff_list');
-    localStorage.removeItem('ats_meeting_logs');
-    showToast('初期サンプルデータにリセットしました', 'info');
-  };
 
   // Google Drive Integration — re-runs the same login used to enter the app, e.g. after the
   // access token has expired and the background silent refresh in AuthGate couldn't restore it.
@@ -1169,7 +1175,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         agencies,
         staffList,
         meetingLogs,
-        groupChatWebhooks
+        groupChatWebhooks,
+        inquiries
       });
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {
@@ -1195,6 +1202,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.staffList) setStaffList(data.staffList);
       if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
       if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
+      if (data.inquiries) setInquiries(data.inquiries);
       if (!options.silent) showToast('Driveのバックアップからデータを復元しました', 'success');
     } catch (err: any) {
       const notBackedUpYet = String(err.message || '').includes('見つかりませんでした');
@@ -1386,6 +1394,54 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ? staffList.find((s) => s.email?.toLowerCase() === driveUserEmail.toLowerCase())
     : undefined;
 
+  // アプリ内「お問い合わせ」チャットへのメッセージ送信。inquiryIdを渡すと既存スレッドに追記、
+  // 省略すると新規スレッドを開始する。DEVELOPER_INQUIRY種別を選んだWebhookへ、スレッドの
+  // threadKeyをinquiryIdに固定してGoogle Chatへも通知する（同じスレッドの後続メッセージは
+  // 同じChatスレッドにまとまる、DOCUMENT_SCREENING_THREADと同じ考え方）。戻り値は使ったinquiryId
+  // （呼び出し側が同じスレッドへ続けて送信できるよう保持する）。
+  const addInquiryMessage = (category: InquiryCategory, text: string, inquiryId?: string): string => {
+    const now = new Date().toISOString();
+    const senderName = myStaffRecord?.name || driveUserEmail || '匿名ユーザー';
+    const message = { id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text, senderName, createdAt: now };
+
+    const existing = inquiryId ? inquiries.find((inq) => inq.id === inquiryId) : undefined;
+    const targetId = existing?.id || `inq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    setInquiries((prev) => {
+      if (existing) {
+        return prev.map((inq) =>
+          inq.id === targetId ? { ...inq, updatedAt: now, messages: [...inq.messages, message] } : inq
+        );
+      }
+      const newInquiry: Inquiry = { id: targetId, category, createdAt: now, updatedAt: now, messages: [message] };
+      return [...prev, newInquiry];
+    });
+
+    const notifyCalls: Promise<void>[] = [];
+    staffList.forEach((staff) => {
+      getStaffWebhooksForKind(staff, 'DEVELOPER_INQUIRY').forEach((webhookUrl) => {
+        notifyCalls.push(
+          notifyDeveloperInquiryApi({ webhookUrl, staffName: senderName, category, message: text, inquiryId: targetId })
+        );
+      });
+    });
+    getGroupWebhooksForKind(groupChatWebhooks, 'DEVELOPER_INQUIRY').forEach((webhookUrl) => {
+      notifyCalls.push(
+        notifyDeveloperInquiryApi({ webhookUrl, staffName: senderName, category, message: text, inquiryId: targetId })
+      );
+    });
+    if (notifyCalls.length > 0) {
+      Promise.allSettled(notifyCalls).then((results) => {
+        const failedCount = results.filter((r) => r.status === 'rejected').length;
+        if (failedCount > 0) {
+          console.error(`Developer-inquiry Chat notify: ${failedCount}件の送信に失敗しました`);
+        }
+      });
+    }
+
+    return targetId;
+  };
+
   // 抜け防止: 進捗が止まっている候補者 / 書類選考の対応が止まっている候補者。毎レンダー
   // candidatesから再計算する軽量な派生値（filteredCandidates等と同じ扱い）。しきい値は
   // attentionUtils.tsで定義。
@@ -1561,6 +1617,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateStaff,
         groupChatWebhooks,
         updateGroupChatWebhooks,
+        inquiries,
+        addInquiryMessage,
         yieldMetrics,
         filteredCandidates,
         archivedCandidates,
@@ -1569,7 +1627,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         overdueDocScreening,
         toasts,
         showToast,
-        resetToDefaultData,
         exportCSV,
         driveAccessToken,
         driveUserEmail,

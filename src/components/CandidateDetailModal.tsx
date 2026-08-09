@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote } from '../types';
-import { useAuth } from '../context/AuthContext';
+import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog } from '../types';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
-import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
+import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { getNextPhase, PHASE_SEQUENCE } from '../lib/phaseUtils';
@@ -34,8 +33,6 @@ import {
   Loader2,
   Copy,
   FileCheck,
-  Mail,
-  RefreshCw,
   ExternalLink,
   Check,
   UploadCloud,
@@ -114,9 +111,10 @@ export const CandidateDetailModal: React.FC = () => {
     staffList,
     userRole,
     showToast,
-    driveAccessToken
+    driveAccessToken,
+    connectDrive,
+    updateInterviewLogForPhase
   } = useATS();
-  const { accessToken: authAccessToken, signIn: authSignIn } = useAuth();
 
   const [activeSubTab, setActiveSubTab] = useState<'evaluation' | 'resume' | 'onboarding'>('evaluation');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -128,7 +126,6 @@ export const CandidateDetailModal: React.FC = () => {
     }
   }, [activeSubTab]);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [showGmailPanel, setShowGmailPanel] = useState(false);
   const [docCategory, setDocCategory] = useState<'cv' | 'resume' | 'ai_summary'>('cv');
   const [isDetailDragging, setIsDetailDragging] = useState(false);
   const [isDetailParsing, setIsDetailParsing] = useState(false);
@@ -142,7 +139,6 @@ export const CandidateDetailModal: React.FC = () => {
     dashboard: false,
     evalForm: false,
     evalHistory: false,
-    gmailLog: false,
     resume: false,
     onboarding: false,
   });
@@ -153,21 +149,6 @@ export const CandidateDetailModal: React.FC = () => {
       [sectionKey]: !prev[sectionKey],
     }));
   };
-
-  // Gmail Sync State
-  const [isSyncingGmail, setIsSyncingGmail] = useState(false);
-  const [gmailData, setGmailData] = useState<{
-    messages: Array<{ id: string; subject: string; from: string; date: string; snippet: string; body: string }>;
-    summary: {
-      overview: string;
-      keyHighlights: string[];
-      interviewFeedback: string;
-      candidateQuestions: string;
-      nextAction: string;
-      summaryMarkdown: string;
-    };
-    isLiveGmailData: boolean;
-  } | null>(null);
 
   // Evaluation Note Form state
   const [evalTargetPhase, setEvalTargetPhase] = useState<SelectionPhase>('FIRST_INTERVIEW');
@@ -192,6 +173,12 @@ export const CandidateDetailModal: React.FC = () => {
   // 「次回選考の調整」ボタンを押すたびに1件先のフェーズまで表示を広げる(候補者切替でリセット)。
   const [manuallyRevealedStages, setManuallyRevealedStages] = useState<number>(0);
   const [failReason, setFailReason] = useState<string>('');
+
+  // Drive/カレンダー連携の面談ログ取り込み: どのフェーズカードの取り込みパネルを開いているか
+  // (同時に1件のみ)と、検索基準日。取り込み中はisImportingLogPhaseにそのフェーズを入れる。
+  const [logImportTargetPhase, setLogImportTargetPhase] = useState<SelectionPhase | null>(null);
+  const [logImportDate, setLogImportDate] = useState<string>('');
+  const [isImportingLogPhase, setIsImportingLogPhase] = useState<SelectionPhase | null>(null);
 
   // Evaluation Log edit/delete state
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -327,6 +314,7 @@ export const CandidateDetailModal: React.FC = () => {
         setNewCNote(c.cNote || '');
         setNewMNote(c.mNote || '');
         setManuallyRevealedStages(0);
+        setLogImportTargetPhase(null);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -361,63 +349,6 @@ export const CandidateDetailModal: React.FC = () => {
   const activeResumeDoc = resumeDocs[activeResumeDocIndex];
 
   const handleClose = () => setSelectedCandidateId(null);
-
-  const handleSyncGmailLogs = async () => {
-    let currentToken = authAccessToken;
-    if (!currentToken) {
-      try {
-        currentToken = await authSignIn();
-      } catch (err: any) {
-        showToast('Googleログインに失敗しました: ' + (err.message || 'エラー'), 'warning');
-        return;
-      }
-    }
-
-    if (!currentToken) return;
-
-    setIsSyncingGmail(true);
-    try {
-      const res = await fetch('/api/gmail/sync-logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken: currentToken,
-          candidateEmail: candidate.email,
-          candidateName: candidate.name
-        })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setGmailData(data);
-        showToast(`Gmailから ${data.messagesCount} 件の面談ログを取得・Gemini AI要約を完了しました`, 'success');
-      } else {
-        showToast(data.error || 'Gmail同期に失敗しました', 'warning');
-      }
-    } catch (err: any) {
-      console.error(err);
-      showToast('Gmail同期中にネットワークエラーが発生しました', 'warning');
-    } finally {
-      setIsSyncingGmail(false);
-    }
-  };
-
-  const handleSaveAiSummaryToNotes = () => {
-    if (!gmailData?.summary) return;
-
-    const s = gmailData.summary;
-    const noteText = `【Gmail面談ログ AI自動要約】\n\n1. 全体要約: ${s.overview}\n\n2. 面接官評価・フィードバック:\n${s.interviewFeedback}\n\n3. 候補者の質問・志望度・希望条件:\n${s.candidateQuestions}\n\n4. 推奨される次アクション:\n${s.nextAction}\n\n5. 評価ポイント:\n${s.keyHighlights.map(h => '・' + h).join('\n')}`;
-
-    addEvaluationNote(candidate.id, {
-      author: 'Gmail & Gemini AI (自動連動)',
-      authorRole: 'AI自動要約',
-      phase: candidate.phase,
-      comment: noteText,
-      resultStatus: 'PENDING'
-    });
-
-    showToast('Gmail面談AI要約を選考評価メモに登録・保存しました！', 'success');
-  };
 
   // Adds one or more new documents to an already-registered candidate: the first file is AI-
   // parsed to refresh the resume summary/skills/full-text (name, education etc. are left alone —
@@ -749,6 +680,72 @@ export const CandidateDetailModal: React.FC = () => {
   // 合格保存で現在地が進む先のフェーズ (対象フェーズが現在地と一致し、かつ次フェーズが存在する場合のみ)。
   // このフェーズが決まる場合のみ、保存ボタン横に次回面接官の指定欄を出す。
   const pendingPassNextPhase = evalTargetPhase === candidate.phase ? getNextPhase(candidate.phase) : null;
+
+  const toggleLogImportPanel = (phase: SelectionPhase) => {
+    if (logImportTargetPhase === phase) {
+      setLogImportTargetPhase(null);
+      return;
+    }
+    const defaultDate =
+      phase === candidate.phase && candidate.nextScheduleDate
+        ? candidate.nextScheduleDate.slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+    setLogImportDate(defaultDate);
+    setLogImportTargetPhase(phase);
+  };
+
+  // 候補者名 ＋ 指定日を手がかりに、カレンダー予定に添付されたGoogle Meetの自動議事録
+  // (Gemini によるメモ)を検索し、Gemini APIで要約してそのフェーズの面談ログとして保存する。
+  const handleImportInterviewLog = async (phase: SelectionPhase) => {
+    if (!driveAccessToken) {
+      showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
+      await connectDrive();
+      return;
+    }
+    if (!logImportDate) {
+      showToast('検索する日付を指定してください', 'warning');
+      return;
+    }
+
+    setIsImportingLogPhase(phase);
+    try {
+      const match = await findCalendarMeetingNotes(driveAccessToken, logImportDate, candidate.name);
+      if (!match.found || !match.fileId) {
+        showToast(
+          `${logImportDate} 前後に候補者名「${candidate.name}」を含むカレンダー予定、またはGemini議事録の添付が見つかりませんでした。`,
+          'warning'
+        );
+        return;
+      }
+
+      const file = { id: match.fileId, name: match.fileName || 'Gemini によるメモ', mimeType: 'application/vnd.google-apps.document' };
+      const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
+
+      const log: ImportedInterviewLog = {
+        eventSummary: match.eventSummary,
+        eventStart: match.eventStart,
+        sourceDriveFileId: file.id,
+        sourceDriveFileName: file.name,
+        rawContent,
+        summary,
+        importedAt: new Date().toISOString()
+      };
+      updateInterviewLogForPhase(candidate.id, phase, log);
+
+      showToast(`カレンダーの予定「${match.eventSummary}」から面談ログを取り込み、AI要約しました`, 'success');
+      setLogImportTargetPhase(null);
+    } catch (err: any) {
+      const message = err.message || '不明なエラー';
+      showToast(
+        message.includes('403') || message.includes('401')
+          ? 'カレンダー/Driveへのアクセス権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
+          : `面談ログの取り込みに失敗しました: ${message}`,
+        'warning'
+      );
+    } finally {
+      setIsImportingLogPhase(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-xs flex justify-end transition-opacity">
@@ -1428,6 +1425,104 @@ export const CandidateDetailModal: React.FC = () => {
                                 {latestNote ? '完了' : '未定'}
                               </span>
                             )}
+                          </div>
+
+                          {/* 5. 面談ログ取り込み (Drive/カレンダー連携) (md:col-span-12) */}
+                          <div className="md:col-span-12 pt-2 mt-1 border-t border-slate-100 space-y-1.5">
+                            {(() => {
+                              const importedLog = candidate.interviewLogsByPhase?.[stg.phase];
+                              const logDetailKey = `interviewLog_${stg.phase}`;
+                              const isLogDetailOpen = !!collapsedSections[logDetailKey];
+                              const isImportPanelOpen = logImportTargetPhase === stg.phase;
+                              const isImporting = isImportingLogPhase === stg.phase;
+
+                              return (
+                                <>
+                                  <div className="flex items-center justify-between flex-wrap gap-1.5">
+                                    {importedLog ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleSection(logDetailKey)}
+                                        className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                                      >
+                                        <FileCheck className="w-3 h-3" />
+                                        <span>面談ログ取込済み ({importedLog.eventSummary || importedLog.sourceDriveFileName})</span>
+                                        {isLogDetailOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 italic">面談ログ未取込</span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleLogImportPanel(stg.phase)}
+                                      className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                                    >
+                                      <Download className="w-3 h-3" />
+                                      <span>{importedLog ? '再取込' : '面談ログを取り込む'} (Drive/カレンダー)</span>
+                                    </button>
+                                  </div>
+
+                                  {isImportPanelOpen && (
+                                    <div className="flex items-center gap-1.5 flex-wrap bg-indigo-50/50 border border-indigo-100 rounded-lg p-2">
+                                      <span className="text-[10px] text-slate-600">
+                                        候補者名「{candidate.name}」を含むカレンダー予定を検索する日付:
+                                      </span>
+                                      <input
+                                        type="date"
+                                        value={logImportDate}
+                                        onChange={(e) => setLogImportDate(e.target.value)}
+                                        className="bg-white border border-slate-300 text-slate-800 text-[10px] font-bold rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleImportInterviewLog(stg.phase)}
+                                        disabled={isImporting}
+                                        className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2 py-1 rounded transition-all cursor-pointer disabled:opacity-50"
+                                      >
+                                        {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                                        <span>{isImporting ? '検索・要約中...' : '検索して取り込む'}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setLogImportTargetPhase(null)}
+                                        className="text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer"
+                                      >
+                                        キャンセル
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {importedLog && isLogDetailOpen && (
+                                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 text-[11px]">
+                                      <p className="text-slate-700 leading-relaxed">{importedLog.summary.overview}</p>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
+                                        <div className="bg-white p-2 rounded border border-slate-200">
+                                          <span className="font-bold text-slate-700 block mb-0.5">面接評価・フィードバック</span>
+                                          <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{importedLog.summary.interviewFeedback}</p>
+                                        </div>
+                                        <div className="bg-white p-2 rounded border border-slate-200">
+                                          <span className="font-bold text-slate-700 block mb-0.5">候補者の質問・希望条件</span>
+                                          <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{importedLog.summary.candidateQuestions}</p>
+                                        </div>
+                                      </div>
+                                      <div className="bg-amber-50/70 p-2 rounded border border-amber-200">
+                                        <span className="font-bold text-amber-900 block mb-0.5">推奨次アクション</span>
+                                        <p className="text-amber-950 leading-relaxed">{importedLog.summary.nextAction}</p>
+                                      </div>
+                                      <a
+                                        href={`https://docs.google.com/document/d/${importedLog.sourceDriveFileId}/edit`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-semibold"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        元の議事録をDriveで開く
+                                      </a>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       );
@@ -2188,116 +2283,6 @@ export const CandidateDetailModal: React.FC = () => {
                           )}
                         </div>
                       ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Inline Gmail AI Summary Quick Panel (面接結果ログの下に配置) */}
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs space-y-0">
-                <div 
-                  onClick={() => toggleSection('gmailLog')}
-                  className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-100/80 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-indigo-600" />
-                    <span className="font-bold text-slate-900 text-xs">Gmail面談ログ同期 ＆ Gemini AI連携要約</span>
-                  </div>
-                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={handleSyncGmailLogs}
-                      disabled={isSyncingGmail}
-                      className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs px-2.5 py-1 rounded-lg border border-indigo-200 transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      {isSyncingGmail ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>解析中...</span>
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          <span>Gmailから同期・要約</span>
-                        </>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleSection('gmailLog')}
-                      className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-200/80 hover:bg-indigo-600 hover:text-white text-slate-700 transition-all cursor-pointer shrink-0 shadow-2xs"
-                      title={collapsedSections.gmailLog ? "展開する" : "折りたたむ"}
-                    >
-                      {collapsedSections.gmailLog ? <ChevronDown className="w-5 h-5 stroke-[2.5]" /> : <ChevronUp className="w-5 h-5 stroke-[2.5]" />}
-                    </button>
-                  </div>
-                </div>
-
-                {!collapsedSections.gmailLog && (
-                  <div className="p-3.5 space-y-3">
-                    <p className="text-[11px] text-slate-500">
-                      候補者 ({candidate.email || 'メール未設定'}) との面談・選考メールやり取りから、AIが評価レポートを自動解析・要約します。
-                    </p>
-
-                    {gmailData && !isSyncingGmail ? (
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900 text-xs flex items-center gap-1">
-                            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                            AI統合要約レポート
-                          </span>
-                          <button
-                            onClick={handleSaveAiSummaryToNotes}
-                            className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-2.5 py-1 rounded transition-all cursor-pointer shadow-2xs"
-                          >
-                            <Check className="w-3 h-3 stroke-[3]" />
-                            <span>選考評価メモに登録</span>
-                          </button>
-                        </div>
-                        <p className="text-xs text-slate-700 leading-relaxed">{gmailData.summary.overview}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px]">
-                          <div className="bg-indigo-50/70 p-2 rounded-lg border border-indigo-100">
-                            <span className="font-bold text-indigo-900 block mb-0.5">評価ポイント・強み</span>
-                            <ul className="space-y-0.5">
-                              {gmailData.summary.keyHighlights.map((hl, idx) => (
-                                <li key={idx} className="text-indigo-950 flex items-start gap-1">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
-                                  <span>{hl}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          <div className="bg-amber-50/70 p-2 rounded-lg border border-amber-200">
-                            <span className="font-bold text-amber-900 block mb-0.5">推奨次アクション</span>
-                            <p className="text-amber-950 leading-relaxed">{gmailData.summary.nextAction}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex justify-start">
-                        <button
-                          type="button"
-                          onClick={() => setShowGmailPanel(!showGmailPanel)}
-                          className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
-                        >
-                          {showGmailPanel ? '詳細ログ表示を閉じる' : '詳細メールやり取りログを表示'}
-                        </button>
-                      </div>
-                    )}
-
-                    {showGmailPanel && gmailData?.messages && (
-                      <div className="pt-2 border-t border-slate-100 space-y-2 max-h-60 overflow-y-auto">
-                        {gmailData.messages.map((m) => (
-                          <div key={m.id} className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs space-y-1">
-                            <div className="flex justify-between text-slate-500 text-[10px]">
-                              <span className="font-bold text-slate-700">{m.from}</span>
-                              <span>{m.date}</span>
-                            </div>
-                            <div className="font-bold text-slate-900">{m.subject}</div>
-                            <p className="text-slate-600 text-[11px] leading-relaxed">{m.snippet}</p>
-                          </div>
-                        ))}
-                      </div>
                     )}
                   </div>
                 )}

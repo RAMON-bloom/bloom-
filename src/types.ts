@@ -64,6 +64,23 @@ export interface EvaluationNote {
   failReason?: string;
 }
 
+export interface ImportedInterviewLog {
+  eventSummary?: string; // 一致したカレンダー予定のタイトル
+  eventStart?: string; // 一致したカレンダー予定の開始日時
+  sourceDriveFileId: string; // 取り込み元のGemini議事録DriveファイルID
+  sourceDriveFileName: string;
+  rawContent: string; // 議事録原文
+  summary: {
+    overview: string;
+    keyHighlights: string[];
+    interviewFeedback: string;
+    candidateQuestions: string;
+    nextAction: string;
+    summaryMarkdown: string;
+  };
+  importedAt: string; // 取り込み実行日時 (ISO)
+}
+
 export interface Candidate {
   id: string; // e.g. CAND-0001
   name: string;
@@ -87,6 +104,7 @@ export interface Candidate {
   nextScheduleDate?: string; // YYYY-MM-DD THH:mm
   nextInterviewers?: string[]; // 次回面接官リスト (1次面接以降)
   interviewersByPhase?: Partial<Record<SelectionPhase, string[]>>; // 選考フローの各ステップ（1次面接・2次面接など）ごとの担当面接官リスト。nextInterviewersは「次に控えている1件」用の単一枠だが、こちらはステップごとに独立して保持するため、まだ現在のフェーズに到達していないステップにも事前アサインできる
+  interviewLogsByPhase?: Partial<Record<SelectionPhase, ImportedInterviewLog>>; // 選考フローの各ステップごとに、Drive/カレンダー連携で取り込んだ面談ログ(Gemini議事録AI要約)
   avatarUrl?: string; // 履歴書切り抜き顔写真 URL
   resumeSummary: string; // Brief career summary
   rawResumeContent?: string; // Original resume full text / document content

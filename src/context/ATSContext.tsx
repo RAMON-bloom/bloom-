@@ -12,7 +12,8 @@ import {
   ResignationNegotiationStatus,
   MeetingLog,
   StalledCandidateInfo,
-  OverdueDocScreeningInfo
+  OverdueDocScreeningInfo,
+  ImportedInterviewLog
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -80,6 +81,7 @@ interface ATSContextType {
     nextInterviewers?: string[]
   ) => void;
   updateInterviewersForPhase: (candidateId: string, phase: SelectionPhase, interviewers: string[]) => void;
+  updateInterviewLogForPhase: (candidateId: string, phase: SelectionPhase, log: ImportedInterviewLog) => void;
   updateOnboardingInfo: (
     candidateId: string,
     info: {
@@ -501,6 +503,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? {
               ...c,
               interviewersByPhase: { ...(c.interviewersByPhase || {}), [phase]: interviewers },
+              lastUpdated: new Date().toISOString().split('T')[0]
+            }
+          : c
+      )
+    );
+  };
+
+  // Drive/カレンダー連携で取り込んだ面談ログ(Gemini議事録AI要約)を、選考フローの各ステップごとに
+  // 独立して保持する。interviewersByPhaseと同じく、まだ現在のフェーズに到達していないステップにも
+  // 前もって取り込んでおける。
+  const updateInterviewLogForPhase = (candidateId: string, phase: SelectionPhase, log: ImportedInterviewLog) => {
+    setCandidates((prev) =>
+      prev.map((c) =>
+        c.id === candidateId
+          ? {
+              ...c,
+              interviewLogsByPhase: { ...(c.interviewLogsByPhase || {}), [phase]: log },
               lastUpdated: new Date().toISOString().split('T')[0]
             }
           : c
@@ -1357,6 +1376,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCandidatePhase,
         updateCandidateSchedule,
         updateInterviewersForPhase,
+        updateInterviewLogForPhase,
         updateOnboardingInfo,
         addEvaluationNote,
         updateEvaluationNote,

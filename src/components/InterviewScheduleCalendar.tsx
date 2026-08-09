@@ -37,8 +37,8 @@ export const InterviewScheduleCalendar: React.FC<InterviewScheduleCalendarProps>
 }) => {
   const { filteredCandidates, setSelectedCandidateId } = useATS();
   const [isCollapsed, setIsCollapsed] = useState<boolean>(defaultCollapsed);
-  const [currentDate, setCurrentDate] = useState<Date>(() => new Date(2026, 7, 1)); // 2026年8月基準 (mockDataに合致)
-  const [selectedDay, setSelectedDay] = useState<string | null>('2026-08-03');
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth(); // 0-indexed
@@ -114,7 +114,7 @@ export const InterviewScheduleCalendar: React.FC<InterviewScheduleCalendarProps>
         date: d,
         dateKey: key,
         isCurrentMonth: true,
-        isToday: key === todayKey || key === '2026-08-01', // highlight reference date
+        isToday: key === todayKey,
         candidates: candidatesByDate[key] || []
       });
     }
@@ -151,6 +151,33 @@ export const InterviewScheduleCalendar: React.FC<InterviewScheduleCalendarProps>
     return { totalCount, confirmedCount };
   }, [calendarDays]);
 
+  // Next few upcoming, actually-scheduled candidates (today onward), for the collapsed summary row.
+  const upcomingSchedule = useMemo(() => {
+    const todayKey = formatDateKey(new Date());
+    const weekdayLabels = ['日', '月', '火', '水', '木', '金', '土'];
+    return filteredCandidates
+      .filter((c) => {
+        const dateKey = getCandidateScheduleDate(c);
+        return (
+          !!dateKey &&
+          dateKey >= todayKey &&
+          c.scheduleStatus === 'SCHEDULE_CONFIRMED' &&
+          c.phase !== 'OFFER_ACCEPTED' &&
+          c.phase !== 'REJECTED_DECLINED'
+        );
+      })
+      .sort((a, b) => (a.nextScheduleDate || '').localeCompare(b.nextScheduleDate || ''))
+      .slice(0, 2)
+      .map((c) => {
+        const dateKey = getCandidateScheduleDate(c)!;
+        const time = getCandidateScheduleTime(c);
+        const d = new Date(`${dateKey}T00:00:00`);
+        const phaseInfo = PHASE_LABELS[c.phase] || PHASE_LABELS.FIRST_INTERVIEW;
+        const dateLabel = `${d.getMonth() + 1}/${d.getDate()}(${weekdayLabels[d.getDay()]})`;
+        return `${dateLabel}${time ? ` ${time}` : ''} ${c.name} 氏 (${phaseInfo.label})`;
+      });
+  }, [filteredCandidates]);
+
   const handlePrevMonth = () => {
     setCurrentDate(new Date(year, month - 1, 1));
   };
@@ -160,7 +187,7 @@ export const InterviewScheduleCalendar: React.FC<InterviewScheduleCalendarProps>
   };
 
   const handleToday = () => {
-    setCurrentDate(new Date(2026, 7, 1));
+    setCurrentDate(new Date());
   };
 
   // Candidates for selected day
@@ -242,7 +269,7 @@ export const InterviewScheduleCalendar: React.FC<InterviewScheduleCalendarProps>
               直近の選考予定:
             </span>
             <span className="text-slate-600 font-medium">
-              8/3(月) 15:00 佐々木 亮平 氏 (最終面接) / 8/5(水) 14:00 高橋 健太 氏 (1次面接)
+              {upcomingSchedule.length > 0 ? upcomingSchedule.join(' / ') : '直近の選考予定はありません'}
             </span>
           </div>
           <button

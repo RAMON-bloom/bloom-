@@ -52,9 +52,8 @@ export const OnboardingView: React.FC = () => {
   const [resignationFilter, setResignationFilter] = useState<string>('ALL');
   const [dinnerFilter, setDinnerFilter] = useState<string>('ALL');
 
-  // Calendar Date State (Default: August 2026 where mock data exists)
-  const [currentDate, setCurrentDate] = useState<Date>(() => new Date(2026, 7, 1));
-  const [selectedDay, setSelectedDay] = useState<string | null>('2026-08-03');
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   // Event Type Filter Toggles
   const [showJoiningEvents, setShowJoiningEvents] = useState(true);
@@ -200,7 +199,7 @@ export const OnboardingView: React.FC = () => {
         date: d,
         dateKey: key,
         isCurrentMonth: true,
-        isToday: key === todayKey || key === '2026-08-01',
+        isToday: key === todayKey,
         events: eventsByDate[key] || []
       });
     }
@@ -245,8 +244,8 @@ export const OnboardingView: React.FC = () => {
   };
 
   const handleToday = () => {
-    setCurrentDate(new Date(2026, 7, 1));
-    setSelectedDay('2026-08-03');
+    setCurrentDate(new Date());
+    setSelectedDay(null);
   };
 
   // Events for selected day

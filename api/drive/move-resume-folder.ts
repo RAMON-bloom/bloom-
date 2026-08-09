@@ -1,5 +1,6 @@
 import { ensureSubfolder, moveFileToFolder } from '../_lib/drive.js';
 import { RESUME_ROOT_SUBFOLDER, resolvePhaseFolderName } from '../_lib/phaseFolders.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // `fileId` here is normally a candidate's own Drive FOLDER id, not a resume file — Drive's API
 // treats folders as just another kind of file, so moving one relocates its entire contents
@@ -15,6 +16,9 @@ export default async function handler(req: any, res: any) {
     const { accessToken, folderId, fileId, phase } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!folderId) {
       return res.status(400).json({ error: 'Drive連携フォルダIDが設定されていません。' });

@@ -1,6 +1,7 @@
 import type { DriveFile } from '../_lib/drive.js';
 import { findFolderByName, listFilesInFolder } from '../_lib/drive.js';
 import { PHASE_FOLDER_NAMES, RESUME_ROOT_SUBFOLDER } from '../_lib/phaseFolders.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 
@@ -20,6 +21,9 @@ export default async function handler(req: any, res: any) {
     const { accessToken, folderId } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!folderId) {
       return res.status(400).json({ error: 'Drive連携フォルダIDが設定されていません。' });

@@ -407,6 +407,7 @@ export const CandidateDetailModal: React.FC = () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            accessToken: driveAccessToken,
             textContent,
             fileBase64: primaryBase64,
             fileName: primaryFile.name,

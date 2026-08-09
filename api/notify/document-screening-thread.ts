@@ -1,4 +1,5 @@
 import { sendGoogleChatMessage } from '../_lib/googleChat.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // Fired from ATSContext's addEvaluationNote when a 書類選考 evaluation is saved as 合格, to every
 // staff Chat webhook that has the DOCUMENT_SCREENING_THREAD kind enabled. Starts a new
@@ -10,8 +11,14 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { webhookUrl, candidateName, candidateId, agencyName, appUrl } = req.body || {};
+    const { accessToken, webhookUrl, candidateName, candidateId, agencyName, appUrl } = req.body || {};
 
+    if (!accessToken) {
+      return res.status(401).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
+    }
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrlが必要です。' });
     }

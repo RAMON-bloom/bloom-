@@ -387,6 +387,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getStaffWebhooksForKind(staff, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
           notifyPromises.push(
             notifyAttentionDigestApi({
+              accessToken: driveAccessToken,
               webhookUrl,
               staffName: staff.name,
               staffMentionId: staff.chatMentionId,
@@ -399,6 +400,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       getGroupWebhooksForKind(latestGroupWebhooks, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
         notifyPromises.push(
           notifyAttentionDigestApi({
+            accessToken: driveAccessToken,
             webhookUrl,
             stalledCount: stalled.length,
             overdueCount: overdue.length
@@ -412,6 +414,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           getStaffWebhooksForKind(assignee, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
             notifyPromises.push(
               notifyDocScreeningNudgeApi({
+                accessToken: driveAccessToken,
                 webhookUrl,
                 staffName: assigneeName,
                 staffMentionId: assignee.chatMentionId,
@@ -425,6 +428,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getGroupWebhooksForKind(latestGroupWebhooks, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
           notifyPromises.push(
             notifyDocScreeningNudgeApi({
+              accessToken: driveAccessToken,
               webhookUrl,
               candidateName: candidate.name,
               candidateId: candidate.id,
@@ -683,6 +687,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getStaffWebhooksForKind(staff, 'EVALUATION_RESULT').forEach((webhookUrl) => {
           notifyCalls.push(
             notifyEvaluationResultApi({
+              accessToken: driveAccessToken,
               webhookUrl,
               staffName: staff.name,
               staffMentionId: staff.chatMentionId,
@@ -700,6 +705,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       getGroupWebhooksForKind(groupChatWebhooks, 'EVALUATION_RESULT').forEach((webhookUrl) => {
         notifyCalls.push(
           notifyEvaluationResultApi({
+            accessToken: driveAccessToken,
             webhookUrl,
             candidateName: target.name,
             candidateId: target.id,
@@ -730,6 +736,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
             threadNotifyCalls.push(
               notifyDocumentScreeningThreadApi({
+                accessToken: driveAccessToken,
                 webhookUrl,
                 candidateName: target.name,
                 candidateId: target.id,
@@ -741,6 +748,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
           threadNotifyCalls.push(
             notifyDocumentScreeningThreadApi({
+              accessToken: driveAccessToken,
               webhookUrl,
               candidateName: target.name,
               candidateId: target.id,
@@ -807,11 +815,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         recipients.forEach((staff) => {
           getStaffWebhooksForKind(staff, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => {
-            summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ webhookUrl, ...summaryPayload }));
+            summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ accessToken: driveAccessToken, webhookUrl, ...summaryPayload }));
           });
         });
         getGroupWebhooksForKind(groupChatWebhooks, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => {
-          summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ webhookUrl, ...summaryPayload }));
+          summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ accessToken: driveAccessToken, webhookUrl, ...summaryPayload }));
         });
         if (summaryNotifyCalls.length > 0) {
           Promise.allSettled(summaryNotifyCalls).then((results) => {
@@ -932,6 +940,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (assignee) {
           getStaffWebhooksForKind(assignee, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
             notifyCandidateRegisteredApi({
+              accessToken: driveAccessToken,
               webhookUrl,
               staffName: assigneeName,
               staffMentionId: assignee.chatMentionId,
@@ -948,6 +957,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // グループ用Webhookは特定の担当者に紐づかないため、担当者が解決できたかどうかに関わらず送る。
       getGroupWebhooksForKind(groupChatWebhooks, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
         notifyCandidateRegisteredApi({
+          accessToken: driveAccessToken,
           webhookUrl,
           candidateName: newCandidate.name,
           candidateId: newCandidate.id
@@ -1502,13 +1512,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     staffList.forEach((staff) => {
       getStaffWebhooksForKind(staff, 'DEVELOPER_INQUIRY').forEach((webhookUrl) => {
         notifyCalls.push(
-          notifyDeveloperInquiryApi({ webhookUrl, staffName: senderName, category, message: text, inquiryId: targetId })
+          notifyDeveloperInquiryApi({ accessToken: driveAccessToken, webhookUrl, staffName: senderName, category, message: text, inquiryId: targetId })
         );
       });
     });
     getGroupWebhooksForKind(groupChatWebhooks, 'DEVELOPER_INQUIRY').forEach((webhookUrl) => {
       notifyCalls.push(
-        notifyDeveloperInquiryApi({ webhookUrl, staffName: senderName, category, message: text, inquiryId: targetId })
+        notifyDeveloperInquiryApi({ accessToken: driveAccessToken, webhookUrl, staffName: senderName, category, message: text, inquiryId: targetId })
       );
     });
     if (notifyCalls.length > 0) {

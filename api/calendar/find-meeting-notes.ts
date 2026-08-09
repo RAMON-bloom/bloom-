@@ -1,4 +1,5 @@
 import { findMeetingNotesDoc } from '../_lib/calendar.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -9,6 +10,9 @@ export default async function handler(req: any, res: any) {
     const { accessToken, date, titleKeyword } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!date) {
       return res.status(400).json({ error: '検索対象の日付がありません。' });

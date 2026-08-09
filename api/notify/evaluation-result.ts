@@ -1,4 +1,5 @@
 import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // Fired from ATSContext's addEvaluationNote whenever a note is saved with a final result
 // (合格/不採用, 書類選考含む — PENDING doesn't fire this), to every staff Chat webhook that has
@@ -11,6 +12,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const {
+      accessToken,
       webhookUrl,
       staffName,
       staffMentionId,
@@ -24,6 +26,12 @@ export default async function handler(req: any, res: any) {
       appUrl
     } = req.body || {};
 
+    if (!accessToken) {
+      return res.status(401).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
+    }
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrlが必要です。' });
     }

@@ -1,4 +1,5 @@
 import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 const LCM_LABELS: Record<string, string> = { L: 'L評価(ルックス)', C: 'C評価(コミュニケーション)', M: 'M評価(マインド)' };
 
@@ -18,6 +19,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const {
+      accessToken,
       webhookUrl,
       candidateName,
       candidateId,
@@ -39,6 +41,12 @@ export default async function handler(req: any, res: any) {
       mentionedStaff
     } = req.body || {};
 
+    if (!accessToken) {
+      return res.status(401).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
+    }
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrlが必要です。' });
     }

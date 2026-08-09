@@ -1,5 +1,6 @@
 import { getAi } from '../_lib/gemini.js';
 import { readFileContent } from '../_lib/drive.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 interface MeetingSummary {
   overview: string;
@@ -31,6 +32,9 @@ export default async function handler(req: any, res: any) {
     const { accessToken, fileId, fileName, mimeType } = req.body || {};
     if (!accessToken || !fileId) {
       return res.status(400).json({ error: 'accessTokenとfileIdが必要です。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
 
     const content = await readFileContent(accessToken, {

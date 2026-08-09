@@ -1,4 +1,5 @@
 import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // Fired from ATSContext's addCandidate right after a new document-screening candidate is
 // created, when the assigned staff member has a Google Chat webhook on file. Best-effort: the
@@ -9,7 +10,13 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { webhookUrl, staffName, staffMentionId, candidateName, candidateId, appUrl } = req.body || {};
+    const { accessToken, webhookUrl, staffName, staffMentionId, candidateName, candidateId, appUrl } = req.body || {};
+    if (!accessToken) {
+      return res.status(401).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
+    }
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrlが必要です。' });
     }

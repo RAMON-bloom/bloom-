@@ -10,7 +10,24 @@
 // also carries messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD. Without it, Chat's default
 // (MESSAGE_REPLY_OPTION_UNSPECIFIED) ignores threadKey for matching and starts a new thread every
 // time, which is why candidate threads were splitting instead of accumulating replies.
+// Every legitimate webhook URL configured in this app (担当者マスタ / エージェント設定, see the
+// `https://chat.googleapis.com/v1/spaces/...` placeholder text in AgencyMasterView) points at
+// Google Chat's own incoming-webhook endpoint. Enforcing that here — rather than trusting whatever
+// URL a request happens to carry — closes off using this server as an open POST relay to arbitrary
+// third-party or internal URLs.
+const ALLOWED_WEBHOOK_HOST = 'chat.googleapis.com';
+
 export async function sendGoogleChatMessage(webhookUrl: string, text: string, threadKey?: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(webhookUrl);
+  } catch {
+    throw new Error('Google Chat Webhook URLの形式が不正です。');
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== ALLOWED_WEBHOOK_HOST) {
+    throw new Error(`Google Chat Webhook URLは https://${ALLOWED_WEBHOOK_HOST}/... 形式である必要があります。`);
+  }
+
   let targetUrl = webhookUrl;
   if (threadKey) {
     const url = new URL(webhookUrl);

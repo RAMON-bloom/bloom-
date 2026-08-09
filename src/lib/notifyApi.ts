@@ -1,6 +1,7 @@
 // Client-side helper for the /api/notify/* backend endpoints.
 
 export async function notifyCandidateRegistered(params: {
+  accessToken: string | null;
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
@@ -45,6 +46,7 @@ async function postAttentionNotify(body: Record<string, unknown>): Promise<void>
 }
 
 export function notifyAttentionDigest(params: {
+  accessToken: string | null;
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
@@ -55,6 +57,7 @@ export function notifyAttentionDigest(params: {
 }
 
 export function notifyDocScreeningNudge(params: {
+  accessToken: string | null;
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
@@ -66,6 +69,7 @@ export function notifyDocScreeningNudge(params: {
 }
 
 export async function notifyEvaluationResult(params: {
+  accessToken: string | null;
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
@@ -96,6 +100,7 @@ export async function notifyEvaluationResult(params: {
 }
 
 export async function notifyEvaluationSummaryThread(params: {
+  accessToken: string | null;
   webhookUrl: string;
   candidateName: string;
   candidateId: string;
@@ -135,6 +140,7 @@ export async function notifyEvaluationSummaryThread(params: {
 }
 
 export async function notifyDeveloperInquiry(params: {
+  accessToken: string | null;
   webhookUrl: string;
   staffName?: string;
   category: string;
@@ -160,6 +166,7 @@ export async function notifyDeveloperInquiry(params: {
 }
 
 export async function notifyDocumentScreeningThread(params: {
+  accessToken: string | null;
   webhookUrl: string;
   candidateName: string;
   candidateId: string;

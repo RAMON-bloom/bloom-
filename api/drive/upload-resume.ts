@@ -1,5 +1,6 @@
 import { ensureSubfolder, createFolder, uploadBase64File } from '../_lib/drive.js';
 import { RESUME_ROOT_SUBFOLDER, resolvePhaseFolderName } from '../_lib/phaseFolders.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // Drive folder names can't contain '/' and get unwieldy if left totally unbounded; anything
 // else (including Japanese characters) is fine.
@@ -23,6 +24,9 @@ export default async function handler(req: any, res: any) {
     const { accessToken, folderId, fileName, mimeType, fileBase64, candidateName, agencyName, candidateFolderId, phase } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!folderId) {
       return res.status(400).json({ error: 'Drive連携フォルダIDが設定されていません。' });

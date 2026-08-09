@@ -1,4 +1,5 @@
 import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
+import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // Fired from ATSContext's daily stalled-candidate check (client-triggered, throttled to once per
 // browser per day — there's no server cron/service account in this app, see attentionUtils.ts).
@@ -14,7 +15,13 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { kind, webhookUrl, staffName, staffMentionId, appUrl } = req.body || {};
+    const { accessToken, kind, webhookUrl, staffName, staffMentionId, appUrl } = req.body || {};
+    if (!accessToken) {
+      return res.status(401).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
+    }
+    if (!(await isBloomFirmAccessToken(accessToken))) {
+      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
+    }
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrlが必要です。' });
     }

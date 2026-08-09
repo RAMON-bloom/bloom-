@@ -35,10 +35,12 @@ import {
   notifyDocScreeningNudge as notifyDocScreeningNudgeApi,
   notifyEvaluationResult as notifyEvaluationResultApi,
   notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi,
-  notifyDeveloperInquiry as notifyDeveloperInquiryApi
+  notifyDeveloperInquiry as notifyDeveloperInquiryApi,
+  notifyEvaluationSummaryThread as notifyEvaluationSummaryThreadApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
+import { getNextPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
@@ -99,7 +101,11 @@ interface ATSContextType {
       onboardingNotes?: string;
     }
   ) => void;
-  addEvaluationNote: (candidateId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
+  addEvaluationNote: (
+    candidateId: string,
+    note: Omit<EvaluationNote, 'id' | 'createdAt'>,
+    nextInterviewerName?: string
+  ) => void;
   updateEvaluationNote: (candidateId: string, noteId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
   deleteEvaluationNote: (candidateId: string, noteId: string) => void;
   addCandidate: (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => void;
@@ -613,7 +619,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const addEvaluationNote = (candidateId: string, noteData: Omit<EvaluationNote, 'id' | 'createdAt'>) => {
+  const addEvaluationNote = (
+    candidateId: string,
+    noteData: Omit<EvaluationNote, 'id' | 'createdAt'>,
+    nextInterviewerName?: string
+  ) => {
     const newNote: EvaluationNote = {
       ...noteData,
       id: `eval-${Date.now()}`,
@@ -739,6 +749,57 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (failedCount > 0) {
               console.error(`Document-screening-thread Chat notify: ${failedCount}件の送信に失敗しました`);
               showToast(`選考スレッド作成の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+            }
+          });
+        }
+      }
+
+      // 合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドと同じ
+      // threadKey(候補者ID)で書き込む（EVALUATION_SUMMARY_THREAD種別を選んだWebhookのみが対象）。
+      // まだそのスレッドが存在しない候補者（書類選考で不採用のまま等）宛の場合は、Google Chat側で
+      // 新規スレッドとして作成される。
+      {
+        const nextPhase = noteData.resultStatus === 'PASS' ? getNextPhase(noteData.phase) : null;
+        const nextPhaseLabel = nextPhase ? phaseLabels[nextPhase] : undefined;
+        const existingNextInterviewers = nextPhase ? target.interviewersByPhase?.[nextPhase] || [] : [];
+        const nextInterviewerNames =
+          nextInterviewerName && !existingNextInterviewers.includes(nextInterviewerName)
+            ? [...existingNextInterviewers, nextInterviewerName]
+            : existingNextInterviewers;
+
+        const summaryNotifyCalls: Promise<void>[] = [];
+        const summaryPayload = {
+          candidateName: target.name,
+          candidateId: target.id,
+          phaseLabel: phaseLabels[noteData.phase] || noteData.phase,
+          resultStatus: noteData.resultStatus as 'PASS' | 'FAIL',
+          interviewRating: noteData.interviewRating,
+          lRating: noteData.lRating,
+          cRating: noteData.cRating,
+          mRating: noteData.mRating,
+          lNote: noteData.lNote,
+          cNote: noteData.cNote,
+          mNote: noteData.mNote,
+          goodPoints: noteData.goodPoints,
+          concerns: noteData.concerns,
+          failReason: noteData.resultStatus === 'FAIL' ? noteData.failReason : undefined,
+          nextPhaseLabel,
+          nextInterviewerNames
+        };
+        recipients.forEach((staff) => {
+          getStaffWebhooksForKind(staff, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => {
+            summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ webhookUrl, ...summaryPayload }));
+          });
+        });
+        getGroupWebhooksForKind(groupChatWebhooks, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => {
+          summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ webhookUrl, ...summaryPayload }));
+        });
+        if (summaryNotifyCalls.length > 0) {
+          Promise.allSettled(summaryNotifyCalls).then((results) => {
+            const failedCount = results.filter((r) => r.status === 'rejected').length;
+            if (failedCount > 0) {
+              console.error(`Evaluation-summary-thread Chat notify: ${failedCount}件の送信に失敗しました`);
+              showToast(`評価サマリのスレッド書き込みに${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
             }
           });
         }

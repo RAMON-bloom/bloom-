@@ -166,7 +166,8 @@ export type ChatNotificationKind =
   | 'DOC_SCREENING_NUDGE'         // 書類選考の対応が止まっている候補者の個別督促
   | 'EVALUATION_RESULT'           // 選考結果（合格/不採用、書類選考含む）確定の通知
   | 'DOCUMENT_SCREENING_THREAD'   // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
-  | 'DEVELOPER_INQUIRY';          // アプリ内「お問い合わせ」からのメッセージ送信
+  | 'DEVELOPER_INQUIRY'           // アプリ内「お問い合わせ」からのメッセージ送信
+  | 'EVALUATION_SUMMARY_THREAD';  // 各フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む
 
 // 個人用・グループ用どちらのWebhook登録にも使う共通の形。「誰に属するか」は保持先（InternalStaff.
 // googleChatWebhooksか、組織全体のgroupChatWebhooksか）で決まる。

@@ -91,6 +91,43 @@ export async function notifyEvaluationResult(params: {
   }
 }
 
+export async function notifyEvaluationSummaryThread(params: {
+  webhookUrl: string;
+  candidateName: string;
+  candidateId: string;
+  phaseLabel: string;
+  resultStatus: 'PASS' | 'FAIL';
+  interviewRating?: string;
+  lRating?: string;
+  cRating?: string;
+  mRating?: string;
+  lNote?: string;
+  cNote?: string;
+  mNote?: string;
+  goodPoints?: string;
+  concerns?: string;
+  failReason?: string;
+  nextPhaseLabel?: string;
+  nextInterviewerNames?: string[];
+}): Promise<void> {
+  const res = await fetch('/api/notify/evaluation-summary-thread', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+
+  const rawText = await res.text();
+  let data: any;
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
+  }
+  if (!res.ok || data.error) {
+    throw new Error(data.error || '通知の送信に失敗しました');
+  }
+}
+
 export async function notifyDeveloperInquiry(params: {
   webhookUrl: string;
   staffName?: string;

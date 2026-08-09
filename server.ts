@@ -24,6 +24,7 @@ import notifyAttention from './api/notify/attention';
 import notifyEvaluationResult from './api/notify/evaluation-result';
 import notifyDocumentScreeningThread from './api/notify/document-screening-thread';
 import notifyDeveloperInquiry from './api/notify/developer-inquiry';
+import notifyEvaluationSummaryThread from './api/notify/evaluation-summary-thread';
 
 async function startServer() {
   const app = express();
@@ -51,6 +52,7 @@ async function startServer() {
   app.post('/api/notify/evaluation-result', notifyEvaluationResult);
   app.post('/api/notify/document-screening-thread', notifyDocumentScreeningThread);
   app.post('/api/notify/developer-inquiry', notifyDeveloperInquiry);
+  app.post('/api/notify/evaluation-summary-thread', notifyEvaluationSummaryThread);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

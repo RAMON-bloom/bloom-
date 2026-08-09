@@ -587,7 +587,7 @@ export const CandidateDetailModal: React.FC = () => {
       comment: finalComment,
       resultStatus: evalResultStatus,
       failReason: evalResultStatus === 'FAIL' ? failReason : undefined
-    });
+    }, newNextInterviewer || undefined);
 
     setNewGoodPoints('');
     setNewConcerns('');

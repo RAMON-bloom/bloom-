@@ -1937,7 +1937,7 @@ export const CandidateDetailModal: React.FC = () => {
                               )}
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-slate-400 font-mono text-[11px]">{note.createdAt || note.date}</span>
+                              <span className="text-slate-400 font-mono text-[11px]">{note.createdAt}</span>
                               {editingNoteId !== note.id && (
                                 <>
                                   <button
@@ -2615,7 +2615,7 @@ export const CandidateDetailModal: React.FC = () => {
                       <p className="text-xs text-slate-500 mt-0.5">氏名: {candidate.name}</p>
                     </div>
                     <span className="text-[11px] font-mono bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md border border-slate-200">
-                      更新: {candidate.updatedAt || '最新'}
+                      更新: {candidate.lastUpdated || '最新'}
                     </span>
                   </div>
 
@@ -2675,19 +2675,19 @@ export const CandidateDetailModal: React.FC = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs bg-slate-50 p-4 rounded-xl border border-slate-200">
                     <div>
                       <span className="text-slate-500 font-medium block">氏名 (ふりがな)</span>
-                      <span className="font-bold text-slate-900 text-sm">{candidate.name} ({candidate.furigana || 'かな未登録'})</span>
+                      <span className="font-bold text-slate-900 text-sm">{candidate.name} ({candidate.nameKana || 'かな未登録'})</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 font-medium block">年齢 / 性別</span>
-                      <span className="font-bold text-slate-900">{candidate.age ? `${candidate.age} 歳` : '未回答'} / {candidate.gender || '回答なし'}</span>
+                      <span className="text-slate-500 font-medium block">年齢</span>
+                      <span className="font-bold text-slate-900">{candidate.age ? `${candidate.age} 歳` : '未回答'}</span>
                     </div>
                     <div>
                       <span className="text-slate-500 font-medium block">連絡先 (メール / 電話)</span>
                       <span className="font-bold text-slate-900">{candidate.email || '未設定'} / {candidate.phone || '未設定'}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 font-medium block">現住所・最寄り駅</span>
-                      <span className="font-bold text-slate-900">{candidate.location || '未登録'} ({candidate.nearestStation || '最寄り駅未登録'})</span>
+                      <span className="text-slate-500 font-medium block">希望年収</span>
+                      <span className="font-bold text-slate-900">{candidate.salaryExpectation || '未登録'}</span>
                     </div>
                   </div>
 
@@ -2699,34 +2699,6 @@ export const CandidateDetailModal: React.FC = () => {
                     <div className="bg-white p-3.5 rounded-lg border border-slate-200 text-xs space-y-1">
                       <p className="font-bold text-slate-800">{candidate.education || <span className="text-slate-400 italic font-normal">未登録</span>}</p>
                       <p className="text-slate-600 text-[11px]">現職: {candidate.currentCompany || '未登録'} （{candidate.jobTitle}）</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
-                      <Award className="w-4 h-4 text-indigo-600" />
-                      <span>保有資格・免許</span>
-                    </h4>
-                    {candidate.certifications && candidate.certifications.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {candidate.certifications.map((cert) => (
-                          <span key={cert} className="bg-slate-100 text-slate-800 text-xs px-3 py-1 rounded-md border border-slate-200 font-medium">
-                            {cert}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-slate-400 italic text-xs">未登録</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                      <UserCheck className="w-4 h-4 text-indigo-600" />
-                      <span>志望動機・自己PR</span>
-                    </h4>
-                    <div className="bg-white border border-slate-200 text-slate-800 text-xs p-4 rounded-xl leading-relaxed whitespace-pre-wrap">
-                      {candidate.prSelfStatement || <span className="text-slate-400 italic">未入力</span>}
                     </div>
                   </div>
                 </div>

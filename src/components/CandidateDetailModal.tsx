@@ -7,7 +7,7 @@ import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
 import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
-import { getNextPhase } from '../lib/phaseUtils';
+import { getNextPhase, PHASE_SEQUENCE } from '../lib/phaseUtils';
 import { 
   X, 
   Calendar, 
@@ -46,7 +46,8 @@ import {
   LayoutDashboard,
   ChevronDown,
   ChevronUp,
-  HelpCircle
+  HelpCircle,
+  Plus
 } from 'lucide-react';
 
 const EVALUATION_GRADES: EvaluationGrade[] = ['A+', 'A-', 'B+', 'B', 'B-', 'C'];
@@ -187,6 +188,9 @@ export const CandidateDetailModal: React.FC = () => {
   const [evalAuthor, setEvalAuthor] = useState<string>(staffList[0]?.name || '山田 太郎');
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
   const [newNextInterviewer, setNewNextInterviewer] = useState<string>('');
+  // 選考フローのカードは表示が長くなりすぎないよう現在進行中のフェーズまでがデフォルト。
+  // 「次回選考の調整」ボタンを押すたびに1件先のフェーズまで表示を広げる(候補者切替でリセット)。
+  const [manuallyRevealedStages, setManuallyRevealedStages] = useState<number>(0);
   const [failReason, setFailReason] = useState<string>('');
 
   // Evaluation Log edit/delete state
@@ -322,6 +326,7 @@ export const CandidateDetailModal: React.FC = () => {
         setNewLNote(c.lNote || '');
         setNewCNote(c.cNote || '');
         setNewMNote(c.mNote || '');
+        setManuallyRevealedStages(0);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1211,15 +1216,32 @@ export const CandidateDetailModal: React.FC = () => {
                 </div>
 
                 {/* Step-by-Step Selection Ladder (段々レイアウト) */}
-                {!collapsedSections.dashboard && (
+                {!collapsedSections.dashboard && (() => {
+                  const LADDER_STAGES: { phase: SelectionPhase; stepNum: string; title: string; isOffer: boolean }[] = [
+                    { phase: 'DOCUMENT_SCREENING', stepNum: '1', title: '書類選考 / 面談', isOffer: false },
+                    { phase: 'FIRST_INTERVIEW', stepNum: '2', title: '1次面接', isOffer: false },
+                    { phase: 'SECOND_INTERVIEW', stepNum: '3', title: '2次面接', isOffer: false },
+                    { phase: 'FINAL_INTERVIEW', stepNum: '4', title: '最終面接', isOffer: false },
+                    { phase: 'OFFER_ISSUED', stepNum: '5', title: 'オファー面談・内定調整', isOffer: true }
+                  ];
+
+                  // 表示が長くなり閲覧しづらくならないよう、デフォルトでは現在進行中のフェーズまで
+                  // だけを表示する。それより先のフェーズを前もって調整したい場合は「次回選考の調整」
+                  // ボタンで1件ずつ表示を広げる(辞退/不採用は現時点でどこまで進んだか一意に決まらない
+                  // ため、念のため全件表示にフォールバックする)。
+                  const currentPhaseSeqIndex = candidate.phase === 'REJECTED_DECLINED'
+                    ? Infinity
+                    : PHASE_SEQUENCE.indexOf(candidate.phase);
+                  const firstHiddenIdx = LADDER_STAGES.findIndex(
+                    (s) => PHASE_SEQUENCE.indexOf(s.phase) > currentPhaseSeqIndex
+                  );
+                  const defaultVisibleCount = firstHiddenIdx === -1 ? LADDER_STAGES.length : firstHiddenIdx;
+                  const visibleCount = Math.min(LADDER_STAGES.length, defaultVisibleCount + manuallyRevealedStages);
+                  const visibleStages = LADDER_STAGES.slice(0, visibleCount);
+
+                  return (
                   <div className="p-3 bg-slate-50/50 space-y-2">
-                    {[
-                      { phase: 'DOCUMENT_SCREENING' as SelectionPhase, stepNum: '1', title: '書類選考 / 面談', isOffer: false },
-                      { phase: 'FIRST_INTERVIEW' as SelectionPhase, stepNum: '2', title: '1次面接', isOffer: false },
-                      { phase: 'SECOND_INTERVIEW' as SelectionPhase, stepNum: '3', title: '2次面接', isOffer: false },
-                      { phase: 'FINAL_INTERVIEW' as SelectionPhase, stepNum: '4', title: '最終面接', isOffer: false },
-                      { phase: 'OFFER_ISSUED' as SelectionPhase, stepNum: '5', title: 'オファー面談・内定調整', isOffer: true }
-                    ].map((stg) => {
+                    {visibleStages.map((stg) => {
                       const phaseNotes = candidate.evaluationNotes.filter((n) => n.phase === stg.phase);
                       const latestNote = phaseNotes[phaseNotes.length - 1];
                       const isCurrent = candidate.phase === stg.phase;
@@ -1410,10 +1432,22 @@ export const CandidateDetailModal: React.FC = () => {
                         </div>
                       );
                     })}
+
+                    {visibleCount < LADDER_STAGES.length && (
+                      <button
+                        type="button"
+                        onClick={() => setManuallyRevealedStages((n) => n + 1)}
+                        className="w-full flex items-center justify-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 border border-dashed border-indigo-300 rounded-xl py-2 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        次回選考の調整（{LADDER_STAGES[visibleCount].title}を追加）
+                      </button>
+                    )}
                   </div>
-                )}
+                  );
+                })()}
               </div>
-              
+
               {/* Add Evaluation Form */}
               <div ref={evalFormRef} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs scroll-mt-4">
                 <div

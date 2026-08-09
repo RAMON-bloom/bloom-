@@ -167,7 +167,9 @@ export type ChatNotificationKind =
   | 'EVALUATION_RESULT'           // 選考結果（合格/不採用、書類選考含む）確定の通知
   | 'DOCUMENT_SCREENING_THREAD';  // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
 
-export interface StaffWebhook {
+// 個人用・グループ用どちらのWebhook登録にも使う共通の形。「誰に属するか」は保持先（InternalStaff.
+// googleChatWebhooksか、組織全体のgroupChatWebhooksか）で決まる。
+export interface ChatWebhook {
   id: string;
   url: string;
   label?: string; // 自分用の任意メモ（例:「個人スペース」「採用チーム全体」）。どのGoogle Chatスペース宛かを区別するため
@@ -180,7 +182,7 @@ export interface InternalStaff {
   department: string;
   role: string;
   googleChatWebhookUrl?: string; // 旧・単一Webhook欄（後方互換のため残置、用途を限定せず全種別の送信対象として扱う）。読み取り側は必ずgetStaffWebhooksForKind()経由で使うこと
-  googleChatWebhooks?: StaffWebhook[]; // 本人のGoogle Chatスペースの着信Webhook URL一覧。1件ごとに送る通知の種類(kinds)を指定できる
+  googleChatWebhooks?: ChatWebhook[]; // 本人のGoogle Chatスペースの着信Webhook URL一覧。1件ごとに送る通知の種類(kinds)を指定できる
   email?: string; // Googleログインアカウントのメールアドレス。自己登録・自己編集の識別キー（管理者が手動追加した過去のレコードでは未設定のことがある）
 }
 

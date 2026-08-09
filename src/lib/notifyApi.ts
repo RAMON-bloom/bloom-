@@ -2,7 +2,7 @@
 
 export async function notifyCandidateRegistered(params: {
   webhookUrl: string;
-  staffName: string;
+  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   candidateName: string;
   candidateId: string;
 }): Promise<void> {
@@ -45,7 +45,7 @@ async function postAttentionNotify(body: Record<string, unknown>): Promise<void>
 
 export function notifyAttentionDigest(params: {
   webhookUrl: string;
-  staffName: string;
+  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   stalledCount: number;
   overdueCount: number;
 }): Promise<void> {
@@ -54,7 +54,7 @@ export function notifyAttentionDigest(params: {
 
 export function notifyDocScreeningNudge(params: {
   webhookUrl: string;
-  staffName: string;
+  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   candidateName: string;
   candidateId: string;
   daysSinceUpdate: number;
@@ -64,7 +64,7 @@ export function notifyDocScreeningNudge(params: {
 
 export async function notifyEvaluationResult(params: {
   webhookUrl: string;
-  staffName: string;
+  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
   candidateName: string;
   candidateId: string;
   phaseLabel: string;
@@ -100,7 +100,7 @@ export async function notifyDocumentScreeningThread(params: {
   const res = await fetch('/api/notify/document-screening-thread', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...params, appUrl: window.location.origin })
+    body: JSON.stringify(params)
   });
 
   const rawText = await res.text();

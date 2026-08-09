@@ -21,6 +21,8 @@ import driveMoveToDeleted from './api/drive/move-to-deleted';
 import calendarFindMeetingNotes from './api/calendar/find-meeting-notes';
 import notifyCandidateRegistered from './api/notify/candidate-registered';
 import notifyAttention from './api/notify/attention';
+import notifyEvaluationResult from './api/notify/evaluation-result';
+import notifyDocumentScreeningThread from './api/notify/document-screening-thread';
 
 async function startServer() {
   const app = express();
@@ -45,6 +47,8 @@ async function startServer() {
   app.post('/api/calendar/find-meeting-notes', calendarFindMeetingNotes);
   app.post('/api/notify/candidate-registered', notifyCandidateRegistered);
   app.post('/api/notify/attention', notifyAttention);
+  app.post('/api/notify/evaluation-result', notifyEvaluationResult);
+  app.post('/api/notify/document-screening-thread', notifyDocumentScreeningThread);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

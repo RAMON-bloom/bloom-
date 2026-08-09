@@ -13,7 +13,8 @@ import {
   MeetingLog,
   StalledCandidateInfo,
   OverdueDocScreeningInfo,
-  ImportedInterviewLog
+  ImportedInterviewLog,
+  ChatWebhook
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -35,7 +36,7 @@ import {
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
-import { getStaffWebhooksForKind } from '../lib/staffUtils';
+import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -114,7 +115,11 @@ interface ATSContextType {
   addStaff: (staffData: Omit<InternalStaff, 'id'>) => void;
   deleteStaff: (id: string) => void;
   updateStaff: (staff: InternalStaff) => void;
-  
+
+  // グループ用（複数人が見るスペース宛）Webhook。特定の担当者に属さない一覧をまるごと置き換える。
+  groupChatWebhooks: ChatWebhook[];
+  updateGroupChatWebhooks: (webhooks: ChatWebhook[]) => void;
+
   // Utils & Yields
   yieldMetrics: YieldMetrics[];
   filteredCandidates: Candidate[];
@@ -173,6 +178,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_MEETING_LOGS;
   });
 
+  // 特定の担当者に属さない、複数人が見るGoogle Chatスペース宛のWebhook一覧。個人のgoogleChatWebhooks
+  // と同じ形(ChatWebhook)だが、担当者マスタ設定の独立したセクションで管理する。
+  const [groupChatWebhooks, setGroupChatWebhooks] = useState<ChatWebhook[]>(() => {
+    const saved = localStorage.getItem('ats_group_chat_webhooks');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   // Every Drive item id (folder/file) permanentlyDeleteCandidate has ever deleted — checked by
   // syncWithDrive so it never re-imports something we ourselves just deleted as if it were a
   // brand-new unregistered resume. Needed because Drive's own file-list index can lag a few
@@ -228,6 +240,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [meetingLogs]);
 
   useEffect(() => {
+    localStorage.setItem('ats_group_chat_webhooks', JSON.stringify(groupChatWebhooks));
+  }, [groupChatWebhooks]);
+
+  useEffect(() => {
     localStorage.setItem('ats_deleted_drive_item_ids', JSON.stringify(deletedDriveItemIds));
   }, [deletedDriveItemIds]);
 
@@ -236,9 +252,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // candidates/agencies/staffList may have moved on from whatever they were when the meetingLogs
   // change that scheduled it happened, and the Drive backup should reflect the latest, not a
   // slightly-stale snapshot from several seconds earlier.
-  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs });
+  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks });
   useEffect(() => {
-    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs };
+    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks };
   });
 
   // Auto-backs-up to Drive a few seconds after candidates, MTG logs, agencies, or staff stop
@@ -278,7 +294,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     };
-  }, [candidates, agencies, staffList, meetingLogs, driveAccessToken]);
+  }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, driveAccessToken]);
 
   // Auto-restores from Drive once per login. Without this, candidates/agencies/staffList/
   // meetingLogs were seeded purely from this browser's own localStorage (or, on a brand-new
@@ -302,9 +318,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Always-fresh snapshot for the attention-notify effect below, same reasoning as
   // latestBackupStateRef — the 8s delay exists so this reads data *after* auto-restore above has
   // had a chance to replace whatever this browser started with, not the stale mount-time values.
-  const latestAttentionStateRef = useRef({ candidates, staffList });
+  const latestAttentionStateRef = useRef({ candidates, staffList, groupChatWebhooks });
   useEffect(() => {
-    latestAttentionStateRef.current = { candidates, staffList };
+    latestAttentionStateRef.current = { candidates, staffList, groupChatWebhooks };
   });
 
   // 抜け防止のGoogle Chat通知（進捗停滞ダイジェスト・書類選考対応漏れの個別督促）を、ログイン後
@@ -328,7 +344,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Same reasoning/pattern as hasAutoRestoredRef above (no cleanup there either). Production
     // builds don't double-invoke effects, so this never actually leaks a stray timer there.
     setTimeout(() => {
-      const { candidates: latestCandidates, staffList: latestStaffList } = latestAttentionStateRef.current;
+      const { candidates: latestCandidates, staffList: latestStaffList, groupChatWebhooks: latestGroupWebhooks } = latestAttentionStateRef.current;
       const stalled = getStalledCandidates(latestCandidates);
       const overdue = getOverdueDocScreening(latestCandidates);
 
@@ -342,6 +358,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 宛先は「このWebhookでこの種類の通知を受け取る」という各リンクのkinds選択だけで決まる
       // （役職フラグ等での絞り込みは行わない。以前isRecruitingAssistantフラグで絞り込んでいた際、
       // フラグを立て忘れただけで登録済みWebhookに何も届かなくなる不具合があったため撤廃した）。
+      // 個人用Webhookに加えて、特定の担当者に属さないグループ用Webhookにも同じ条件で送る。
       latestStaffList.forEach((staff) => {
         getStaffWebhooksForKind(staff, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
           notifyPromises.push(
@@ -353,6 +370,15 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             })
           );
         });
+      });
+      getGroupWebhooksForKind(latestGroupWebhooks, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
+        notifyPromises.push(
+          notifyAttentionDigestApi({
+            webhookUrl,
+            stalledCount: stalled.length,
+            overdueCount: overdue.length
+          })
+        );
       });
 
       overdue.forEach(({ candidate, assigneeName, daysSinceUpdate }) => {
@@ -370,6 +396,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             );
           });
         }
+        getGroupWebhooksForKind(latestGroupWebhooks, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
+          notifyPromises.push(
+            notifyDocScreeningNudgeApi({
+              webhookUrl,
+              candidateName: candidate.name,
+              candidateId: candidate.id,
+              daysSinceUpdate
+            })
+          );
+        });
       });
 
       Promise.allSettled(notifyPromises).then((results) => {
@@ -629,6 +665,20 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
         });
       });
+      getGroupWebhooksForKind(groupChatWebhooks, 'EVALUATION_RESULT').forEach((webhookUrl) => {
+        notifyCalls.push(
+          notifyEvaluationResultApi({
+            webhookUrl,
+            candidateName: target.name,
+            candidateId: target.id,
+            phaseLabel: phaseLabels[noteData.phase] || noteData.phase,
+            resultStatus: noteData.resultStatus as 'PASS' | 'FAIL',
+            goodPoints: noteData.goodPoints,
+            concerns: noteData.concerns,
+            failReason: noteData.resultStatus === 'FAIL' ? noteData.failReason : undefined
+          })
+        );
+      });
       if (notifyCalls.length > 0) {
         Promise.allSettled(notifyCalls).then((results) => {
           const failedCount = results.filter((r) => r.status === 'rejected').length;
@@ -655,6 +705,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               })
             );
           });
+        });
+        getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
+          threadNotifyCalls.push(
+            notifyDocumentScreeningThreadApi({
+              webhookUrl,
+              candidateName: target.name,
+              candidateId: target.id,
+              agencyName: target.agencyName
+            })
+          );
         });
         if (threadNotifyCalls.length > 0) {
           Promise.allSettled(threadNotifyCalls).then((results) => {
@@ -768,22 +828,36 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // a Chat webhook in the担当者マスタ yet — this is a convenience notice, not a required step, so
     // it must never block or fail candidate registration itself.
     const docScreeningAssigneeName = newCandidate.documentScreeningAssignee || newCandidate.assignees[0];
-    if (newCandidate.phase === 'DOCUMENT_SCREENING' && docScreeningAssigneeName) {
-      const assigneeName = docScreeningAssigneeName;
-      const assignee = staffList.find((s) => s.name === assigneeName);
-      if (assignee) {
-        getStaffWebhooksForKind(assignee, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
-          notifyCandidateRegisteredApi({
-            webhookUrl,
-            staffName: assigneeName,
-            candidateName: newCandidate.name,
-            candidateId: newCandidate.id
-          }).catch((err) => {
-            console.error('Candidate-registered Chat notify failed:', err);
-            showToast(`${assigneeName} さんへのChat通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+    if (newCandidate.phase === 'DOCUMENT_SCREENING') {
+      if (docScreeningAssigneeName) {
+        const assigneeName = docScreeningAssigneeName;
+        const assignee = staffList.find((s) => s.name === assigneeName);
+        if (assignee) {
+          getStaffWebhooksForKind(assignee, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
+            notifyCandidateRegisteredApi({
+              webhookUrl,
+              staffName: assigneeName,
+              candidateName: newCandidate.name,
+              candidateId: newCandidate.id
+            }).catch((err) => {
+              console.error('Candidate-registered Chat notify failed:', err);
+              showToast(`${assigneeName} さんへのChat通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+            });
           });
-        });
+        }
       }
+
+      // グループ用Webhookは特定の担当者に紐づかないため、担当者が解決できたかどうかに関わらず送る。
+      getGroupWebhooksForKind(groupChatWebhooks, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
+        notifyCandidateRegisteredApi({
+          webhookUrl,
+          candidateName: newCandidate.name,
+          candidateId: newCandidate.id
+        }).catch((err) => {
+          console.error('Candidate-registered Chat notify (group) failed:', err);
+          showToast(`グループ通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+        });
+      });
     }
   };
 
@@ -1045,6 +1119,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`採用担当者 「${updatedStaff.name}」 の情報を更新し、全選考状況に反映しました`, 'info');
   };
 
+  // グループ用Webhook一覧をまるごと置き換える。担当者マスタ設定の編集フォームが、フォーム内で
+  // 組み立てた配列全体を1回のみ保存する形（個々のadd/remove操作をcontext側に持たせない）。
+  const updateGroupChatWebhooks = (webhooks: ChatWebhook[]) => {
+    setGroupChatWebhooks(webhooks);
+    showToast('グループ通知用Webhookを更新しました', 'success');
+  };
+
   const resetToDefaultData = () => {
     setCandidates(INITIAL_CANDIDATES);
     setAgencies(INITIAL_AGENCIES);
@@ -1087,7 +1168,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         candidates,
         agencies,
         staffList,
-        meetingLogs
+        meetingLogs,
+        groupChatWebhooks
       });
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {
@@ -1112,6 +1194,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.agencies) setAgencies(data.agencies);
       if (data.staffList) setStaffList(data.staffList);
       if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
+      if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
       if (!options.silent) showToast('Driveのバックアップからデータを復元しました', 'success');
     } catch (err: any) {
       const notBackedUpYet = String(err.message || '').includes('見つかりませんでした');
@@ -1476,6 +1559,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addStaff,
         deleteStaff,
         updateStaff,
+        groupChatWebhooks,
+        updateGroupChatWebhooks,
         yieldMetrics,
         filteredCandidates,
         archivedCandidates,

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Agency, InternalStaff, AgencyContact, StaffWebhook, ChatNotificationKind } from '../types';
+import { Agency, InternalStaff, AgencyContact, ChatWebhook, ChatNotificationKind } from '../types';
 import { getAllStaffWebhookUrls, CHAT_NOTIFICATION_KINDS } from '../lib/staffUtils';
 import {
   Building2,
@@ -38,7 +38,9 @@ export const AgencyMasterView: React.FC = () => {
     staffList,
     addStaff,
     deleteStaff,
-    updateStaff
+    updateStaff,
+    groupChatWebhooks,
+    updateGroupChatWebhooks
   } = useATS();
 
   const [activeSubTab, setActiveSubTab] = useState<'agencies' | 'staff'>('agencies');
@@ -66,8 +68,21 @@ export const AgencyMasterView: React.FC = () => {
     department: '人事部',
     role: '採用担当 (リクルーター)',
     email: '',
-    googleChatWebhooks: [] as StaffWebhook[]
+    googleChatWebhooks: [] as ChatWebhook[]
   });
+
+  // グループ用（複数人が見るスペース宛）Webhookの編集用ドラフト。個人の担当者フォームと違い、
+  // モーダルを介さずこのページに直接インライン編集欄を出す。保存ボタンを押すまでcontextには反映
+  // しない（URL入力中の毎キー入力でDrive自動バックアップを誘発しないようにするため）。
+  const [groupWebhookDraft, setGroupWebhookDraft] = useState<ChatWebhook[]>(groupChatWebhooks);
+  const [isGroupWebhookDirty, setIsGroupWebhookDirty] = useState(false);
+
+  useEffect(() => {
+    if (!isGroupWebhookDirty) {
+      setGroupWebhookDraft(groupChatWebhooks);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupChatWebhooks]);
 
   // Delete Confirm Modal State
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{
@@ -240,7 +255,7 @@ export const AgencyMasterView: React.FC = () => {
     setEditingStaff(staff);
     // 旧・単一Webhook欄に値が残っている場合、ここで新形式の一覧に1件として取り込む（用途を限定して
     // いなかった経緯を尊重し、全通知種別を選択済みの状態にする）。保存すると旧欄はクリアされる。
-    const legacyEntry: StaffWebhook[] = staff.googleChatWebhookUrl
+    const legacyEntry: ChatWebhook[] = staff.googleChatWebhookUrl
       ? [{ id: `wh-legacy-${staff.id}`, url: staff.googleChatWebhookUrl, kinds: ALL_NOTIFICATION_KINDS }]
       : [];
     setStaffFormData({
@@ -286,6 +301,51 @@ export const AgencyMasterView: React.FC = () => {
           : wh
       )
     }));
+  };
+
+  // グループ用Webhook編集ハンドラ（担当者フォームの同名ハンドラと同じ考え方だが、対象はドラフト
+  // 配列そのもの。個々の操作はcontextへ即時反映せず、「保存する」ボタンでまとめて確定する）。
+  const handleAddGroupWebhookRow = () => {
+    setGroupWebhookDraft((prev) => [
+      ...prev,
+      { id: `gwh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, url: '', label: '', kinds: ALL_NOTIFICATION_KINDS }
+    ]);
+    setIsGroupWebhookDirty(true);
+  };
+
+  const handleUpdateGroupWebhookRow = (id: string, field: 'url' | 'label', value: string) => {
+    setGroupWebhookDraft((prev) => prev.map((wh) => (wh.id === id ? { ...wh, [field]: value } : wh)));
+    setIsGroupWebhookDirty(true);
+  };
+
+  const handleRemoveGroupWebhookRow = (id: string) => {
+    setGroupWebhookDraft((prev) => prev.filter((wh) => wh.id !== id));
+    setIsGroupWebhookDirty(true);
+  };
+
+  const handleToggleGroupWebhookKind = (id: string, kind: ChatNotificationKind) => {
+    setGroupWebhookDraft((prev) =>
+      prev.map((wh) =>
+        wh.id === id
+          ? { ...wh, kinds: wh.kinds.includes(kind) ? wh.kinds.filter((k) => k !== kind) : [...wh.kinds, kind] }
+          : wh
+      )
+    );
+    setIsGroupWebhookDirty(true);
+  };
+
+  const handleSaveGroupWebhooks = () => {
+    const validWebhooks = groupWebhookDraft
+      .map((wh) => ({ ...wh, url: wh.url.trim(), label: wh.label?.trim() || undefined }))
+      .filter((wh) => wh.url.length > 0);
+    updateGroupChatWebhooks(validWebhooks);
+    setGroupWebhookDraft(validWebhooks);
+    setIsGroupWebhookDirty(false);
+  };
+
+  const handleCancelGroupWebhookEdits = () => {
+    setGroupWebhookDraft(groupChatWebhooks);
+    setIsGroupWebhookDirty(false);
   };
 
   // Staff Submit
@@ -581,6 +641,121 @@ export const AgencyMasterView: React.FC = () => {
                 <UserPlus className="w-4 h-4" />
                 <span>新規採用担当者を追加</span>
               </button>
+            )}
+          </div>
+
+          {/* グループ用（複数人が見るスペース宛）Webhook設定。特定の担当者には属さない */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-indigo-600" />
+                  <span>グループ通知設定（複数人が見るスペース宛）</span>
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  特定の担当者に紐づかないWebhookを登録します。採用チーム全体のスペースなど、複数人で見ている場所に通知を送りたい場合はこちら。
+                </p>
+              </div>
+              {userRole === 'ADMIN' && (
+                <button
+                  type="button"
+                  onClick={handleAddGroupWebhookRow}
+                  className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Webhookを追加</span>
+                </button>
+              )}
+            </div>
+
+            {groupWebhookDraft.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">未登録</p>
+            ) : (
+              <div className="space-y-2">
+                {groupWebhookDraft.map((wh) => (
+                  <div key={wh.id} className="border border-slate-200 rounded-lg p-2.5 space-y-1.5 bg-slate-50/60">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="url"
+                        placeholder="https://chat.googleapis.com/v1/spaces/..."
+                        value={wh.url}
+                        onChange={(e) => handleUpdateGroupWebhookRow(wh.id, 'url', e.target.value)}
+                        disabled={userRole !== 'ADMIN'}
+                        className="flex-1 bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500"
+                      />
+                      {userRole === 'ADMIN' && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveGroupWebhookRow(wh.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                          title="このURLを削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="ラベル（任意・例: 採用チーム全体スペース）"
+                      value={wh.label || ''}
+                      onChange={(e) => handleUpdateGroupWebhookRow(wh.id, 'label', e.target.value)}
+                      disabled={userRole !== 'ADMIN'}
+                      className="w-full bg-white border border-slate-200 text-slate-700 rounded-lg px-2.5 py-1 text-[11px] focus:outline-none focus:border-indigo-400 disabled:bg-slate-100"
+                    />
+                    <div>
+                      <p className="text-[10px] text-slate-500 mb-1">このURLに送る通知の種類:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {CHAT_NOTIFICATION_KINDS.map((k) => {
+                          const active = wh.kinds.includes(k.key);
+                          return (
+                            <button
+                              key={k.key}
+                              type="button"
+                              title={k.description}
+                              disabled={userRole !== 'ADMIN'}
+                              onClick={() => handleToggleGroupWebhookKind(wh.id, k.key)}
+                              className={`text-[10px] font-bold px-2 py-1 rounded-full border transition-colors ${
+                                userRole === 'ADMIN' ? 'cursor-pointer' : 'cursor-default'
+                              } ${
+                                active
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-white text-slate-500 border-slate-300 hover:border-indigo-300'
+                              }`}
+                            >
+                              {k.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {wh.kinds.length === 0 && (
+                        <p className="text-[10px] text-amber-600 mt-1">
+                          通知の種類を1つも選択していないため、このURLには何も届きません。
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {userRole === 'ADMIN' && isGroupWebhookDirty && (
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCancelGroupWebhookEdits}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveGroupWebhooks}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-2xs transition-all cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>保存する</span>
+                </button>
+              </div>
             )}
           </div>
 

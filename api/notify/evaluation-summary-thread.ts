@@ -1,4 +1,4 @@
-import { sendGoogleChatMessage } from '../_lib/googleChat.js';
+import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
 
 const LCM_LABELS: Record<string, string> = { L: 'L評価(ルックス)', C: 'C評価(コミュニケーション)', M: 'M評価(マインド)' };
 
@@ -8,6 +8,9 @@ const LCM_LABELS: Record<string, string> = { L: 'L評価(ルックス)', C: 'C�
 // SAME Google Chat thread that document-screening-thread started for this candidate — threadKey
 // is fixed to the candidate id, exactly like document-screening-thread — so every phase's
 // pass/fail, its LCM評価 summary, and the next-interviewer assignment all land in one place.
+// mentionedStaff (picked in the eval save form, separate from next-interviewer) adds a trailing
+// "共有:" line mentioning each of them — a real @mention when they've registered their
+// chatMentionId, a plain bold-text fallback otherwise (see formatMention).
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -32,7 +35,8 @@ export default async function handler(req: any, res: any) {
       otherNotes,
       failReason,
       nextPhaseLabel,
-      nextInterviewerNames
+      nextInterviewerNames,
+      mentionedStaff
     } = req.body || {};
 
     if (!webhookUrl) {
@@ -66,6 +70,13 @@ export default async function handler(req: any, res: any) {
         ? nextInterviewerNames.join('、')
         : '未定';
       lines.push(`次回: ${nextPhaseLabel}　担当面接官: ${assignee}`);
+    }
+
+    if (Array.isArray(mentionedStaff) && mentionedStaff.length > 0) {
+      const mentions = mentionedStaff
+        .map((m: { name?: string; mentionId?: string }) => formatMention(m.name, m.mentionId))
+        .filter(Boolean);
+      if (mentions.length > 0) lines.push(`共有: ${mentions.join(' ')}`);
     }
 
     await sendGoogleChatMessage(webhookUrl, lines.join('\n'), `cand-${candidateId}`);

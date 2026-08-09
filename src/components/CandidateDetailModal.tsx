@@ -42,7 +42,8 @@ import {
   LayoutDashboard,
   ChevronDown,
   ChevronUp,
-  Plus
+  Plus,
+  AtSign
 } from 'lucide-react';
 
 const EVALUATION_GRADES: EvaluationGrade[] = ['A+', 'A-', 'B+', 'B', 'B-', 'C'];
@@ -167,6 +168,9 @@ export const CandidateDetailModal: React.FC = () => {
   const [evalAuthor, setEvalAuthor] = useState<string>(staffList[0]?.name || '山田 太郎');
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
   const [newNextInterviewer, setNewNextInterviewer] = useState<string>('');
+  // 次回面接官とは別に、この評価をGoogle Chatの候補者スレッドに書き込む際、追加でメンションしたい
+  // メンバー（複数選択可）。評価データ自体には保存せず、保存時の通知にのみ使う一時的な選択。
+  const [mentionMembers, setMentionMembers] = useState<string[]>([]);
   // 選考フローのカードは表示が長くなりすぎないよう現在進行中のフェーズまでがデフォルト。
   // 「次回選考の調整」ボタンを押すたびに1件先のフェーズまで表示を広げる(候補者切替でリセット)。
   const [manuallyRevealedStages, setManuallyRevealedStages] = useState<number>(0);
@@ -313,6 +317,7 @@ export const CandidateDetailModal: React.FC = () => {
         setNewMNote(c.mNote || '');
         setManuallyRevealedStages(0);
         setLogImportTargetPhase(null);
+        setMentionMembers([]);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -587,12 +592,13 @@ export const CandidateDetailModal: React.FC = () => {
       comment: finalComment,
       resultStatus: evalResultStatus,
       failReason: evalResultStatus === 'FAIL' ? failReason : undefined
-    }, newNextInterviewer || undefined);
+    }, newNextInterviewer || undefined, mentionMembers);
 
     setNewGoodPoints('');
     setNewConcerns('');
     setNewOtherNotes('');
     setNewComment('');
+    setMentionMembers([]);
 
     // 合格として保存したら、面接評価・LCMなど書き込み済みの欄を全てクリアして次の面接にすぐ
     // 使える状態に戻し、面接評価・所感セクションを折りたたむ。現在地の自動進行は、いま記録した
@@ -1799,6 +1805,45 @@ export const CandidateDetailModal: React.FC = () => {
                           onChange={(e) => setNewComment(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-xl p-2.5 text-xs focus:outline-none focus:bg-white focus:border-slate-500 leading-relaxed"
                         />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-800 font-bold mb-1 flex items-center gap-1.5 text-xs">
+                          <AtSign className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>メンションするメンバー (次回面接官以外・複数選択可)</span>
+                        </label>
+                        {staffList.length === 0 ? (
+                          <p className="text-slate-400 italic text-xs">担当者マスタに登録がありません</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {staffList.map((s) => {
+                              const active = mentionMembers.includes(s.name);
+                              return (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setMentionMembers((prev) =>
+                                      prev.includes(s.name) ? prev.filter((n) => n !== s.name) : [...prev, s.name]
+                                    )
+                                  }
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-bold border cursor-pointer transition-colors ${
+                                    active
+                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                      : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {s.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {mentionMembers.length > 0 && (
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            候補者スレッドへの評価サマリ書き込みに、選択したメンバーへのメンションを追加します。
+                          </p>
+                        )}
                       </div>
                     </div>
 

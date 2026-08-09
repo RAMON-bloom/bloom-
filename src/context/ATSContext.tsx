@@ -104,7 +104,8 @@ interface ATSContextType {
   addEvaluationNote: (
     candidateId: string,
     note: Omit<EvaluationNote, 'id' | 'createdAt'>,
-    nextInterviewerName?: string
+    nextInterviewerName?: string,
+    mentionMemberNames?: string[]
   ) => void;
   updateEvaluationNote: (candidateId: string, noteId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
   deleteEvaluationNote: (candidateId: string, noteId: string) => void;
@@ -624,7 +625,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addEvaluationNote = (
     candidateId: string,
     noteData: Omit<EvaluationNote, 'id' | 'createdAt'>,
-    nextInterviewerName?: string
+    nextInterviewerName?: string,
+    mentionMemberNames?: string[]
   ) => {
     const newNote: EvaluationNote = {
       ...noteData,
@@ -774,6 +776,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ? [...existingNextInterviewers, nextInterviewerName]
             : existingNextInterviewers;
 
+        // 次回面接官とは別に、フォームで選んだメンバーを候補者スレッドの評価サマリにメンションする。
+        // 本物のメンションが使えるかは各自のchatMentionId登録有無に依存する（未登録なら通知先の
+        // notifyEvaluationSummaryThreadApi/エンドポイント側で太字テキストにフォールバックする）。
+        const mentionedStaff = (mentionMemberNames || []).map((name) => ({
+          name,
+          mentionId: staffList.find((s) => s.name === name)?.chatMentionId
+        }));
+
         const summaryNotifyCalls: Promise<void>[] = [];
         const summaryPayload = {
           candidateName: target.name,
@@ -792,7 +802,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           otherNotes: noteData.otherNotes,
           failReason: noteData.resultStatus === 'FAIL' ? noteData.failReason : undefined,
           nextPhaseLabel,
-          nextInterviewerNames
+          nextInterviewerNames,
+          mentionedStaff
         };
         recipients.forEach((staff) => {
           getStaffWebhooksForKind(staff, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => {

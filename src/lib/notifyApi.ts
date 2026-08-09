@@ -114,6 +114,7 @@ export async function notifyEvaluationSummaryThread(params: {
   failReason?: string;
   nextPhaseLabel?: string;
   nextInterviewerNames?: string[];
+  mentionedStaff?: { name: string; mentionId?: string }[];
 }): Promise<void> {
   const res = await fetch('/api/notify/evaluation-summary-thread', {
     method: 'POST',

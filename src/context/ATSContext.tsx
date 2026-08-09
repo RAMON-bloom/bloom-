@@ -1556,6 +1556,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Helper: evaluate how far candidate advanced
     let docPass = 0;
     let firstPass = 0;
+    let secondPass = 0;
+    let finalPass = 0;
     let offerCount = 0;
     let acceptCount = 0;
 
@@ -1575,6 +1577,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         firstPass++;
       }
 
+      // Passed 2nd interview if maxPhaseReached >= 4 (SECOND_INTERVIEW)
+      if (maxPhaseReached >= 4 || c.evaluationNotes.some((n) => n.phase === 'SECOND_INTERVIEW' && n.resultStatus === 'PASS')) {
+        secondPass++;
+      }
+
+      // Passed final interview if maxPhaseReached >= 5 (FINAL_INTERVIEW)
+      if (maxPhaseReached >= 5 || c.evaluationNotes.some((n) => n.phase === 'FINAL_INTERVIEW' && n.resultStatus === 'PASS')) {
+        finalPass++;
+      }
+
       // Reached Offer or Accepted
       if (c.phase === 'OFFER_ISSUED' || c.phase === 'OFFER_ACCEPTED' || maxPhaseReached >= 5) {
         offerCount++;
@@ -1588,6 +1600,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const docPassRate = total > 0 ? Math.round((docPass / total) * 100) : 0;
     const firstPassRate = docPass > 0 ? Math.round((firstPass / docPass) * 100) : 0;
+    const finalPassRate = secondPass > 0 ? Math.round((finalPass / secondPass) * 100) : 0;
     const offerRate = firstPass > 0 ? Math.round((offerCount / firstPass) * 100) : 0;
     const acceptRate = offerCount > 0 ? Math.round((acceptCount / offerCount) * 100) : 0;
     const overallYield = total > 0 ? Math.round((acceptCount / total) * 100) : 0;
@@ -1597,13 +1610,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalApplications: total,
       documentPassCount: docPass,
       firstInterviewPassCount: firstPass,
-      secondInterviewPassCount: firstPass,
-      finalInterviewPassCount: offerCount,
+      secondInterviewPassCount: secondPass,
+      finalInterviewPassCount: finalPass,
       offerCount,
       acceptCount,
       documentPassRate: docPassRate,
       firstInterviewPassRate: firstPassRate,
-      finalInterviewPassRate: offerRate,
+      finalInterviewPassRate: finalPassRate,
       offerRate,
       acceptRate,
       overallYieldRate: overallYield

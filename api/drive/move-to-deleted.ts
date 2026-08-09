@@ -1,6 +1,5 @@
 import { ensureSubfolder, moveFileToFolder } from '../_lib/drive.js';
 import { RESUME_ROOT_SUBFOLDER, DELETED_FOLDER_NAME } from '../_lib/phaseFolders.js';
-import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // Used by permanentlyDeleteCandidate instead of an actual Drive delete: moves the candidate's
 // resume folder/file out of every phase folder into a dedicated 削除済み folder that
@@ -17,9 +16,6 @@ export default async function handler(req: any, res: any) {
     const { accessToken, folderId, fileId } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
-    }
-    if (!(await isBloomFirmAccessToken(accessToken))) {
-      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!folderId) {
       return res.status(400).json({ error: 'Drive連携フォルダIDが設定されていません。' });

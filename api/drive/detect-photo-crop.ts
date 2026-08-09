@@ -1,6 +1,5 @@
 import { downloadFileBase64, getFileMetadata } from '../_lib/drive.js';
 import { getAi } from '../_lib/gemini.js';
-import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 const SUPPORTED_MIME_PREFIXES = ['application/pdf', 'image/'];
 
@@ -16,9 +15,6 @@ export default async function handler(req: any, res: any) {
     const { accessToken, fileId } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
-    }
-    if (!(await isBloomFirmAccessToken(accessToken))) {
-      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!fileId) {
       return res.status(400).json({ error: '対象の履歴書ファイルが指定されていません。' });

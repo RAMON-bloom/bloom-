@@ -1,5 +1,4 @@
 import { findFolderByName, findFileByName, readFileContent } from '../_lib/drive.js';
-import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 const BACKUP_SUBFOLDER = 'バックアップ';
 const BACKUP_FILE_NAME = 'bloom_ats_backup.json';
@@ -13,9 +12,6 @@ export default async function handler(req: any, res: any) {
     const { accessToken, folderId } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
-    }
-    if (!(await isBloomFirmAccessToken(accessToken))) {
-      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!folderId) {
       return res.status(400).json({ error: 'Drive連携フォルダIDが設定されていません。' });

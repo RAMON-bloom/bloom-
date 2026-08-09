@@ -1,5 +1,4 @@
 import { deleteFileOrFolder } from '../_lib/drive.js';
-import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // `fileId` here is normally a candidate's own Drive FOLDER id, not a resume file — Drive's API
 // treats folders as just another kind of file, so deleting one removes its entire contents
@@ -14,9 +13,6 @@ export default async function handler(req: any, res: any) {
     const { accessToken, fileId } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
-    }
-    if (!(await isBloomFirmAccessToken(accessToken))) {
-      return res.status(403).json({ error: 'bloom-firm.comアカウントでのログインが必要です。' });
     }
     if (!fileId) {
       return res.status(400).json({ error: '削除対象のDriveファイル/フォルダIDがありません。' });

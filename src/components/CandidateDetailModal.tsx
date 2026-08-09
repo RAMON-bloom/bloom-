@@ -16,9 +16,8 @@ import {
   Code,
   Building2, 
   Send, 
-  Download, 
-  Sparkles, 
-  Tag, 
+  Download,
+  Tag,
   MessageSquare, 
   Edit2,
   UserCheck,
@@ -43,7 +42,6 @@ import {
   LayoutDashboard,
   ChevronDown,
   ChevronUp,
-  HelpCircle,
   Plus
 } from 'lucide-react';
 
@@ -126,7 +124,7 @@ export const CandidateDetailModal: React.FC = () => {
     }
   }, [activeSubTab]);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [docCategory, setDocCategory] = useState<'cv' | 'resume' | 'ai_summary'>('cv');
+  const [docCategory, setDocCategory] = useState<'cv' | 'resume'>('cv');
   const [isDetailDragging, setIsDetailDragging] = useState(false);
   const [isDetailParsing, setIsDetailParsing] = useState(false);
   const [isDetailCompressing, setIsDetailCompressing] = useState(false);
@@ -2527,16 +2525,6 @@ export const CandidateDetailModal: React.FC = () => {
                   >
                     履歴書 (Resume)
                   </button>
-
-                  <button
-                    onClick={() => setDocCategory('ai_summary')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1 ${
-                      docCategory === 'ai_summary' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>AI抽出サマリー</span>
-                  </button>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -2694,46 +2682,6 @@ export const CandidateDetailModal: React.FC = () => {
                     </h4>
                     <div className="bg-white border border-slate-200 text-slate-800 text-xs p-4 rounded-xl leading-relaxed whitespace-pre-wrap">
                       {candidate.prSelfStatement || <span className="text-slate-400 italic">未入力</span>}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* AI Summary View */}
-              {docCategory === 'ai_summary' && (
-                <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5 leading-relaxed max-h-[500px] overflow-y-auto shadow-2xs">
-                  <div className="bg-indigo-900 text-white p-4.5 rounded-xl shadow-xs space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-indigo-200" />
-                        <h3 className="font-bold text-sm">Gemini AI 解析レポート</h3>
-                      </div>
-                      <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-mono font-bold">Model: Gemini 2.5 Flash</span>
-                    </div>
-                    <p className="text-xs text-indigo-100 leading-relaxed">
-                      提出された書類から自動抽出されたアピールポイント・適合度判定・想定質問案です。
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-emerald-50/80 border border-emerald-200 p-4 rounded-xl space-y-1.5">
-                      <h4 className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>主要な強み・推奨理由</span>
-                      </h4>
-                      <p className="text-emerald-950 text-xs leading-relaxed whitespace-pre-wrap">
-                        {candidate.aiStrengths || <span className="text-emerald-700/60 italic">未生成</span>}
-                      </p>
-                    </div>
-
-                    <div className="bg-amber-50/80 border border-amber-200 p-4 rounded-xl space-y-1.5">
-                      <h4 className="font-bold text-amber-900 text-xs flex items-center gap-1.5">
-                        <HelpCircle className="w-4 h-4 text-amber-600" />
-                        <span>面接での確認推奨事項</span>
-                      </h4>
-                      <p className="text-amber-950 text-xs leading-relaxed whitespace-pre-wrap">
-                        {candidate.aiConcerns || <span className="text-amber-700/60 italic">未生成</span>}
-                      </p>
                     </div>
                   </div>
                 </div>

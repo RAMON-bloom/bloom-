@@ -157,12 +157,29 @@ export interface Agency {
   assignedStaffNames?: string[]; // Internal hiring staff assigned to this agency
 }
 
+// Google Chatへ送る通知の種類。1件のWebhook URLごとにどの種類を受け取るか選べるようにし、
+// 「このリンクには合否確定だけ、あのリンクには新規アサイン通知だけ」という主旨ごとの振り分けを可能にする。
+// 将来的に通知種別を追加する際はここに追記する。
+export type ChatNotificationKind =
+  | 'CANDIDATE_REGISTERED'  // 書類選考担当への新規候補者アサイン通知
+  | 'ATTENTION_DIGEST'      // 進捗停滞・書類選考対応漏れの定期ダイジェスト（採用アシスタント向け）
+  | 'DOC_SCREENING_NUDGE'   // 書類選考の対応が止まっている候補者の個別督促
+  | 'EVALUATION_RESULT';    // 選考結果（合格/不採用、書類選考含む）確定の通知
+
+export interface StaffWebhook {
+  id: string;
+  url: string;
+  label?: string; // 自分用の任意メモ（例:「個人スペース」「採用チーム全体」）。どのGoogle Chatスペース宛かを区別するため
+  kinds: ChatNotificationKind[]; // このURLに送る通知の種類（複数選択可）
+}
+
 export interface InternalStaff {
   id: string;
   name: string;
   department: string;
   role: string;
-  googleChatWebhookUrl?: string; // 本人のGoogle Chatスペースの着信Webhook URL。設定されていれば書類選考担当に割り当てられた際に通知を送る
+  googleChatWebhookUrl?: string; // 旧・単一Webhook欄（後方互換のため残置、用途を限定せず全種別の送信対象として扱う）。読み取り側は必ずgetStaffWebhooksForKind()経由で使うこと
+  googleChatWebhooks?: StaffWebhook[]; // 本人のGoogle Chatスペースの着信Webhook URL一覧。1件ごとに送る通知の種類(kinds)を指定できる
   email?: string; // Googleログインアカウントのメールアドレス。自己登録・自己編集の識別キー（管理者が手動追加した過去のレコードでは未設定のことがある）
   isRecruitingAssistant?: boolean; // 採用アシスタント（新規候補者登録・進捗管理を主に担当）フラグ。roleの自由記述とは別に、抜け防止通知の送信対象判定に使う
 }

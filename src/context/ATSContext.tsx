@@ -34,6 +34,7 @@ import {
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
+import { getStaffWebhooksForKind } from '../lib/staffUtils';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -338,30 +339,34 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const notifyPromises: Promise<void>[] = [];
 
       latestStaffList
-        .filter((s) => s.isRecruitingAssistant && s.googleChatWebhookUrl)
+        .filter((s) => s.isRecruitingAssistant)
         .forEach((staff) => {
-          notifyPromises.push(
-            notifyAttentionDigestApi({
-              webhookUrl: staff.googleChatWebhookUrl!,
-              staffName: staff.name,
-              stalledCount: stalled.length,
-              overdueCount: overdue.length
-            })
-          );
+          getStaffWebhooksForKind(staff, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
+            notifyPromises.push(
+              notifyAttentionDigestApi({
+                webhookUrl,
+                staffName: staff.name,
+                stalledCount: stalled.length,
+                overdueCount: overdue.length
+              })
+            );
+          });
         });
 
       overdue.forEach(({ candidate, assigneeName, daysSinceUpdate }) => {
         const assignee = latestStaffList.find((s) => s.name === assigneeName);
-        if (assignee?.googleChatWebhookUrl) {
-          notifyPromises.push(
-            notifyDocScreeningNudgeApi({
-              webhookUrl: assignee.googleChatWebhookUrl,
-              staffName: assigneeName,
-              candidateName: candidate.name,
-              candidateId: candidate.id,
-              daysSinceUpdate
-            })
-          );
+        if (assignee) {
+          getStaffWebhooksForKind(assignee, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
+            notifyPromises.push(
+              notifyDocScreeningNudgeApi({
+                webhookUrl,
+                staffName: assigneeName,
+                candidateName: candidate.name,
+                candidateId: candidate.id,
+                daysSinceUpdate
+              })
+            );
+          });
         }
       });
 
@@ -604,12 +609,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         REJECTED_DECLINED: '辞退 / 不採用'
       };
 
-      const recipients = staffList.filter((s) => s.isRecruitingAssistant && s.googleChatWebhookUrl);
-      if (recipients.length > 0) {
-        Promise.allSettled(
-          recipients.map((staff) =>
+      const recipients = staffList.filter((s) => s.isRecruitingAssistant);
+      const notifyCalls: Promise<void>[] = [];
+      recipients.forEach((staff) => {
+        getStaffWebhooksForKind(staff, 'EVALUATION_RESULT').forEach((webhookUrl) => {
+          notifyCalls.push(
             notifyEvaluationResultApi({
-              webhookUrl: staff.googleChatWebhookUrl!,
+              webhookUrl,
               staffName: staff.name,
               candidateName: target.name,
               candidateId: target.id,
@@ -619,8 +625,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               concerns: noteData.concerns,
               failReason: noteData.resultStatus === 'FAIL' ? noteData.failReason : undefined
             })
-          )
-        ).then((results) => {
+          );
+        });
+      });
+      if (notifyCalls.length > 0) {
+        Promise.allSettled(notifyCalls).then((results) => {
           const failedCount = results.filter((r) => r.status === 'rejected').length;
           if (failedCount > 0) {
             console.error(`Evaluation-result Chat notify: ${failedCount}件の送信に失敗しました`);
@@ -733,15 +742,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (newCandidate.phase === 'DOCUMENT_SCREENING' && docScreeningAssigneeName) {
       const assigneeName = docScreeningAssigneeName;
       const assignee = staffList.find((s) => s.name === assigneeName);
-      if (assignee?.googleChatWebhookUrl) {
-        notifyCandidateRegisteredApi({
-          webhookUrl: assignee.googleChatWebhookUrl,
-          staffName: assigneeName,
-          candidateName: newCandidate.name,
-          candidateId: newCandidate.id
-        }).catch((err) => {
-          console.error('Candidate-registered Chat notify failed:', err);
-          showToast(`${assigneeName} さんへのChat通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      if (assignee) {
+        getStaffWebhooksForKind(assignee, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
+          notifyCandidateRegisteredApi({
+            webhookUrl,
+            staffName: assigneeName,
+            candidateName: newCandidate.name,
+            candidateId: newCandidate.id
+          }).catch((err) => {
+            console.error('Candidate-registered Chat notify failed:', err);
+            showToast(`${assigneeName} さんへのChat通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+          });
         });
       }
     }

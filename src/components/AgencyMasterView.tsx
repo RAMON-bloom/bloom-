@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Agency, InternalStaff, AgencyContact } from '../types';
+import { Agency, InternalStaff, AgencyContact, StaffWebhook, ChatNotificationKind } from '../types';
+import { getAllStaffWebhookUrls, CHAT_NOTIFICATION_KINDS } from '../lib/staffUtils';
 import {
   Building2,
   Plus,
@@ -66,7 +67,7 @@ export const AgencyMasterView: React.FC = () => {
     role: '採用担当 (リクルーター)',
     email: '',
     isRecruitingAssistant: false,
-    googleChatWebhookUrl: ''
+    googleChatWebhooks: [] as StaffWebhook[]
   });
 
   // Delete Confirm Modal State
@@ -221,6 +222,8 @@ export const AgencyMasterView: React.FC = () => {
     });
   };
 
+  const ALL_NOTIFICATION_KINDS = CHAT_NOTIFICATION_KINDS.map((k) => k.key);
+
   // Staff Modal Helpers
   const handleOpenAddStaff = () => {
     setEditingStaff(null);
@@ -230,28 +233,72 @@ export const AgencyMasterView: React.FC = () => {
       role: '採用担当 (リクルーター)',
       email: '',
       isRecruitingAssistant: false,
-      googleChatWebhookUrl: ''
+      googleChatWebhooks: []
     });
     setIsStaffModalOpen(true);
   };
 
   const handleOpenEditStaff = (staff: InternalStaff) => {
     setEditingStaff(staff);
+    // 旧・単一Webhook欄に値が残っている場合、ここで新形式の一覧に1件として取り込む（用途を限定して
+    // いなかった経緯を尊重し、全通知種別を選択済みの状態にする）。保存すると旧欄はクリアされる。
+    const legacyEntry: StaffWebhook[] = staff.googleChatWebhookUrl
+      ? [{ id: `wh-legacy-${staff.id}`, url: staff.googleChatWebhookUrl, kinds: ALL_NOTIFICATION_KINDS }]
+      : [];
     setStaffFormData({
       name: staff.name,
       department: staff.department,
       role: staff.role,
       email: staff.email || '',
       isRecruitingAssistant: staff.isRecruitingAssistant || false,
-      googleChatWebhookUrl: staff.googleChatWebhookUrl || ''
+      googleChatWebhooks: [...(staff.googleChatWebhooks || []), ...legacyEntry]
     });
     setIsStaffModalOpen(true);
+  };
+
+  const handleAddWebhookRow = () => {
+    setStaffFormData((prev) => ({
+      ...prev,
+      googleChatWebhooks: [
+        ...prev.googleChatWebhooks,
+        { id: `wh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, url: '', label: '', kinds: ALL_NOTIFICATION_KINDS }
+      ]
+    }));
+  };
+
+  const handleUpdateWebhookRow = (id: string, field: 'url' | 'label', value: string) => {
+    setStaffFormData((prev) => ({
+      ...prev,
+      googleChatWebhooks: prev.googleChatWebhooks.map((wh) => (wh.id === id ? { ...wh, [field]: value } : wh))
+    }));
+  };
+
+  const handleRemoveWebhookRow = (id: string) => {
+    setStaffFormData((prev) => ({
+      ...prev,
+      googleChatWebhooks: prev.googleChatWebhooks.filter((wh) => wh.id !== id)
+    }));
+  };
+
+  const handleToggleWebhookKind = (id: string, kind: ChatNotificationKind) => {
+    setStaffFormData((prev) => ({
+      ...prev,
+      googleChatWebhooks: prev.googleChatWebhooks.map((wh) =>
+        wh.id === id
+          ? { ...wh, kinds: wh.kinds.includes(kind) ? wh.kinds.filter((k) => k !== kind) : [...wh.kinds, kind] }
+          : wh
+      )
+    }));
   };
 
   // Staff Submit
   const handleStaffSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!staffFormData.name.trim()) return;
+
+    const validWebhooks = staffFormData.googleChatWebhooks
+      .map((wh) => ({ ...wh, url: wh.url.trim(), label: wh.label?.trim() || undefined }))
+      .filter((wh) => wh.url.length > 0);
 
     if (editingStaff) {
       updateStaff({
@@ -261,7 +308,9 @@ export const AgencyMasterView: React.FC = () => {
         role: staffFormData.role,
         email: staffFormData.email.trim() || undefined,
         isRecruitingAssistant: staffFormData.isRecruitingAssistant,
-        googleChatWebhookUrl: staffFormData.googleChatWebhookUrl.trim() || undefined
+        googleChatWebhooks: validWebhooks.length > 0 ? validWebhooks : undefined,
+        // このフォームから保存した時点で新形式に一本化するため、旧欄はクリアする。
+        googleChatWebhookUrl: undefined
       });
     } else {
       addStaff({
@@ -270,7 +319,7 @@ export const AgencyMasterView: React.FC = () => {
         role: staffFormData.role,
         email: staffFormData.email.trim() || undefined,
         isRecruitingAssistant: staffFormData.isRecruitingAssistant,
-        googleChatWebhookUrl: staffFormData.googleChatWebhookUrl.trim() || undefined
+        googleChatWebhooks: validWebhooks.length > 0 ? validWebhooks : undefined
       });
     }
 
@@ -280,7 +329,7 @@ export const AgencyMasterView: React.FC = () => {
       role: '採用担当 (リクルーター)',
       email: '',
       isRecruitingAssistant: false,
-      googleChatWebhookUrl: ''
+      googleChatWebhooks: []
     });
     setEditingStaff(null);
     setIsStaffModalOpen(false);
@@ -565,6 +614,12 @@ export const AgencyMasterView: React.FC = () => {
                           <span className="flex items-center gap-0.5 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">
                             <UserCheck className="w-3 h-3" />
                             採用アシスタント
+                          </span>
+                        )}
+                        {getAllStaffWebhookUrls(staff).length > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                            <MessageSquare className="w-3 h-3" />
+                            Webhook {getAllStaffWebhookUrls(staff).length}件
                           </span>
                         )}
                         {staff.email === driveUserEmail && (
@@ -921,16 +976,83 @@ export const AgencyMasterView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-700 font-medium mb-1">Google Chat Webhook URL（任意）</label>
-                <input
-                  type="url"
-                  placeholder="https://chat.googleapis.com/v1/spaces/..."
-                  value={staffFormData.googleChatWebhookUrl}
-                  onChange={(e) => setStaffFormData({ ...staffFormData, googleChatWebhookUrl: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-700 font-medium">Google Chat Webhook URL（複数登録可・任意）</label>
+                  <button
+                    type="button"
+                    onClick={handleAddWebhookRow}
+                    className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>追加</span>
+                  </button>
+                </div>
+
+                {staffFormData.googleChatWebhooks.length === 0 ? (
+                  <p className="text-[11px] text-slate-400 italic py-1">未登録（「追加」からURLを登録できます）</p>
+                ) : (
+                  <div className="space-y-2">
+                    {staffFormData.googleChatWebhooks.map((wh) => (
+                      <div key={wh.id} className="border border-slate-200 rounded-lg p-2.5 space-y-1.5 bg-slate-50/60">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="url"
+                            placeholder="https://chat.googleapis.com/v1/spaces/..."
+                            value={wh.url}
+                            onChange={(e) => handleUpdateWebhookRow(wh.id, 'url', e.target.value)}
+                            className="flex-1 bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveWebhookRow(wh.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title="このURLを削除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="ラベル（任意・例: 個人スペース / 採用チーム全体 など、自分用の目印）"
+                          value={wh.label || ''}
+                          onChange={(e) => handleUpdateWebhookRow(wh.id, 'label', e.target.value)}
+                          className="w-full bg-white border border-slate-200 text-slate-700 rounded-lg px-2.5 py-1 text-[11px] focus:outline-none focus:border-indigo-400"
+                        />
+                        <div>
+                          <p className="text-[10px] text-slate-500 mb-1">このURLに送る通知の種類:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {CHAT_NOTIFICATION_KINDS.map((k) => {
+                              const active = wh.kinds.includes(k.key);
+                              return (
+                                <button
+                                  key={k.key}
+                                  type="button"
+                                  title={k.description}
+                                  onClick={() => handleToggleWebhookKind(wh.id, k.key)}
+                                  className={`text-[10px] font-bold px-2 py-1 rounded-full border transition-colors cursor-pointer ${
+                                    active
+                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                      : 'bg-white text-slate-500 border-slate-300 hover:border-indigo-300'
+                                  }`}
+                                >
+                                  {k.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {wh.kinds.length === 0 && (
+                            <p className="text-[10px] text-amber-600 mt-1">
+                              通知の種類を1つも選択していないため、このURLには何も届きません。
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <p className="text-[11px] text-slate-500 mt-1">
-                  設定すると、この担当者が書類選考担当として新規候補者に割り当てられた際にGoogle Chatへ自動で通知が届きます。
+                  リンクごとに送る通知の種類を選べます。合否確定はチーム全体のスペースへ、新規アサインは自分個人のスペースへ、といった振り分けが可能です。
                 </p>
 
                 <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">

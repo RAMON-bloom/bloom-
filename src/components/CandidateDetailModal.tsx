@@ -1462,14 +1462,29 @@ export const CandidateDetailModal: React.FC = () => {
                         <label className="block text-slate-700 font-bold mb-1">評価入力者</label>
                         <select
                           value={evalAuthor}
-                          onChange={(e) => handleEvalAuthorChange(e.target.value)}
+                          onChange={(e) => {
+                            if (e.target.value === '__CUSTOM__') {
+                              const customName = prompt('自由アサインする評価入力者のお名前を入力してください:');
+                              if (customName && customName.trim()) {
+                                handleEvalAuthorChange(customName.trim());
+                              }
+                            } else {
+                              handleEvalAuthorChange(e.target.value);
+                            }
+                          }}
                           className="w-full bg-slate-50 border border-slate-300 text-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:bg-white"
                         >
+                          <option value="__CUSTOM__" className="font-bold text-indigo-600">
+                            自由アサイン（選択肢外の名前を入力...）
+                          </option>
                           {staffList.map((s) => (
                             <option key={s.id} value={s.name}>
                               {s.name} ({s.department})
                             </option>
                           ))}
+                          {evalAuthor && !staffList.some((s) => s.name === evalAuthor) && (
+                            <option value={evalAuthor}>{evalAuthor} (自由アサイン)</option>
+                          )}
                         </select>
                       </div>
                     </div>
@@ -1766,15 +1781,30 @@ export const CandidateDetailModal: React.FC = () => {
                           </label>
                           <select
                             value={newNextInterviewer}
-                            onChange={(e) => setNewNextInterviewer(e.target.value)}
+                            onChange={(e) => {
+                              if (e.target.value === '__CUSTOM__') {
+                                const customName = prompt('自由アサインする次回面接官のお名前を入力してください:');
+                                if (customName && customName.trim()) {
+                                  setNewNextInterviewer(customName.trim());
+                                }
+                              } else {
+                                setNewNextInterviewer(e.target.value);
+                              }
+                            }}
                             className="bg-slate-50 border border-slate-300 text-slate-800 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:bg-white"
                           >
                             <option value="">未定</option>
+                            <option value="__CUSTOM__" className="font-bold text-indigo-600">
+                              自由アサイン（選択肢外の名前を入力...）
+                            </option>
                             {staffList.map((s) => (
                               <option key={s.id} value={s.name}>
                                 {s.name} ({s.department})
                               </option>
                             ))}
+                            {newNextInterviewer && !staffList.some((s) => s.name === newNextInterviewer) && (
+                              <option value={newNextInterviewer}>{newNextInterviewer} (自由アサイン)</option>
+                            )}
                           </select>
                         </div>
                       )}

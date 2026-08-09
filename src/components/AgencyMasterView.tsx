@@ -22,7 +22,9 @@ import {
   User,
   Check,
   Star,
-  MessageSquare
+  MessageSquare,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 export const AgencyMasterView: React.FC = () => {
@@ -76,6 +78,7 @@ export const AgencyMasterView: React.FC = () => {
   // しない（URL入力中の毎キー入力でDrive自動バックアップを誘発しないようにするため）。
   const [groupWebhookDraft, setGroupWebhookDraft] = useState<ChatWebhook[]>(groupChatWebhooks);
   const [isGroupWebhookDirty, setIsGroupWebhookDirty] = useState(false);
+  const [isGroupWebhookCollapsed, setIsGroupWebhookCollapsed] = useState(true);
 
   useEffect(() => {
     if (!isGroupWebhookDirty) {
@@ -645,29 +648,52 @@ export const AgencyMasterView: React.FC = () => {
           </div>
 
           {/* グループ用（複数人が見るスペース宛）Webhook設定。特定の担当者には属さない */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs overflow-hidden">
+            <div
+              onClick={() => setIsGroupWebhookCollapsed((prev) => !prev)}
+              className="p-4 flex items-center justify-between flex-wrap gap-2 cursor-pointer hover:bg-slate-50/80 transition-colors"
+            >
               <div>
                 <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-indigo-600" />
                   <span>グループ通知設定（複数人が見るスペース宛）</span>
+                  {groupChatWebhooks.length > 0 && (
+                    <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                      {groupChatWebhooks.length}件
+                    </span>
+                  )}
                 </h4>
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   特定の担当者に紐づかないWebhookを登録します。採用チーム全体のスペースなど、複数人で見ている場所に通知を送りたい場合はこちら。
                 </p>
               </div>
-              {userRole === 'ADMIN' && (
+              <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                {userRole === 'ADMIN' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsGroupWebhookCollapsed(false);
+                      handleAddGroupWebhookRow();
+                    }}
+                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Webhookを追加</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleAddGroupWebhookRow}
-                  className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer shrink-0"
+                  onClick={() => setIsGroupWebhookCollapsed((prev) => !prev)}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 transition-all cursor-pointer"
+                  title={isGroupWebhookCollapsed ? '展開する' : '折りたたむ'}
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Webhookを追加</span>
+                  {isGroupWebhookCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                 </button>
-              )}
+              </div>
             </div>
 
+            {!isGroupWebhookCollapsed && (
+            <div className="px-4 pb-4 space-y-3">
             {groupWebhookDraft.length === 0 ? (
               <p className="text-xs text-slate-400 italic">未登録</p>
             ) : (
@@ -756,6 +782,8 @@ export const AgencyMasterView: React.FC = () => {
                   <span>保存する</span>
                 </button>
               </div>
+            )}
+            </div>
             )}
           </div>
 

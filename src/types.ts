@@ -274,8 +274,8 @@ export interface OverdueDocScreeningInfo {
 }
 
 // アプリ内「お問い合わせ」機能。開発者との1スレッド分のやり取りをチャット形式で保持する。
-// 返信は今のところGoogle Chat側（開発者が個別に対応）で行われるため、messagesは基本的に
-// 送信側（自分）の発言のみが積み上がっていく想定。
+// 誰でも既存スレッドにメッセージを追加できるため、開発者からの返信もmessagesに積み上がって
+// いく（senderNameで発言者を区別する）。開発者にはGoogle Chatへの通知も別途送られる。
 export type InquiryCategory = 'BUG' | 'SUGGESTION' | 'OTHER';
 
 export interface InquiryMessage {

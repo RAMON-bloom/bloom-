@@ -19,7 +19,8 @@ const formatTimestamp = (iso: string) => {
 };
 
 export const InquiryModal: React.FC<InquiryModalProps> = ({ onClose }) => {
-  const { inquiries, addInquiryMessage } = useATS();
+  const { inquiries, addInquiryMessage, myStaffRecord, driveUserEmail } = useATS();
+  const myName = myStaffRecord?.name || driveUserEmail || '';
 
   const [activeInquiryId, setActiveInquiryId] = useState<string | null>(null);
   const [pendingCategory, setPendingCategory] = useState<InquiryCategory | null>(null);
@@ -126,7 +127,12 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ onClose }) => {
                         </span>
                         <span className="flex-1 min-w-0">
                           <span className="block text-xs font-bold text-slate-800">{meta.label}</span>
-                          <span className="block text-xs text-slate-500 truncate">{lastMessage?.text}</span>
+                          <span className="block text-xs text-slate-500 truncate">
+                            {lastMessage && lastMessage.senderName !== myName && (
+                              <span className="text-indigo-600 font-bold">{lastMessage.senderName}: </span>
+                            )}
+                            {lastMessage?.text}
+                          </span>
                         </span>
                         <span className="text-[10px] text-slate-400 shrink-0">{formatTimestamp(inq.updatedAt)}</span>
                       </button>
@@ -145,14 +151,24 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ onClose }) => {
                   最初のメッセージを送信してお問い合わせを開始してください。
                 </p>
               ) : (
-                (activeInquiry?.messages || []).map((msg) => (
-                  <div key={msg.id} className="flex flex-col items-end gap-0.5">
-                    <div className="max-w-[85%] bg-indigo-600 text-white text-xs leading-relaxed px-3.5 py-2.5 rounded-2xl rounded-tr-sm whitespace-pre-wrap shadow-2xs">
-                      {msg.text}
+                (activeInquiry?.messages || []).map((msg) => {
+                  const isOwn = msg.senderName === myName;
+                  return (
+                    <div key={msg.id} className={`flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}>
+                      {!isOwn && <span className="text-[10px] font-bold text-slate-500 pl-1">{msg.senderName}</span>}
+                      <div
+                        className={`max-w-[85%] text-xs leading-relaxed px-3.5 py-2.5 whitespace-pre-wrap shadow-2xs ${
+                          isOwn
+                            ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm'
+                            : 'bg-slate-100 text-slate-800 rounded-2xl rounded-tl-sm'
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                      <span className={`text-[10px] text-slate-400 ${isOwn ? 'pr-1' : 'pl-1'}`}>{formatTimestamp(msg.createdAt)}</span>
                     </div>
-                    <span className="text-[10px] text-slate-400 pr-1">{formatTimestamp(msg.createdAt)}</span>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 

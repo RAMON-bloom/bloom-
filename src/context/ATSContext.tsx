@@ -29,7 +29,8 @@ import {
 import {
   notifyCandidateRegistered as notifyCandidateRegisteredApi,
   notifyAttentionDigest as notifyAttentionDigestApi,
-  notifyDocScreeningNudge as notifyDocScreeningNudgeApi
+  notifyDocScreeningNudge as notifyDocScreeningNudgeApi,
+  notifyEvaluationResult as notifyEvaluationResultApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
@@ -559,8 +560,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })
     };
 
+    const target = candidates.find((c) => c.id === candidateId);
+
     if (noteData.resultStatus === 'FAIL') {
-      const target = candidates.find((c) => c.id === candidateId);
       if (target) moveResumeFolderIfNeeded(target, 'REJECTED_DECLINED' as SelectionPhase);
     }
 
@@ -586,6 +588,47 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return c;
       })
     );
+
+    // Best-effort Google Chat notification to every 採用アシスタント when a selection result is
+    // finalized (合格/不採用、書類選考も含む) — PENDINGでは発火しない。抜け防止ダイジェスト等と
+    // 同じくWebhook未設定なら黙ってスキップする、必須ではない付随通知。
+    if (target && (noteData.resultStatus === 'PASS' || noteData.resultStatus === 'FAIL')) {
+      const phaseLabels: Record<SelectionPhase, string> = {
+        DOCUMENT_SCREENING: '書類選考',
+        CASUAL_INTERVIEW: 'カジュアル面談',
+        FIRST_INTERVIEW: '1次面接',
+        SECOND_INTERVIEW: '2次面接',
+        FINAL_INTERVIEW: '最終面接',
+        OFFER_ISSUED: '内定通知',
+        OFFER_ACCEPTED: '内定承諾',
+        REJECTED_DECLINED: '辞退 / 不採用'
+      };
+
+      const recipients = staffList.filter((s) => s.isRecruitingAssistant && s.googleChatWebhookUrl);
+      if (recipients.length > 0) {
+        Promise.allSettled(
+          recipients.map((staff) =>
+            notifyEvaluationResultApi({
+              webhookUrl: staff.googleChatWebhookUrl!,
+              staffName: staff.name,
+              candidateName: target.name,
+              candidateId: target.id,
+              phaseLabel: phaseLabels[noteData.phase] || noteData.phase,
+              resultStatus: noteData.resultStatus as 'PASS' | 'FAIL',
+              goodPoints: noteData.goodPoints,
+              concerns: noteData.concerns,
+              failReason: noteData.resultStatus === 'FAIL' ? noteData.failReason : undefined
+            })
+          )
+        ).then((results) => {
+          const failedCount = results.filter((r) => r.status === 'rejected').length;
+          if (failedCount > 0) {
+            console.error(`Evaluation-result Chat notify: ${failedCount}件の送信に失敗しました`);
+            showToast(`選考結果のChat通知の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+          }
+        });
+      }
+    }
   };
 
   // Edits an existing note in place (keeps its id/createdAt/position in the list). The candidate's

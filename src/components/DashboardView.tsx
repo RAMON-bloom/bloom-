@@ -179,9 +179,12 @@ export const DashboardView: React.FC = () => {
             className="bg-slate-50 text-slate-800 border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer shadow-2xs"
           >
             <option value="ALL">全期間（累積）</option>
-            <option value="2026-07">2026年7月</option>
-            <option value="2026-06">2026年6月</option>
-            <option value="2026-05">2026年5月</option>
+            {[...availableMonths].reverse().map((m) => {
+              const [y, mo] = m.split('-');
+              return (
+                <option key={m} value={m}>{y}年{Number(mo)}月</option>
+              );
+            })}
           </select>
         </div>
 

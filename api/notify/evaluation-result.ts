@@ -1,4 +1,4 @@
-import { sendGoogleChatMessage } from '../_lib/googleChat.js';
+import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
 
 // Fired from ATSContext's addEvaluationNote whenever a note is saved with a final result
 // (合格/不採用, 書類選考含む — PENDING doesn't fire this), to every staff Chat webhook that has
@@ -13,6 +13,7 @@ export default async function handler(req: any, res: any) {
     const {
       webhookUrl,
       staffName,
+      staffMentionId,
       candidateName,
       candidateId,
       phaseLabel,
@@ -35,9 +36,10 @@ export default async function handler(req: any, res: any) {
 
     const link = appUrl || 'https://bloom-saiyou.vercel.app';
     const resultLabel = resultStatus === 'PASS' ? '✅ 合格' : '❌ 不採用';
+    const mention = formatMention(staffName, staffMentionId);
 
     const lines = [
-      staffName ? `📊 *@${staffName}* さん、選考結果が確定しました` : '📊 選考結果が確定しました',
+      mention ? `📊 ${mention} さん、選考結果が確定しました` : '📊 選考結果が確定しました',
       `候補者: ${candidateName} 様 (${candidateId})`,
       `フェーズ: ${phaseLabel || '-'}`,
       `結果: ${resultLabel}`,

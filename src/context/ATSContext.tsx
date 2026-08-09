@@ -388,6 +388,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             notifyAttentionDigestApi({
               webhookUrl,
               staffName: staff.name,
+              staffMentionId: staff.chatMentionId,
               stalledCount: stalled.length,
               overdueCount: overdue.length
             })
@@ -412,6 +413,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               notifyDocScreeningNudgeApi({
                 webhookUrl,
                 staffName: assigneeName,
+                staffMentionId: assignee.chatMentionId,
                 candidateName: candidate.name,
                 candidateId: candidate.id,
                 daysSinceUpdate
@@ -681,6 +683,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             notifyEvaluationResultApi({
               webhookUrl,
               staffName: staff.name,
+              staffMentionId: staff.chatMentionId,
               candidateName: target.name,
               candidateId: target.id,
               phaseLabel: phaseLabels[noteData.phase] || noteData.phase,
@@ -920,6 +923,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             notifyCandidateRegisteredApi({
               webhookUrl,
               staffName: assigneeName,
+              staffMentionId: assignee.chatMentionId,
               candidateName: newCandidate.name,
               candidateId: newCandidate.id
             }).catch((err) => {

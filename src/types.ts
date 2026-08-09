@@ -186,6 +186,7 @@ export interface InternalStaff {
   googleChatWebhookUrl?: string; // 旧・単一Webhook欄（後方互換のため残置、用途を限定せず全種別の送信対象として扱う）。読み取り側は必ずgetStaffWebhooksForKind()経由で使うこと
   googleChatWebhooks?: ChatWebhook[]; // 本人のGoogle Chatスペースの着信Webhook URL一覧。1件ごとに送る通知の種類(kinds)を指定できる
   email?: string; // Googleログインアカウントのメールアドレス。自己登録・自己編集の識別キー（管理者が手動追加した過去のレコードでは未設定のことがある）
+  chatMentionId?: string; // 本人のGoogle Chat数値ユーザーID。設定すると個人宛通知の「@名前」が本物のメンション（相手に通知が飛ぶ）になる。未設定なら太字テキストのみのフォールバック表示
 }
 
 export interface YieldMetrics {

@@ -29,3 +29,15 @@ export async function sendGoogleChatMessage(webhookUrl: string, text: string, th
     throw new Error(`Google Chat Webhookへの送信に失敗しました (HTTP ${response.status}): ${body.slice(0, 300)}`);
   }
 }
+
+// Builds the "@name" bit used at the start of personal notifications. When the staff member has
+// registered their numeric Google Chat user id (担当者マスタ「Google ChatメンションID」), embeds
+// the <users/{id}> markup Chat resolves into a real, notifying @mention chip; otherwise falls back
+// to a plain bold "*@name*" that reads the same but doesn't actually ping them (the id isn't
+// something the app can look up on its own — see 担当者マスタ's field help text for how staff find
+// it themselves). Returns '' when there's no staffName at all (group-webhook sends omit it).
+export function formatMention(staffName?: string, mentionId?: string): string {
+  if (mentionId) return `<users/${mentionId}>`;
+  if (staffName) return `*@${staffName}*`;
+  return '';
+}

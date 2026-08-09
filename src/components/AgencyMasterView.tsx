@@ -70,6 +70,7 @@ export const AgencyMasterView: React.FC = () => {
     department: '人事部',
     role: '採用担当 (リクルーター)',
     email: '',
+    chatMentionId: '',
     googleChatWebhooks: [] as ChatWebhook[]
   });
 
@@ -249,6 +250,7 @@ export const AgencyMasterView: React.FC = () => {
       department: '人事部',
       role: '採用担当 (リクルーター)',
       email: '',
+      chatMentionId: '',
       googleChatWebhooks: []
     });
     setIsStaffModalOpen(true);
@@ -266,6 +268,7 @@ export const AgencyMasterView: React.FC = () => {
       department: staff.department,
       role: staff.role,
       email: staff.email || '',
+      chatMentionId: staff.chatMentionId || '',
       googleChatWebhooks: [...(staff.googleChatWebhooks || []), ...legacyEntry]
     });
     setIsStaffModalOpen(true);
@@ -367,6 +370,7 @@ export const AgencyMasterView: React.FC = () => {
         department: staffFormData.department,
         role: staffFormData.role,
         email: staffFormData.email.trim() || undefined,
+        chatMentionId: staffFormData.chatMentionId.trim() || undefined,
         googleChatWebhooks: validWebhooks.length > 0 ? validWebhooks : undefined,
         // このフォームから保存した時点で新形式に一本化するため、旧欄はクリアする。
         googleChatWebhookUrl: undefined
@@ -377,6 +381,7 @@ export const AgencyMasterView: React.FC = () => {
         department: staffFormData.department,
         role: staffFormData.role,
         email: staffFormData.email.trim() || undefined,
+        chatMentionId: staffFormData.chatMentionId.trim() || undefined,
         googleChatWebhooks: validWebhooks.length > 0 ? validWebhooks : undefined
       });
     }
@@ -386,6 +391,7 @@ export const AgencyMasterView: React.FC = () => {
       department: '人事部',
       role: '採用担当 (リクルーター)',
       email: '',
+      chatMentionId: '',
       googleChatWebhooks: []
     });
     setEditingStaff(null);
@@ -1147,6 +1153,20 @@ export const AgencyMasterView: React.FC = () => {
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
                   設定すると、このGoogleアカウントでログインした本人が自分の情報を編集できるようになります。
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Google ChatメンションID（任意）</label>
+                <input
+                  type="text"
+                  placeholder="例: 113352777658254482749"
+                  value={staffFormData.chatMentionId}
+                  onChange={(e) => setStaffFormData({ ...staffFormData, chatMentionId: e.target.value.trim() })}
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 font-mono focus:outline-none focus:bg-white focus:border-indigo-500"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  設定すると、本人宛の通知（担当アサイン・選考結果確定など）が太字テキストではなく本物の@メンション（Chatに通知が届く）になります。調べ方: Google Chatで自分の名前・アイコンを右クリック→「検証」→<code className="bg-slate-100 px-1 rounded">data-member-id</code>で検索すると<code className="bg-slate-100 px-1 rounded">users/数字列</code>が見つかるので、数字列部分だけを貼り付けてください。
                 </p>
               </div>
 

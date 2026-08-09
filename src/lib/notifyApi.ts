@@ -3,6 +3,7 @@
 export async function notifyCandidateRegistered(params: {
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
+  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
   candidateName: string;
   candidateId: string;
 }): Promise<void> {
@@ -46,6 +47,7 @@ async function postAttentionNotify(body: Record<string, unknown>): Promise<void>
 export function notifyAttentionDigest(params: {
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
+  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
   stalledCount: number;
   overdueCount: number;
 }): Promise<void> {
@@ -55,6 +57,7 @@ export function notifyAttentionDigest(params: {
 export function notifyDocScreeningNudge(params: {
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
+  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
   candidateName: string;
   candidateId: string;
   daysSinceUpdate: number;
@@ -65,6 +68,7 @@ export function notifyDocScreeningNudge(params: {
 export async function notifyEvaluationResult(params: {
   webhookUrl: string;
   staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
+  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
   candidateName: string;
   candidateId: string;
   phaseLabel: string;

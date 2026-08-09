@@ -1,4 +1,4 @@
-import { sendGoogleChatMessage } from '../_lib/googleChat.js';
+import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
 
 // Fired from ATSContext's daily stalled-candidate check (client-triggered, throttled to once per
 // browser per day — there's no server cron/service account in this app, see attentionUtils.ts).
@@ -14,12 +14,13 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { kind, webhookUrl, staffName, appUrl } = req.body || {};
+    const { kind, webhookUrl, staffName, staffMentionId, appUrl } = req.body || {};
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrlが必要です。' });
     }
 
     const link = appUrl || 'https://bloom-saiyou.vercel.app';
+    const mention = formatMention(staffName, staffMentionId);
     let text: string;
 
     if (kind === 'digest') {
@@ -28,7 +29,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'stalledCount/overdueCountが必要です。' });
       }
       text =
-        (staffName ? `🔔 *@${staffName}* さん、対応が必要な候補者があります\n` : `🔔 対応が必要な候補者があります\n`) +
+        (mention ? `🔔 ${mention} さん、対応が必要な候補者があります\n` : `🔔 対応が必要な候補者があります\n`) +
         `進捗停滞中: ${stalledCount}名\n` +
         `書類選考 対応待ち: ${overdueCount}名\n` +
         `アプリで確認する: ${link}`;
@@ -38,7 +39,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: '候補者情報（名前・ID）が必要です。' });
       }
       text =
-        (staffName ? `⏰ *@${staffName}* さん、書類選考の対応が止まっています\n` : `⏰ 書類選考の対応が止まっています\n`) +
+        (mention ? `⏰ ${mention} さん、書類選考の対応が止まっています\n` : `⏰ 書類選考の対応が止まっています\n`) +
         `候補者: ${candidateName} 様 (${candidateId})\n` +
         `最終更新から ${daysSinceUpdate}日 経過しています\n` +
         `アプリで確認する: ${link}`;

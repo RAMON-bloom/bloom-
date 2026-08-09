@@ -1426,104 +1426,6 @@ export const CandidateDetailModal: React.FC = () => {
                               </span>
                             )}
                           </div>
-
-                          {/* 5. 面談ログ取り込み (Drive/カレンダー連携) (md:col-span-12) */}
-                          <div className="md:col-span-12 pt-2 mt-1 border-t border-slate-100 space-y-1.5">
-                            {(() => {
-                              const importedLog = candidate.interviewLogsByPhase?.[stg.phase];
-                              const logDetailKey = `interviewLog_${stg.phase}`;
-                              const isLogDetailOpen = !!collapsedSections[logDetailKey];
-                              const isImportPanelOpen = logImportTargetPhase === stg.phase;
-                              const isImporting = isImportingLogPhase === stg.phase;
-
-                              return (
-                                <>
-                                  <div className="flex items-center justify-between flex-wrap gap-1.5">
-                                    {importedLog ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleSection(logDetailKey)}
-                                        className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-900 cursor-pointer"
-                                      >
-                                        <FileCheck className="w-3 h-3" />
-                                        <span>面談ログ取込済み ({importedLog.eventSummary || importedLog.sourceDriveFileName})</span>
-                                        {isLogDetailOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                                      </button>
-                                    ) : (
-                                      <span className="text-[10px] text-slate-400 italic">面談ログ未取込</span>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleLogImportPanel(stg.phase)}
-                                      className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
-                                    >
-                                      <Download className="w-3 h-3" />
-                                      <span>{importedLog ? '再取込' : '面談ログを取り込む'} (Drive/カレンダー)</span>
-                                    </button>
-                                  </div>
-
-                                  {isImportPanelOpen && (
-                                    <div className="flex items-center gap-1.5 flex-wrap bg-indigo-50/50 border border-indigo-100 rounded-lg p-2">
-                                      <span className="text-[10px] text-slate-600">
-                                        候補者名「{candidate.name}」を含むカレンダー予定を検索する日付:
-                                      </span>
-                                      <input
-                                        type="date"
-                                        value={logImportDate}
-                                        onChange={(e) => setLogImportDate(e.target.value)}
-                                        className="bg-white border border-slate-300 text-slate-800 text-[10px] font-bold rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => handleImportInterviewLog(stg.phase)}
-                                        disabled={isImporting}
-                                        className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2 py-1 rounded transition-all cursor-pointer disabled:opacity-50"
-                                      >
-                                        {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                                        <span>{isImporting ? '検索・要約中...' : '検索して取り込む'}</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setLogImportTargetPhase(null)}
-                                        className="text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer"
-                                      >
-                                        キャンセル
-                                      </button>
-                                    </div>
-                                  )}
-
-                                  {importedLog && isLogDetailOpen && (
-                                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 text-[11px]">
-                                      <p className="text-slate-700 leading-relaxed">{importedLog.summary.overview}</p>
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
-                                        <div className="bg-white p-2 rounded border border-slate-200">
-                                          <span className="font-bold text-slate-700 block mb-0.5">面接評価・フィードバック</span>
-                                          <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{importedLog.summary.interviewFeedback}</p>
-                                        </div>
-                                        <div className="bg-white p-2 rounded border border-slate-200">
-                                          <span className="font-bold text-slate-700 block mb-0.5">候補者の質問・希望条件</span>
-                                          <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{importedLog.summary.candidateQuestions}</p>
-                                        </div>
-                                      </div>
-                                      <div className="bg-amber-50/70 p-2 rounded border border-amber-200">
-                                        <span className="font-bold text-amber-900 block mb-0.5">推奨次アクション</span>
-                                        <p className="text-amber-950 leading-relaxed">{importedLog.summary.nextAction}</p>
-                                      </div>
-                                      <a
-                                        href={`https://docs.google.com/document/d/${importedLog.sourceDriveFileId}/edit`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-semibold"
-                                      >
-                                        <ExternalLink className="w-3 h-3" />
-                                        元の議事録をDriveで開く
-                                      </a>
-                                    </div>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>
                         </div>
                       );
                     })}
@@ -2279,6 +2181,105 @@ export const CandidateDetailModal: React.FC = () => {
                                   {note.comment}
                                 </p>
                               )}
+
+                              {/* 面談ログ取り込み (Drive/カレンダー連携)。このノートのフェーズに紐づけて
+                                  保存するため、同じフェーズの他のノートからも同じログが見える。 */}
+                              <div className="pt-2 mt-1 border-t border-slate-100 space-y-1.5">
+                                {(() => {
+                                  const importedLog = candidate.interviewLogsByPhase?.[note.phase];
+                                  const logDetailKey = `interviewLog_${note.phase}`;
+                                  const isLogDetailOpen = !!collapsedSections[logDetailKey];
+                                  const isImportPanelOpen = logImportTargetPhase === note.phase;
+                                  const isImporting = isImportingLogPhase === note.phase;
+
+                                  return (
+                                    <>
+                                      <div className="flex items-center justify-between flex-wrap gap-1.5">
+                                        {importedLog ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleSection(logDetailKey)}
+                                            className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                                          >
+                                            <FileCheck className="w-3 h-3" />
+                                            <span>面談ログ取込済み ({importedLog.eventSummary || importedLog.sourceDriveFileName})</span>
+                                            {isLogDetailOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                          </button>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-400 italic">面談ログ未取込</span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleLogImportPanel(note.phase)}
+                                          className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                                        >
+                                          <Download className="w-3 h-3" />
+                                          <span>{importedLog ? '再取込' : '面談ログを取り込む'} (Drive/カレンダー)</span>
+                                        </button>
+                                      </div>
+
+                                      {isImportPanelOpen && (
+                                        <div className="flex items-center gap-1.5 flex-wrap bg-indigo-50/50 border border-indigo-100 rounded-lg p-2">
+                                          <span className="text-[10px] text-slate-600">
+                                            候補者名「{candidate.name}」を含むカレンダー予定を検索する日付:
+                                          </span>
+                                          <input
+                                            type="date"
+                                            value={logImportDate}
+                                            onChange={(e) => setLogImportDate(e.target.value)}
+                                            className="bg-white border border-slate-300 text-slate-800 text-[10px] font-bold rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleImportInterviewLog(note.phase)}
+                                            disabled={isImporting}
+                                            className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2 py-1 rounded transition-all cursor-pointer disabled:opacity-50"
+                                          >
+                                            {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                                            <span>{isImporting ? '検索・要約中...' : '検索して取り込む'}</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setLogImportTargetPhase(null)}
+                                            className="text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer"
+                                          >
+                                            キャンセル
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      {importedLog && isLogDetailOpen && (
+                                        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 text-[11px]">
+                                          <p className="text-slate-700 leading-relaxed">{importedLog.summary.overview}</p>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
+                                            <div className="bg-white p-2 rounded border border-slate-200">
+                                              <span className="font-bold text-slate-700 block mb-0.5">面接評価・フィードバック</span>
+                                              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{importedLog.summary.interviewFeedback}</p>
+                                            </div>
+                                            <div className="bg-white p-2 rounded border border-slate-200">
+                                              <span className="font-bold text-slate-700 block mb-0.5">候補者の質問・希望条件</span>
+                                              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{importedLog.summary.candidateQuestions}</p>
+                                            </div>
+                                          </div>
+                                          <div className="bg-amber-50/70 p-2 rounded border border-amber-200">
+                                            <span className="font-bold text-amber-900 block mb-0.5">推奨次アクション</span>
+                                            <p className="text-amber-950 leading-relaxed">{importedLog.summary.nextAction}</p>
+                                          </div>
+                                          <a
+                                            href={`https://docs.google.com/document/d/${importedLog.sourceDriveFileId}/edit`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-semibold"
+                                          >
+                                            <ExternalLink className="w-3 h-3" />
+                                            元の議事録をDriveで開く
+                                          </a>
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </div>
                             </>
                           )}
                         </div>

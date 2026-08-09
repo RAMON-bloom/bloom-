@@ -12,7 +12,9 @@ export const PHASE_SEQUENCE: SelectionPhase[] = [
 ];
 
 // 指定フェーズの次のフェーズを返す。最終フェーズ(内定承諾)、または辞退/不採用の場合はnull。
+// 書類選考のみ例外: カジュアル面談を挟まず1次面接に直接進む。
 export function getNextPhase(phase: SelectionPhase): SelectionPhase | null {
+  if (phase === 'DOCUMENT_SCREENING') return 'FIRST_INTERVIEW';
   const index = PHASE_SEQUENCE.indexOf(phase);
   if (index === -1 || index === PHASE_SEQUENCE.length - 1) return null;
   return PHASE_SEQUENCE[index + 1];

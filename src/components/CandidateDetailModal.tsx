@@ -186,6 +186,7 @@ export const CandidateDetailModal: React.FC = () => {
   const [newComment, setNewComment] = useState<string>('');
   const [evalAuthor, setEvalAuthor] = useState<string>(staffList[0]?.name || '山田 太郎');
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
+  const [newNextInterviewer, setNewNextInterviewer] = useState<string>('');
   const [failReason, setFailReason] = useState<string>('');
 
   // Evaluation Log edit/delete state
@@ -678,8 +679,17 @@ export const CandidateDetailModal: React.FC = () => {
         const nextPhase = getNextPhase(candidate.phase);
         if (nextPhase) {
           updateCandidatePhase(candidate.id, nextPhase);
+          if (newNextInterviewer) {
+            const currentList = candidate.interviewersByPhase?.[nextPhase] || [];
+            if (!currentList.includes(newNextInterviewer)) {
+              updateInterviewersForPhase(candidate.id, nextPhase, [...currentList, newNextInterviewer]);
+            }
+            setEvalAuthor(newNextInterviewer);
+          } else {
+            syncEvalAuthorToPhase(nextPhase, candidate.interviewersByPhase);
+          }
           setEvalTargetPhase(nextPhase);
-          syncEvalAuthorToPhase(nextPhase, candidate.interviewersByPhase);
+          setNewNextInterviewer('');
         }
       }
     }
@@ -730,6 +740,10 @@ export const CandidateDetailModal: React.FC = () => {
       updateInterviewersForPhase(candidate.id, evalTargetPhase, [name]);
     }
   };
+
+  // 合格保存で現在地が進む先のフェーズ (対象フェーズが現在地と一致し、かつ次フェーズが存在する場合のみ)。
+  // このフェーズが決まる場合のみ、保存ボタン横に次回面接官の指定欄を出す。
+  const pendingPassNextPhase = evalTargetPhase === candidate.phase ? getNextPhase(candidate.phase) : null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-xs flex justify-end transition-opacity">
@@ -1744,13 +1758,32 @@ export const CandidateDetailModal: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex justify-end">
+                    <div className="flex items-center justify-end gap-3">
+                      {evalResultStatus === 'PASS' && pendingPassNextPhase && (
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                            次回面接官 ({PHASE_LABELS[pendingPassNextPhase]})
+                          </label>
+                          <select
+                            value={newNextInterviewer}
+                            onChange={(e) => setNewNextInterviewer(e.target.value)}
+                            className="bg-slate-50 border border-slate-300 text-slate-800 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:bg-white"
+                          >
+                            <option value="">未定</option>
+                            {staffList.map((s) => (
+                              <option key={s.id} value={s.name}>
+                                {s.name} ({s.department})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                       <button
                         type="submit"
                         className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2 rounded-xl shadow-2xs transition-all cursor-pointer"
                       >
                         <Send className="w-3.5 h-3.5" />
-                        <span>評価メモを保存</span>
+                        <span>評価を保存</span>
                       </button>
                     </div>
                   </form>

@@ -758,7 +758,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // threadKey(候補者ID)で書き込む（EVALUATION_SUMMARY_THREAD種別を選んだWebhookのみが対象）。
       // まだそのスレッドが存在しない候補者（書類選考で不採用のまま等）宛の場合は、Google Chat側で
       // 新規スレッドとして作成される。
-      {
+      // 書類選考PASS自体は除外する: そのイベントはこの直前のブロックが送るDOCUMENT_SCREENING_THREAD
+      // の投稿がスレッドの最初のメッセージとして届く必要があるため。ここも同時に発火させると、2つの
+      // 独立したリクエストがどちらが先にChatへ届くか保証されず、評価サマリの方が先着してスレッドの
+      // 最初のメッセージになってしまうことがあった（実際に発生した不具合）。
+      if (!(noteData.phase === 'DOCUMENT_SCREENING' && noteData.resultStatus === 'PASS')) {
         const nextPhase = noteData.resultStatus === 'PASS' ? getNextPhase(noteData.phase) : null;
         const nextPhaseLabel = nextPhase ? phaseLabels[nextPhase] : undefined;
         const existingNextInterviewers = nextPhase ? target.interviewersByPhase?.[nextPhase] || [] : [];

@@ -1074,6 +1074,69 @@ export const CandidateDetailModal: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-200">
+                  <div>
+                    <label className="block text-slate-500 font-semibold mb-1 text-[11px]">主担当者（複数選択可）</label>
+                    <div className="flex items-center gap-1 flex-wrap bg-white border border-slate-300 rounded-lg px-2 py-1.5 min-h-[34px]">
+                      {candidate.assignees.length > 0 ? (
+                        candidate.assignees.map((staffName) => (
+                          <span
+                            key={staffName}
+                            className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-950 font-bold text-[11px] pl-2 pr-1 py-0.5 rounded border border-indigo-200/90"
+                          >
+                            <User className="w-3 h-3 text-indigo-600 shrink-0" />
+                            <span>{staffName}</span>
+                            <button
+                              type="button"
+                              onClick={() => updateCandidate({ ...candidate, assignees: candidate.assignees.filter((a) => a !== staffName) })}
+                              title={`${staffName} を担当から外す`}
+                              className="ml-0.5 text-indigo-400 hover:text-rose-600 cursor-pointer"
+                            >
+                              <XCircle className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-slate-400 text-[11px] italic">未割当</span>
+                      )}
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val || candidate.assignees.includes(val)) return;
+                          updateCandidate({ ...candidate, assignees: [...candidate.assignees, val] });
+                        }}
+                        className="bg-transparent text-slate-500 text-[11px] rounded px-1 py-0.5 font-semibold cursor-pointer focus:outline-none"
+                      >
+                        <option value="">+ 追加</option>
+                        {staffList
+                          .filter((s) => !candidate.assignees.includes(s.name))
+                          .map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-500 font-semibold mb-1 text-[11px]">書類選考担当者</label>
+                    <select
+                      value={candidate.documentScreeningAssignee || ''}
+                      onChange={(e) => updateCandidate({ ...candidate, documentScreeningAssignee: e.target.value || undefined })}
+                      className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="">主担当者と同じ（{candidate.assignees[0] || '未設定'}）</option>
+                      {staffList.map((s) => (
+                        <option key={s.id} value={s.name}>
+                          {s.name} ({s.department})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div className="flex items-center justify-between pt-2 border-t border-slate-200">
                   <div className="flex items-center gap-2">
                     {userRole === 'ADMIN' && (

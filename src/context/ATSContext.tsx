@@ -886,13 +886,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドと同じ
       // threadKey(候補者ID)で書き込む（EVALUATION_SUMMARY_THREAD種別を選んだWebhookのみが対象）。
-      // まだそのスレッドが存在しない候補者（書類選考で不採用のまま等）宛の場合は、Google Chat側で
-      // 新規スレッドとして作成される。
-      // 書類選考PASS自体は除外する: そのイベントはこの直前のブロックが送るDOCUMENT_SCREENING_THREAD
-      // の投稿がスレッドの最初のメッセージとして届く必要があるため。ここも同時に発火させると、2つの
-      // 独立したリクエストがどちらが先にChatへ届くか保証されず、評価サマリの方が先着してスレッドの
-      // 最初のメッセージになってしまうことがあった（実際に発生した不具合）。
-      if (!(noteData.phase === 'DOCUMENT_SCREENING' && noteData.resultStatus === 'PASS')) {
+      // 書類選考フェーズ自体は丸ごと除外する。理由は2つ:
+      // 1. PASS: このイベントはこの直前のブロックが送るDOCUMENT_SCREENING_THREADの投稿がスレッドの
+      //    最初のメッセージとして届く必要がある。ここも同時に発火させると、2つの独立したリクエスト
+      //    がどちらが先にChatへ届くか保証されず、評価サマリの方が先着してスレッドの最初のメッセージ
+      //    になってしまうことがあった（実際に発生した不具合）。
+      // 2. FAIL: 書類選考で不採用の候補者はそもそもスレッドを持たない（PASSした候補者のみ
+      //    DOCUMENT_SCREENING_THREADでスレッドが作られる）。以前はここを発火させていたため、
+      //    まだ存在しないスレッドがGoogle Chat側で新規作成されてしまい、「書類選考通過スレッド」の
+      //    Webhookが不合格の候補者にもスレッドを立ててしまう不具合になっていた。
+      if (noteData.phase !== 'DOCUMENT_SCREENING') {
         const nextPhase = noteData.resultStatus === 'PASS' ? getNextPhase(noteData.phase) : null;
         const nextPhaseLabel = nextPhase ? phaseLabels[nextPhase] : undefined;
         const existingNextInterviewers = nextPhase ? target.interviewersByPhase?.[nextPhase] || [] : [];

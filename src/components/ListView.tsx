@@ -68,10 +68,12 @@ const InlineTextCell: React.FC<{
         setText(value || '');
         setIsEditing(true);
       }}
-      className={`group/cell inline-flex items-center gap-1 text-left cursor-pointer hover:bg-slate-100/80 px-1 py-0.5 rounded transition-colors ${className}`}
-      title="クリックして編集"
+      className={`group/cell flex items-center gap-1 text-left cursor-pointer hover:bg-slate-100/80 px-1 py-0.5 rounded transition-colors w-full min-w-0 ${className}`}
+      title={value || 'クリックして編集'}
     >
-      <span className={value ? 'text-slate-800' : 'text-slate-400 border-b border-dashed border-slate-300'}>
+      {/* min-w-0はflexアイテムのデフォルト(min-width: auto)を打ち消すために必須 — これがないと
+          長いテキストの時にtruncateが効かず、隣の列の上にはみ出して重なって読めなくなる */}
+      <span className={`truncate min-w-0 ${value ? 'text-slate-800' : 'text-slate-400 border-b border-dashed border-slate-300'}`}>
         {value || placeholder}
       </span>
       <Edit2 className="w-2.5 h-2.5 text-slate-400 opacity-0 group-hover/cell:opacity-100 transition-opacity shrink-0" />
@@ -172,6 +174,10 @@ export const ListView: React.FC = () => {
   const [sortField, setSortField] = useState<ListViewSortField>('phase');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string } | null>(null);
+  // 辞退/不採用の候補者は一覧が長くなり選考中の候補者を探しづらくするため、デフォルトでは
+  // 非表示にする。フェーズ絞り込みで「辞退/不採用」を明示的に選んだ場合はこの非表示を適用しない
+  // （選んだのに何も表示されないと混乱するため）。
+  const [showRejectedDeclined, setShowRejectedDeclined] = useState(false);
 
   const handleSort = (field: ListViewSortField) => {
     if (sortField === field) {
@@ -384,7 +390,16 @@ export const ListView: React.FC = () => {
     },
   ];
 
-  const sortedCandidates = [...filteredCandidates].sort((a, b) => {
+  // 辞退/不採用を明示的にフェーズ絞り込みしている場合は非表示にしない
+  const hiddenRejectedDeclinedCount = showRejectedDeclined || filters.phase === 'REJECTED_DECLINED'
+    ? 0
+    : filteredCandidates.filter((c) => c.phase === 'REJECTED_DECLINED').length;
+
+  const visibleCandidates = showRejectedDeclined || filters.phase === 'REJECTED_DECLINED'
+    ? filteredCandidates
+    : filteredCandidates.filter((c) => c.phase !== 'REJECTED_DECLINED');
+
+  const sortedCandidates = [...visibleCandidates].sort((a, b) => {
     let result = 0;
 
     if (sortField === 'phase') {
@@ -558,6 +573,22 @@ export const ListView: React.FC = () => {
         <div className="p-3 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2 text-slate-700 font-medium">
             <span>該当候補者: <strong className="text-slate-900 font-mono text-sm">{sortedCandidates.length}</strong> 名</span>
+            {filters.phase !== 'REJECTED_DECLINED' && (hiddenRejectedDeclinedCount > 0 || showRejectedDeclined) && (
+              <button
+                type="button"
+                onClick={() => setShowRejectedDeclined((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
+                  showRejectedDeclined
+                    ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                    : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                }`}
+              >
+                <XCircle className="w-3 h-3" />
+                {showRejectedDeclined
+                  ? '辞退/不採用を非表示にする'
+                  : `辞退/不採用を表示する (${hiddenRejectedDeclinedCount}名)`}
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

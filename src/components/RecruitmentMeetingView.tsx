@@ -312,13 +312,35 @@ export const RecruitmentMeetingView: React.FC = () => {
     }
 
     setIsSearchingCalendar(true);
-    try {
-      const match = await findCalendarMeetingNotes(driveAccessToken, activeMeeting.date);
-      if (!match.found || !match.fileId) {
-        showToast('この日付に一致する「採用社内MTG」の予定、またはGemini議事録の添付が見つかりませんでした。', 'warning');
-        return;
-      }
 
+    // カレンダー検索とDrive本文取得を別々にtry/catchするのは、403/401の意味が異なるため。
+    // カレンダー検索側の403/401は自分のOAuthトークンがカレンダースコープを持っていない場合で、
+    // 再ログインが有効。一方カレンダー検索は成功した（＝予定・添付ファイルの存在は分かった）のに
+    // Drive本文取得だけ403になる場合は、Google Meetの自動議事録がその会議の参加者にしか共有
+    // されないファイル単位の権限の問題であり、自分がその回に参加していなければ再ログインしても
+    // 直らない。
+    let match;
+    try {
+      match = await findCalendarMeetingNotes(driveAccessToken, activeMeeting.date);
+    } catch (err: any) {
+      const message = err.message || '不明なエラー';
+      showToast(
+        message.includes('403') || message.includes('401')
+          ? 'カレンダーへのアクセス権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
+          : `カレンダーの検索に失敗しました: ${message}`,
+        'warning'
+      );
+      setIsSearchingCalendar(false);
+      return;
+    }
+
+    if (!match.found || !match.fileId) {
+      showToast('この日付に一致する「採用社内MTG」の予定、またはGemini議事録の添付が見つかりませんでした。', 'warning');
+      setIsSearchingCalendar(false);
+      return;
+    }
+
+    try {
       const file = { id: match.fileId, name: match.fileName || 'Gemini によるメモ', mimeType: 'application/vnd.google-apps.document' };
       const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
 
@@ -341,8 +363,8 @@ export const RecruitmentMeetingView: React.FC = () => {
       const message = err.message || '不明なエラー';
       showToast(
         message.includes('403') || message.includes('401')
-          ? 'カレンダーへのアクセス権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
-          : `カレンダーからの議事録取り込みに失敗しました: ${message}`,
+          ? `この会議の議事録ファイル（「${match.eventSummary}」）を開く権限がありません。Google Meetの自動議事録はその回の参加者にのみ共有されるため、参加していない場合は取り込めません（ログアウト・再ログインでは解決しません）。実際に参加した方に一度取り込んでいただければ、その要約は保存され、以降は参加していない方も含め誰でも閲覧できるようになります。`
+          : `議事録の取得・要約に失敗しました: ${message}`,
         'warning'
       );
     } finally {

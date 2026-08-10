@@ -724,16 +724,39 @@ export const CandidateDetailModal: React.FC = () => {
     }
 
     setIsImportingLogPhase(phase);
-    try {
-      const match = await findCalendarMeetingNotes(driveAccessToken, logImportDate, candidate.name);
-      if (!match.found || !match.fileId) {
-        showToast(
-          `${logImportDate} 前後に候補者名「${candidate.name}」を含むカレンダー予定、またはGemini議事録の添付が見つかりませんでした。`,
-          'warning'
-        );
-        return;
-      }
 
+    // カレンダー検索とDrive本文取得を別々にtry/catchするのは、403/401が起きる理由が2つあり
+    // 対処法が全く異なるため。カレンダー検索側の403/401は自分のOAuthトークン自体がカレンダー
+    // スコープを持っていない場合に起きるので再ログインが有効。一方、カレンダー検索は成功した
+    // (＝該当の予定・添付ファイルの存在は分かった)のにDrive本文取得だけが403になる場合は、
+    // Google Meetの自動議事録(Gemini によるメモ)がその面談の参加者にしか共有されないファイル
+    // 単位の権限の問題であり、自分がその面談に参加していなければ何度再ログインしても直らない
+    // （実際にこの理由で「再ログインしても直らない」という報告があった）。
+    let match;
+    try {
+      match = await findCalendarMeetingNotes(driveAccessToken, logImportDate, candidate.name);
+    } catch (err: any) {
+      const message = err.message || '不明なエラー';
+      showToast(
+        message.includes('403') || message.includes('401')
+          ? 'カレンダーへのアクセス権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
+          : `カレンダーの検索に失敗しました: ${message}`,
+        'warning'
+      );
+      setIsImportingLogPhase(null);
+      return;
+    }
+
+    if (!match.found || !match.fileId) {
+      showToast(
+        `${logImportDate} 前後に候補者名「${candidate.name}」を含むカレンダー予定、またはGemini議事録の添付が見つかりませんでした。`,
+        'warning'
+      );
+      setIsImportingLogPhase(null);
+      return;
+    }
+
+    try {
       const file = { id: match.fileId, name: match.fileName || 'Gemini によるメモ', mimeType: 'application/vnd.google-apps.document' };
       const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
 
@@ -754,8 +777,8 @@ export const CandidateDetailModal: React.FC = () => {
       const message = err.message || '不明なエラー';
       showToast(
         message.includes('403') || message.includes('401')
-          ? 'カレンダー/Driveへのアクセス権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
-          : `面談ログの取り込みに失敗しました: ${message}`,
+          ? `この面談の議事録ファイル（「${match.eventSummary}」）を開く権限がありません。Google Meetの自動議事録はその面談の参加者にのみ共有されるため、この面談に参加していない場合は取り込めません（ログアウト・再ログインでは解決しません）。実際に参加した方にこの画面から一度取り込んでいただければ、その要約は候補者情報として保存され、以降は参加していない方も含め誰でも閲覧できるようになります。`
+          : `議事録の取得・要約に失敗しました: ${message}`,
         'warning'
       );
     } finally {

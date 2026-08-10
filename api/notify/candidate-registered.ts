@@ -24,6 +24,11 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: '候補者情報（名前・ID）が必要です。' });
     }
 
+    // TEMP DEBUG: tracking down a report that the bold mention isn't showing up in the sent
+    // message — logs only the presence/value of the name fields, nothing sensitive. Remove once
+    // confirmed.
+    console.log('candidate-registered notify payload:', { candidateId, staffName, staffMentionId });
+
     const link = appUrl || 'https://bloom-saiyou.vercel.app';
     // 実メンション(<users/id>)は@マーク無しの平文名表示になるだけで通知もされない既知の制約が
     // あるため(HANDOFF記載)、この新規アサイン通知は常に太字テキストのメンションで担当者に呼びかける。

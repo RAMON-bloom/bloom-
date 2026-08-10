@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ATSProvider, useATS } from './context/ATSContext';
 import { Header } from './components/Header';
 import { KanbanView } from './components/KanbanView';
@@ -16,6 +16,13 @@ import { SelfRegistrationPrompt } from './components/SelfRegistrationPrompt';
 
 const MainContent: React.FC = () => {
   const { activeTab } = useATS();
+
+  // タブ切り替え時、直前のタブでスクロールしていた位置がそのまま持ち越されてしまい、新しい
+  // タブの内容が少しスクロールした状態で表示されてしまう不具合があったため、タブが変わるたび
+  // ページ最上部へ戻す。
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [activeTab]);
 
   return (
     <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">

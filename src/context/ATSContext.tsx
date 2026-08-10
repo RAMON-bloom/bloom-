@@ -299,6 +299,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Skips the very first run (mount/initial hydration, including the auto-restore below populating
   // these from Drive, is not a "change" worth writing straight back), and only failures get a
   // toast — success is meant to be invisible, matching what "automatic" implies.
+  // Timestamp of the newest Drive snapshot this tab has either written itself or already applied
+  // (from restore or a background poll — see pollFromDrive below). Lets the poll tell "someone
+  // else's newer edit" apart from "Drive still has whatever I most recently wrote/read," so it
+  // never redundantly re-applies our own just-written data or, worse, replaces in-progress local
+  // state with something no newer than what's already showing.
+  const lastAppliedBackupAtRef = useRef<string | null>(null);
+
   const autoBackupMountedRef = useRef(false);
   const autoBackupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -310,9 +317,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     autoBackupTimerRef.current = setTimeout(() => {
-      backupToDriveApi(driveAccessToken, latestBackupStateRef.current).catch((err: any) => {
-        showToast(`Driveへの自動バックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-      });
+      backupToDriveApi(driveAccessToken, latestBackupStateRef.current)
+        .then(() => {
+          // Captured after the write completes (so it's already at least as new as whatever
+          // timestamp the server just stamped the file with), not before — a poll landing right
+          // after this should see its own echo and skip, not treat it as someone else's edit.
+          lastAppliedBackupAtRef.current = new Date().toISOString();
+        })
+        .catch((err: any) => {
+          showToast(`Driveへの自動バックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+        });
     }, 5000);
 
     return () => {
@@ -336,6 +350,59 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!driveAccessToken || hasAutoRestoredRef.current) return;
     hasAutoRestoredRef.current = true;
     restoreFromDrive({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveAccessToken]);
+
+  // Keeps everyone's open tab reasonably in sync without a real push channel (this app has no
+  // WebSocket/server-push backend — see api/drive/backup.ts's single shared JSON file): every 20s,
+  // and immediately whenever the tab regains focus, quietly re-checks Drive and applies it only if
+  // it's actually newer than what this tab last wrote or applied. A no-op most of the time (nobody
+  // else changed anything since the last check), and cheap even when it isn't — one Drive read, no
+  // toast, same "invisible when it works" convention as the auto-backup effect above. Skipped
+  // entirely while the tab is hidden so a pile of background browser tabs isn't polling Drive for
+  // no one to see.
+  const DRIVE_POLL_INTERVAL_MS = 20000;
+  useEffect(() => {
+    if (!driveAccessToken) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const data = await restoreFromDriveApi(driveAccessToken);
+        if (cancelled) return;
+        // No backedUpAt (nothing ever backed up yet) or no newer than what we already have —
+        // nothing to do. String comparison works because backedUpAt is always an ISO 8601
+        // timestamp, which sorts lexicographically the same as chronologically.
+        if (!data.backedUpAt) return;
+        if (lastAppliedBackupAtRef.current && data.backedUpAt <= lastAppliedBackupAtRef.current) return;
+
+        if (data.candidates) setCandidates(data.candidates);
+        if (data.agencies) setAgencies(data.agencies);
+        if (data.staffList) setStaffList(data.staffList);
+        if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
+        if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
+        if (data.inquiries) setInquiries(data.inquiries);
+        lastAppliedBackupAtRef.current = data.backedUpAt;
+      } catch (err) {
+        // Silent — a background poll failing (transient network blip, token mid-refresh, nothing
+        // backed up yet) isn't something the user needs interrupted with a toast for; the button-
+        // triggered restoreFromDrive still surfaces real failures when someone explicitly asks.
+        console.error('Background Drive poll failed:', err);
+      }
+    };
+
+    const intervalId = setInterval(poll, DRIVE_POLL_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') poll();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
 
@@ -1272,6 +1339,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         groupChatWebhooks,
         inquiries
       });
+      // Same reasoning as the auto-backup effect: stamped after the write completes, so the
+      // background poll recognizes this as its own echo instead of someone else's newer edit.
+      lastAppliedBackupAtRef.current = new Date().toISOString();
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {
       showToast(`Driveバックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
@@ -1297,6 +1367,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
       if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
       if (data.inquiries) setInquiries(data.inquiries);
+      if (data.backedUpAt) lastAppliedBackupAtRef.current = data.backedUpAt;
       if (!options.silent) showToast('Driveのバックアップからデータを復元しました', 'success');
     } catch (err: any) {
       const notBackedUpYet = String(err.message || '').includes('見つかりませんでした');

@@ -298,10 +298,7 @@ export const CandidateDetailModal: React.FC = () => {
       const c = candidates.find((cand) => cand.id === selectedCandidateId);
       if (c) {
         setEvalTargetPhase(c.phase);
-        const currentPhaseInterviewers = c.interviewersByPhase?.[c.phase];
-        if (currentPhaseInterviewers && currentPhaseInterviewers.length === 1) {
-          setEvalAuthor(currentPhaseInterviewers[0]);
-        }
+        syncEvalAuthorToPhase(c.phase, c);
         setOnboardingJoiningDate(c.joiningDate || '');
         setOnboardingDinnerStatus(c.preJoinDinnerStatus || 'UNPLANNED');
         setOnboardingDinnerDate(c.preJoinDinnerDate || '');
@@ -627,7 +624,7 @@ export const CandidateDetailModal: React.FC = () => {
             }
             setEvalAuthor(newNextInterviewer);
           } else {
-            syncEvalAuthorToPhase(nextPhase, candidate.interviewersByPhase);
+            syncEvalAuthorToPhase(nextPhase, candidate);
           }
           setEvalTargetPhase(nextPhase);
           setNewNextInterviewer('');
@@ -646,10 +643,18 @@ export const CandidateDetailModal: React.FC = () => {
 
   // そのフェーズの担当面接官が1名だけ確定していれば、その人を評価入力者の初期値として連動させる
   // (2名以上や未アサインの場合は誰が書くか一意に決まらないため、既存の選択を上書きしない)。
-  const syncEvalAuthorToPhase = (phase: SelectionPhase, interviewersByPhase?: Candidate['interviewersByPhase']) => {
-    const phaseInterviewers = interviewersByPhase?.[phase];
+  // 書類選考は「次回面接官」アサイン(interviewersByPhase)の対象外のフェーズなので、代わりに候補者
+  // 登録時に選んだ書類選考担当者(documentScreeningAssignee、未設定なら主担当者)を使う — こうしないと
+  // 書類選考の評価メモを書く際の初期値が、実際にアサインされた担当者と食い違ってしまう。
+  const syncEvalAuthorToPhase = (phase: SelectionPhase, c: Candidate) => {
+    const phaseInterviewers = c.interviewersByPhase?.[phase];
     if (phaseInterviewers && phaseInterviewers.length === 1) {
       setEvalAuthor(phaseInterviewers[0]);
+      return;
+    }
+    if (phase === 'DOCUMENT_SCREENING') {
+      const docScreeningAssignee = c.documentScreeningAssignee || c.assignees[0];
+      if (docScreeningAssignee) setEvalAuthor(docScreeningAssignee);
     }
   };
 
@@ -1297,7 +1302,7 @@ export const CandidateDetailModal: React.FC = () => {
                               type="button"
                               onClick={() => {
                                 setEvalTargetPhase(stg.phase);
-                                syncEvalAuthorToPhase(stg.phase, candidate.interviewersByPhase);
+                                syncEvalAuthorToPhase(stg.phase, candidate);
                                 if (latestNote) {
                                   if (latestNote.interviewRating) setNewInterviewRating(latestNote.interviewRating);
                                   setNewComment(latestNote.comment);
@@ -1481,7 +1486,7 @@ export const CandidateDetailModal: React.FC = () => {
                           onChange={(e) => {
                             const phase = e.target.value as SelectionPhase;
                             setEvalTargetPhase(phase);
-                            syncEvalAuthorToPhase(phase, candidate.interviewersByPhase);
+                            syncEvalAuthorToPhase(phase, candidate);
                           }}
                           className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:bg-white focus:border-indigo-500"
                         >

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog } from '../types';
+import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog, InterviewFormat } from '../types';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
 import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog } from '../lib/driveApi';
@@ -100,6 +100,7 @@ export const CandidateDetailModal: React.FC = () => {
     updateCandidatePhase, 
     updateCandidateSchedule,
     updateInterviewersForPhase,
+    updateInterviewFormatForPhase,
     updateOnboardingInfo,
     addEvaluationNote,
     updateEvaluationNote,
@@ -168,6 +169,7 @@ export const CandidateDetailModal: React.FC = () => {
   const [evalAuthor, setEvalAuthor] = useState<string>(staffList[0]?.name || '山田 太郎');
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
   const [newNextInterviewer, setNewNextInterviewer] = useState<string>('');
+  const [newNextInterviewFormat, setNewNextInterviewFormat] = useState<InterviewFormat | ''>('');
   // 次回面接官とは別に、この評価をGoogle Chatの候補者スレッドに書き込む際、追加でメンションしたい
   // メンバー（複数選択可）。評価データ自体には保存せず、保存時の通知にのみ使う一時的な選択。
   const [mentionMembers, setMentionMembers] = useState<string[]>([]);
@@ -590,7 +592,7 @@ export const CandidateDetailModal: React.FC = () => {
       comment: finalComment,
       resultStatus: evalResultStatus,
       failReason: evalResultStatus === 'FAIL' ? failReason : undefined
-    }, newNextInterviewer || undefined, mentionMembers);
+    }, newNextInterviewer || undefined, mentionMembers, newNextInterviewFormat || undefined);
 
     setNewGoodPoints('');
     setNewConcerns('');
@@ -626,8 +628,12 @@ export const CandidateDetailModal: React.FC = () => {
           } else {
             syncEvalAuthorToPhase(nextPhase, candidate);
           }
+          if (newNextInterviewFormat) {
+            updateInterviewFormatForPhase(candidate.id, nextPhase, newNextInterviewFormat);
+          }
           setEvalTargetPhase(nextPhase);
           setNewNextInterviewer('');
+          setNewNextInterviewFormat('');
         }
       }
     }
@@ -1885,6 +1891,22 @@ export const CandidateDetailModal: React.FC = () => {
                             {newNextInterviewer && !staffList.some((s) => s.name === newNextInterviewer) && (
                               <option value={newNextInterviewer}>{newNextInterviewer} (自由アサイン)</option>
                             )}
+                          </select>
+                        </div>
+                      )}
+                      {evalResultStatus === 'PASS' && pendingPassNextPhase && (
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                            面接方式 ({PHASE_LABELS[pendingPassNextPhase]})
+                          </label>
+                          <select
+                            value={newNextInterviewFormat}
+                            onChange={(e) => setNewNextInterviewFormat(e.target.value as InterviewFormat | '')}
+                            className="bg-slate-50 border border-slate-300 text-slate-800 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:bg-white"
+                          >
+                            <option value="">未定</option>
+                            <option value="IN_PERSON">対面</option>
+                            <option value="ONLINE">オンライン</option>
                           </select>
                         </div>
                       )}

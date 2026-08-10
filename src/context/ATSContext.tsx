@@ -16,7 +16,8 @@ import {
   ImportedInterviewLog,
   ChatWebhook,
   Inquiry,
-  InquiryCategory
+  InquiryCategory,
+  InterviewFormat
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -90,6 +91,7 @@ interface ATSContextType {
     nextInterviewers?: string[]
   ) => void;
   updateInterviewersForPhase: (candidateId: string, phase: SelectionPhase, interviewers: string[]) => void;
+  updateInterviewFormatForPhase: (candidateId: string, phase: SelectionPhase, format?: InterviewFormat) => void;
   updateInterviewLogForPhase: (candidateId: string, phase: SelectionPhase, log: ImportedInterviewLog) => void;
   updateOnboardingInfo: (
     candidateId: string,
@@ -105,7 +107,8 @@ interface ATSContextType {
     candidateId: string,
     note: Omit<EvaluationNote, 'id' | 'createdAt'>,
     nextInterviewerName?: string,
-    mentionMemberNames?: string[]
+    mentionMemberNames?: string[],
+    nextInterviewFormat?: InterviewFormat
   ) => void;
   updateEvaluationNote: (candidateId: string, noteId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
   deleteEvaluationNote: (candidateId: string, noteId: string) => void;
@@ -651,6 +654,21 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  // interviewersByPhaseと同じく、選考フローの各ステップごとに独立して実施方式（対面/オンライン）を保持する。
+  const updateInterviewFormatForPhase = (candidateId: string, phase: SelectionPhase, format?: InterviewFormat) => {
+    setCandidates((prev) =>
+      prev.map((c) =>
+        c.id === candidateId
+          ? {
+              ...c,
+              interviewFormatByPhase: { ...(c.interviewFormatByPhase || {}), [phase]: format },
+              lastUpdated: new Date().toISOString().split('T')[0]
+            }
+          : c
+      )
+    );
+  };
+
   // Drive/カレンダー連携で取り込んだ面談ログ(Gemini議事録AI要約)を、選考フローの各ステップごとに
   // 独立して保持する。interviewersByPhaseと同じく、まだ現在のフェーズに到達していないステップにも
   // 前もって取り込んでおける。
@@ -697,7 +715,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     candidateId: string,
     noteData: Omit<EvaluationNote, 'id' | 'createdAt'>,
     nextInterviewerName?: string,
-    mentionMemberNames?: string[]
+    mentionMemberNames?: string[],
+    nextInterviewFormat?: InterviewFormat
   ) => {
     const newNote: EvaluationNote = {
       ...noteData,
@@ -798,30 +817,40 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 送る（DOCUMENT_SCREENING_THREAD種別を選んだWebhookのみが対象）。threadKeyを候補者IDに固定
       // しているので、万一この通知が複数回発火しても同じスレッドに収束する。
       if (noteData.phase === 'DOCUMENT_SCREENING' && noteData.resultStatus === 'PASS') {
+        // 次回(1次面接)の面接官アサイン状況・実施方式は、まだこの保存処理がsetCandidatesで
+        // 反映される前なので、target(保存前のスナップショット)の既存値に、今回の保存で新たに
+        // 選ばれた値(nextInterviewerName/nextInterviewFormat)をマージして最新状態を組み立てる。
+        const nextPhaseForThread = getNextPhase(noteData.phase);
+        const nextPhaseLabelForThread = nextPhaseForThread ? phaseLabels[nextPhaseForThread] : undefined;
+        const existingNextInterviewersForThread = nextPhaseForThread ? target.interviewersByPhase?.[nextPhaseForThread] || [] : [];
+        const nextInterviewerNamesForThread =
+          nextInterviewerName && !existingNextInterviewersForThread.includes(nextInterviewerName)
+            ? [...existingNextInterviewersForThread, nextInterviewerName]
+            : existingNextInterviewersForThread;
+        const resolvedNextInterviewFormat =
+          nextInterviewFormat || (nextPhaseForThread ? target.interviewFormatByPhase?.[nextPhaseForThread] : undefined);
+        const interviewFormatLabels: Record<InterviewFormat, string> = { IN_PERSON: '対面', ONLINE: 'オンライン' };
+        const interviewFormatLabelForThread = resolvedNextInterviewFormat ? interviewFormatLabels[resolvedNextInterviewFormat] : undefined;
+
+        const threadPayloadBase = {
+          accessToken: driveAccessToken,
+          candidateName: target.name,
+          candidateId: target.id,
+          agencyName: target.agencyName,
+          positionLabel: target.jobTitle,
+          nextPhaseLabel: nextPhaseLabelForThread,
+          nextInterviewerNames: nextInterviewerNamesForThread,
+          interviewFormatLabel: interviewFormatLabelForThread
+        };
+
         const threadNotifyCalls: Promise<void>[] = [];
         recipients.forEach((staff) => {
           getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
-            threadNotifyCalls.push(
-              notifyDocumentScreeningThreadApi({
-                accessToken: driveAccessToken,
-                webhookUrl,
-                candidateName: target.name,
-                candidateId: target.id,
-                agencyName: target.agencyName
-              })
-            );
+            threadNotifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayloadBase, webhookUrl }));
           });
         });
         getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
-          threadNotifyCalls.push(
-            notifyDocumentScreeningThreadApi({
-              accessToken: driveAccessToken,
-              webhookUrl,
-              candidateName: target.name,
-              candidateId: target.id,
-              agencyName: target.agencyName
-            })
-          );
+          threadNotifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayloadBase, webhookUrl }));
         });
         if (threadNotifyCalls.length > 0) {
           Promise.allSettled(threadNotifyCalls).then((results) => {
@@ -1781,6 +1810,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCandidatePhase,
         updateCandidateSchedule,
         updateInterviewersForPhase,
+        updateInterviewFormatForPhase,
         updateInterviewLogForPhase,
         updateOnboardingInfo,
         addEvaluationNote,

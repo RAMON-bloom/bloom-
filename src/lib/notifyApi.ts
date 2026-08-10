@@ -171,6 +171,10 @@ export async function notifyDocumentScreeningThread(params: {
   candidateName: string;
   candidateId: string;
   agencyName: string;
+  positionLabel?: string;
+  nextPhaseLabel?: string;
+  nextInterviewerNames?: string[];
+  interviewFormatLabel?: string;
 }): Promise<void> {
   const res = await fetch('/api/notify/document-screening-thread', {
     method: 'POST',

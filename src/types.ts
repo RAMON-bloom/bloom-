@@ -14,11 +14,15 @@ export type SelectionPhase =
   | 'OFFER_ACCEPTED'      // 承諾
   | 'REJECTED_DECLINED';  // 辞退 / 不採用
 
-export type ScheduleStatus = 
+export type ScheduleStatus =
   | 'UNARRANGED'       // 未手配
   | 'PROPOSING_DATES'  // 候補日提示中
   | 'SCHEDULE_CONFIRMED' // 日程確定
   | 'WAITING_RESULT';   // 結果待ち
+
+export type InterviewFormat =
+  | 'IN_PERSON' // 対面
+  | 'ONLINE';   // オンライン
 
 export type UserRole = 'ADMIN' | 'INTERVIEWER' | 'AGENCY';
 
@@ -104,6 +108,7 @@ export interface Candidate {
   nextScheduleDate?: string; // YYYY-MM-DD THH:mm
   nextInterviewers?: string[]; // 次回面接官リスト (1次面接以降)
   interviewersByPhase?: Partial<Record<SelectionPhase, string[]>>; // 選考フローの各ステップ（1次面接・2次面接など）ごとの担当面接官リスト。nextInterviewersは「次に控えている1件」用の単一枠だが、こちらはステップごとに独立して保持するため、まだ現在のフェーズに到達していないステップにも事前アサインできる
+  interviewFormatByPhase?: Partial<Record<SelectionPhase, InterviewFormat>>; // 選考フローの各ステップごとの実施方式（対面 / オンライン）
   interviewLogsByPhase?: Partial<Record<SelectionPhase, ImportedInterviewLog>>; // 選考フローの各ステップごとに、Drive/カレンダー連携で取り込んだ面談ログ(Gemini議事録AI要約)
   avatarUrl?: string; // 履歴書切り抜き顔写真 URL
   resumeSummary: string; // Brief career summary

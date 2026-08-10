@@ -11,7 +11,18 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { accessToken, webhookUrl, candidateName, candidateId, agencyName, appUrl } = req.body || {};
+    const {
+      accessToken,
+      webhookUrl,
+      candidateName,
+      candidateId,
+      agencyName,
+      appUrl,
+      positionLabel,
+      nextPhaseLabel,
+      nextInterviewerNames,
+      interviewFormatLabel
+    } = req.body || {};
 
     if (!accessToken) {
       return res.status(401).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
@@ -27,7 +38,16 @@ export default async function handler(req: any, res: any) {
     }
 
     const link = appUrl || 'https://bloom-saiyou.vercel.app';
-    const text = `${candidateName} 様（${agencyName || '推薦元不明'}）\nアプリで確認する: ${link}`;
+    const assignee = Array.isArray(nextInterviewerNames) && nextInterviewerNames.length > 0
+      ? nextInterviewerNames.join('、')
+      : '未定';
+    const lines = [
+      `${candidateName} 様（${agencyName || '推薦元不明'}）`,
+      `選考ポジション: ${positionLabel || '未設定'}`,
+      `次回: ${nextPhaseLabel || '-'}　担当面接官: ${assignee}　面接方式: ${interviewFormatLabel || '未定'}`,
+      `アプリで確認する: ${link}`
+    ];
+    const text = lines.join('\n');
 
     await sendGoogleChatMessage(webhookUrl, text, `cand-${candidateId}`);
 

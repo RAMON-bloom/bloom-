@@ -18,7 +18,8 @@ import {
   ChevronDown,
   RefreshCw,
   HelpCircle,
-  MessageCircle
+  MessageCircle,
+  History
 } from 'lucide-react';
 import { useATS, ActiveTab } from '../context/ATSContext';
 import { UserRole } from '../types';
@@ -26,6 +27,10 @@ import { AttentionPanel } from './AttentionPanel';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { HelpGuideModal } from './HelpGuideModal';
 import { InquiryModal } from './InquiryModal';
+import { ChangelogModal } from './ChangelogModal';
+import { CHANGELOG } from '../data/changelog';
+
+const CHANGELOG_LAST_SEEN_KEY = 'atsChangelogLastSeenDate';
 
 export const Header: React.FC = () => {
   const {
@@ -54,6 +59,28 @@ export const Header: React.FC = () => {
   const [isDriveMenuOpen, setIsDriveMenuOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isInquiryOpen, setIsInquiryOpen] = useState(false);
+  const [isChangelogOpen, setIsChangelogOpen] = useState(false);
+  // Whether there's a changelog entry newer than the last one this browser has seen — cleared the
+  // moment the modal is opened, same as marking a notification read.
+  const [hasUnseenChangelog, setHasUnseenChangelog] = useState(() => {
+    const latestDate = CHANGELOG[0]?.date;
+    if (!latestDate) return false;
+    try {
+      return localStorage.getItem(CHANGELOG_LAST_SEEN_KEY) !== latestDate;
+    } catch {
+      return false;
+    }
+  });
+
+  const openChangelog = () => {
+    setIsChangelogOpen(true);
+    setHasUnseenChangelog(false);
+    try {
+      if (CHANGELOG[0]?.date) localStorage.setItem(CHANGELOG_LAST_SEEN_KEY, CHANGELOG[0].date);
+    } catch {
+      // ignore storage failures (e.g. private browsing) — just means the "NEW" dot may reappear
+    }
+  };
 
   const joiningScheduledCount = candidates.filter(isJoiningScheduled).length;
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -175,6 +202,17 @@ export const Header: React.FC = () => {
             </button>
 
             <button
+              onClick={openChangelog}
+              title="更新履歴"
+              className="relative p-1.5 text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              <History className="w-4 h-4" />
+              {hasUnseenChangelog && (
+                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+              )}
+            </button>
+
+            <button
               onClick={() => setIsHelpOpen(true)}
               title="このアプリの使い方"
               className="p-1.5 text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
@@ -253,6 +291,7 @@ export const Header: React.FC = () => {
 
       {isHelpOpen && <HelpGuideModal onClose={() => setIsHelpOpen(false)} />}
       {isInquiryOpen && <InquiryModal onClose={() => setIsInquiryOpen(false)} />}
+      {isChangelogOpen && <ChangelogModal onClose={() => setIsChangelogOpen(false)} />}
     </header>
   );
 };

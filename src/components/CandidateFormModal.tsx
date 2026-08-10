@@ -178,13 +178,17 @@ export const CandidateFormModal: React.FC = () => {
         if (result.success && result.data) {
           const d = result.data;
           parsedData = d;
+          // d.jobTitle is intentionally NOT applied here — Gemini extracts it as the candidate's
+          // actual occupation from the resume (e.g. "Webエンジニア"), but formData.jobTitle is this
+          // app's own recruiting position code (EC/BP/AIX/BRE/BCA, picked via the buttons below).
+          // The two are unrelated; overwriting the position with the resume's job title was
+          // clobbering the recruiter's selection.
           setFormData((prev) => ({
             ...prev,
             name: d.name || prev.name,
             nameKana: d.nameKana || prev.nameKana,
             email: d.email || prev.email,
             phone: d.phone || prev.phone,
-            jobTitle: d.jobTitle || prev.jobTitle,
             salaryExpectation: d.salaryExpectation || prev.salaryExpectation,
             age: d.age ? Number(d.age) : prev.age,
             education: d.education || prev.education,

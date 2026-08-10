@@ -1378,7 +1378,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             companyCount: parsed.companyCount,
             email: parsed.email,
             phone: parsed.phone,
-            jobTitle: parsed.jobTitle,
+            // parsed.jobTitle is the candidate's actual occupation extracted from the resume
+            // (e.g. "Webエンジニア") — unrelated to this app's own EC/BP/AIX/BRE/BCA recruiting
+            // position code that jobTitle actually means everywhere else in this app. Left blank
+            // here for the recruiter to set from the candidate detail view, same as a fresh
+            // Drive-import candidate always has no assignee-specific info decided yet.
+            jobTitle: '',
             appliedDate: new Date().toISOString().split('T')[0],
             agencyId: 'ag-direct',
             agencyName: '直接応募 (自社採用HP)',

@@ -310,6 +310,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // state with something no newer than what's already showing.
   const lastAppliedBackupAtRef = useRef<string | null>(null);
 
+  // True from the moment a local change schedules the debounced auto-backup below until that
+  // write actually lands on Drive. Closes a race the 20s poll could otherwise hit: if someone
+  // else's session backs up in between (e.g. right after this tab locally advances a candidate's
+  // phase but before its own 5s-debounced write has gone out), that snapshot was captured before
+  // this tab's edit existed, yet its backedUpAt can still be newer than lastAppliedBackupAtRef —
+  // so the poll would apply it and silently revert the just-made local change (phase snapping
+  // back, e.g. a 書類選考→合格 transition undone) with no error shown, since nothing here throws.
+  // The poll below skips entirely while this is true, so it naturally re-checks on its next tick,
+  // by which point our own write (5s) has long since landed and lastAppliedBackupAtRef reflects it.
+  const pendingLocalWriteRef = useRef(false);
+
   const autoBackupMountedRef = useRef(false);
   const autoBackupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -320,6 +331,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!driveAccessToken) return;
 
     if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
+    pendingLocalWriteRef.current = true;
     autoBackupTimerRef.current = setTimeout(() => {
       backupToDriveApi(driveAccessToken, latestBackupStateRef.current)
         .then(() => {
@@ -330,6 +342,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         })
         .catch((err: any) => {
           showToast(`Driveへの自動バックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+        })
+        .finally(() => {
+          pendingLocalWriteRef.current = false;
         });
     }, 5000);
 
@@ -372,6 +387,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let cancelled = false;
     const poll = async () => {
       if (document.visibilityState !== 'visible') return;
+      // A local edit is still mid-flight to Drive (debounced write not yet landed) — skip this
+      // tick rather than risk applying someone else's snapshot from before our edit existed. The
+      // next tick, 20s later, will see it once our own write has long since completed.
+      if (pendingLocalWriteRef.current) return;
       try {
         const data = await restoreFromDriveApi(driveAccessToken);
         if (cancelled) return;

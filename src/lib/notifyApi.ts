@@ -104,6 +104,7 @@ export async function notifyEvaluationSummaryThread(params: {
   webhookUrl: string;
   candidateName: string;
   candidateId: string;
+  positionLabel?: string;
   phaseLabel: string;
   resultStatus: 'PASS' | 'FAIL';
   interviewRating?: string;
@@ -116,9 +117,11 @@ export async function notifyEvaluationSummaryThread(params: {
   goodPoints?: string;
   concerns?: string;
   otherNotes?: string;
+  overallComment?: string;
   failReason?: string;
   nextPhaseLabel?: string;
   nextInterviewerNames?: string[];
+  interviewFormatLabel?: string;
   mentionedStaff?: { name: string; mentionId?: string }[];
 }): Promise<void> {
   const res = await fetch('/api/notify/evaluation-summary-thread', {

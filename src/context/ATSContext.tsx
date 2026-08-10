@@ -108,7 +108,8 @@ interface ATSContextType {
     note: Omit<EvaluationNote, 'id' | 'createdAt'>,
     nextInterviewerName?: string,
     mentionMemberNames?: string[],
-    nextInterviewFormat?: InterviewFormat
+    nextInterviewFormat?: InterviewFormat,
+    overallComment?: string
   ) => void;
   updateEvaluationNote: (candidateId: string, noteId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
   deleteEvaluationNote: (candidateId: string, noteId: string) => void;
@@ -716,7 +717,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     noteData: Omit<EvaluationNote, 'id' | 'createdAt'>,
     nextInterviewerName?: string,
     mentionMemberNames?: string[],
-    nextInterviewFormat?: InterviewFormat
+    nextInterviewFormat?: InterviewFormat,
+    overallComment?: string
   ) => {
     const newNote: EvaluationNote = {
       ...noteData,
@@ -766,6 +768,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         OFFER_ACCEPTED: '内定承諾',
         REJECTED_DECLINED: '辞退 / 不採用'
       };
+      const interviewFormatLabels: Record<InterviewFormat, string> = { IN_PERSON: '対面', ONLINE: 'オンライン' };
 
       const recipients = staffList;
       const notifyCalls: Promise<void>[] = [];
@@ -829,7 +832,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : existingNextInterviewersForThread;
         const resolvedNextInterviewFormat =
           nextInterviewFormat || (nextPhaseForThread ? target.interviewFormatByPhase?.[nextPhaseForThread] : undefined);
-        const interviewFormatLabels: Record<InterviewFormat, string> = { IN_PERSON: '対面', ONLINE: 'オンライン' };
         const interviewFormatLabelForThread = resolvedNextInterviewFormat ? interviewFormatLabels[resolvedNextInterviewFormat] : undefined;
 
         const threadPayloadBase = {
@@ -879,6 +881,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           nextInterviewerName && !existingNextInterviewers.includes(nextInterviewerName)
             ? [...existingNextInterviewers, nextInterviewerName]
             : existingNextInterviewers;
+        const resolvedNextInterviewFormatForSummary =
+          nextInterviewFormat || (nextPhase ? target.interviewFormatByPhase?.[nextPhase] : undefined);
+        const interviewFormatLabelForSummary = resolvedNextInterviewFormatForSummary
+          ? interviewFormatLabels[resolvedNextInterviewFormatForSummary]
+          : undefined;
 
         // 次回面接官とは別に、フォームで選んだメンバーを候補者スレッドの評価サマリにメンションする。
         // 本物のメンションが使えるかは各自のchatMentionId登録有無に依存する（未登録なら通知先の
@@ -892,6 +899,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const summaryPayload = {
           candidateName: target.name,
           candidateId: target.id,
+          positionLabel: target.jobTitle,
           phaseLabel: phaseLabels[noteData.phase] || noteData.phase,
           resultStatus: noteData.resultStatus as 'PASS' | 'FAIL',
           interviewRating: noteData.interviewRating,
@@ -904,9 +912,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           goodPoints: noteData.goodPoints,
           concerns: noteData.concerns,
           otherNotes: noteData.otherNotes,
+          overallComment,
           failReason: noteData.resultStatus === 'FAIL' ? noteData.failReason : undefined,
           nextPhaseLabel,
           nextInterviewerNames,
+          interviewFormatLabel: interviewFormatLabelForSummary,
           mentionedStaff
         };
         recipients.forEach((staff) => {

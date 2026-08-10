@@ -23,6 +23,7 @@ export default async function handler(req: any, res: any) {
       webhookUrl,
       candidateName,
       candidateId,
+      positionLabel,
       phaseLabel,
       resultStatus,
       interviewRating,
@@ -35,9 +36,11 @@ export default async function handler(req: any, res: any) {
       goodPoints,
       concerns,
       otherNotes,
+      overallComment,
       failReason,
       nextPhaseLabel,
       nextInterviewerNames,
+      interviewFormatLabel,
       mentionedStaff
     } = req.body || {};
 
@@ -58,7 +61,11 @@ export default async function handler(req: any, res: any) {
     }
 
     const resultLabel = resultStatus === 'PASS' ? '✅ 合格' : '❌ 不採用';
-    const lines = [`📋 *${candidateName}* 様「${phaseLabel || '-'}」の評価が確定しました`, `判定: ${resultLabel}`];
+    const lines = [
+      `📋 *${candidateName}* 様「${phaseLabel || '-'}」の評価が確定しました`,
+      `選考ポジション: ${positionLabel || '未設定'}`,
+      `判定: ${resultLabel}`
+    ];
 
     if (interviewRating) lines.push(`面接評価: ${interviewRating}`);
 
@@ -71,13 +78,14 @@ export default async function handler(req: any, res: any) {
     if (goodPoints) lines.push(`評価ポイント: ${goodPoints}`);
     if (concerns) lines.push(`懸念点: ${concerns}`);
     if (otherNotes) lines.push(`その他メモ: ${otherNotes}`);
+    if (overallComment) lines.push(`総合所感: ${overallComment}`);
     if (resultStatus === 'FAIL' && failReason) lines.push(`見送り理由: ${failReason}`);
 
     if (resultStatus === 'PASS' && nextPhaseLabel) {
       const assignee = Array.isArray(nextInterviewerNames) && nextInterviewerNames.length > 0
         ? nextInterviewerNames.join('、')
         : '未定';
-      lines.push(`次回: ${nextPhaseLabel}　担当面接官: ${assignee}`);
+      lines.push(`次回: ${nextPhaseLabel}　担当面接官: ${assignee}　面接方式: ${interviewFormatLabel || '未定'}`);
     }
 
     if (Array.isArray(mentionedStaff) && mentionedStaff.length > 0) {

@@ -954,11 +954,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      // グループ用Webhookは特定の担当者に紐づかないため、担当者が解決できたかどうかに関わらず送る。
+      // グループ用Webhookはどの担当者の持ち物でもないため担当者が解決できたかどうかに関わらず送るが、
+      // 誰が書類選考担当になったかは本文に太字メンションで書く(共有スペースを見ている全員に、
+      // 誰が対応する想定かひと目で伝わるようにするため)。
       getGroupWebhooksForKind(groupChatWebhooks, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
         notifyCandidateRegisteredApi({
           accessToken: driveAccessToken,
           webhookUrl,
+          staffName: docScreeningAssigneeName,
           candidateName: newCandidate.name,
           candidateId: newCandidate.id
         }).catch((err) => {

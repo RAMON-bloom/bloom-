@@ -1973,7 +1973,7 @@ export const CandidateDetailModal: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end gap-3">
+                    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
                       {evalResultStatus === 'PASS' && pendingPassNextPhase && candidate.phase === 'DOCUMENT_SCREENING' && (
                         <div className="flex items-center gap-1.5">
                           <label className="text-[11px] font-bold text-slate-600 whitespace-nowrap">次回の選考</label>

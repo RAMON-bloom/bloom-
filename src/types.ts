@@ -300,3 +300,27 @@ export interface Inquiry {
   messages: InquiryMessage[];
 }
 
+// 「Driveと同期」がDrive上のレジュメフォルダ構成を実際のapp状態へ即反映せず、まずは差分だけを
+// 計算してユーザーに提示するための型。何を反映し、何を無視する（今後の同期対象から外す）かを
+// 選んでから適用できるようにするのが目的（過去の古いレジュメが無自覚に選考パイプラインへ
+// 新規候補者として乗ってしまう事故を防ぐ）。
+export interface DriveSyncPhaseMove {
+  candidateId: string;
+  candidateName: string;
+  currentPhase: SelectionPhase;
+  drivePhase: SelectionPhase;
+}
+
+export interface DriveSyncNewImport {
+  key: string; // folderId、フォルダが無い場合はfile.id
+  displayName: string;
+  phase: SelectionPhase;
+  folderId: string | null;
+  file: { id: string; name: string; mimeType: string; webViewLink?: string };
+}
+
+export interface DriveSyncPreview {
+  phaseMoves: DriveSyncPhaseMove[];
+  newImports: DriveSyncNewImport[];
+}
+

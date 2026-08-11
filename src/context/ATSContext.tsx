@@ -17,7 +17,10 @@ import {
   ChatWebhook,
   Inquiry,
   InquiryCategory,
-  InterviewFormat
+  InterviewFormat,
+  DriveSyncPreview,
+  DriveSyncPhaseMove,
+  DriveSyncNewImport
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -158,7 +161,11 @@ interface ATSContextType {
   backupToDrive: () => Promise<void>;
   restoreFromDrive: () => Promise<void>;
   isSyncingDrive: boolean;
-  syncWithDrive: () => Promise<void>;
+  driveSyncPreview: DriveSyncPreview | null;
+  previewDriveSync: () => Promise<void>;
+  cancelDriveSyncPreview: () => void;
+  isApplyingDriveSync: boolean;
+  applyDriveSync: (selection: { phaseMoveCandidateIds: string[]; importKeys: string[]; ignoreKeys: string[] }) => Promise<void>;
 }
 
 const ATSContext = createContext<ATSContextType | undefined>(undefined);
@@ -209,9 +216,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Every Drive item id (folder/file) permanentlyDeleteCandidate has ever deleted — checked by
-  // syncWithDrive so it never re-imports something we ourselves just deleted as if it were a
-  // brand-new unregistered resume. Needed because Drive's own file-list index can lag a few
+  // Every Drive item id (folder/file) permanentlyDeleteCandidate has ever deleted, plus anything
+  // explicitly marked "無視する" in the Drive sync review modal — checked by previewDriveSync so
+  // it never offers either back up as a "new" unregistered resume. Needed because Drive's own
+  // file-list index can lag a few
   // seconds behind a delete, and because deletion can leave residue for reasons outside this
   // app's control — either way, "I explicitly deleted this" should always win over "sync found
   // an orphan," regardless of why the orphan is still there. Grows without pruning; at realistic
@@ -227,6 +235,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const { email: driveUserEmail, accessToken: driveAccessToken, signIn: authSignIn, signOut: authSignOut } = useAuth();
   const [isDriveConnecting, setIsDriveConnecting] = useState(false);
   const [isSyncingDrive, setIsSyncingDrive] = useState(false);
+  // Diff computed by previewDriveSync but not yet applied — non-null opens the review modal.
+  // Nothing here mutates candidates/deletedDriveItemIds until applyDriveSync runs on the user's
+  // explicit selection, so a stray old resume sitting in a Drive folder can no longer silently
+  // land in the active pipeline just because someone clicked "Driveと同期".
+  const [driveSyncPreview, setDriveSyncPreview] = useState<DriveSyncPreview | null>(null);
+  const [isApplyingDriveSync, setIsApplyingDriveSync] = useState(false);
 
   const [userRole, setUserRole] = useState<UserRole>('ADMIN');
   const [activeTab, setActiveTab] = useState<ActiveTab>('kanban');
@@ -1440,7 +1454,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Reconciles the app with whatever is actually sitting in Drive right now — for candidates
   // whose resume was dragged into a different phase folder by hand, and for resume files that
   // were added directly to a phase folder and were never registered as a candidate at all.
-  const syncWithDrive = async () => {
+  // Only computes the diff between Drive's actual folder layout and this app's state — never
+  // touches candidates/deletedDriveItemIds itself. Applying is a separate, explicit step
+  // (applyDriveSync) driven by what the user selects in the review modal this opens, so a stray
+  // old resume left sitting in a Drive phase folder can no longer silently become a brand-new
+  // active-pipeline candidate just because someone clicked "Driveと同期".
+  const previewDriveSync = async () => {
     if (!driveAccessToken) {
       showToast('先にGoogle Driveへログインしてください', 'warning');
       return;
@@ -1450,42 +1469,39 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const entries = await scanDriveResumesApi(driveAccessToken);
       // A candidate folder normally holds several files (resume, CV, ...) — key by folder for
       // those, and separately by bare file id for legacy flat entries with no folder at all.
-      const folderIdToPhase = new Map(
-        entries.filter((e) => e.folderId).map((e) => [e.folderId as string, e.phase])
-      );
-      const fileIdToPhase = new Map(
-        entries.filter((e) => !e.folderId).map((e) => [e.file.id, e.phase])
-      );
+      const folderIdToEntry = new Map(entries.filter((e) => e.folderId).map((e) => [e.folderId as string, e]));
+      const fileIdToEntry = new Map(entries.filter((e) => !e.folderId).map((e) => [e.file.id, e]));
 
-      let movedCount = 0;
-      setCandidates((prev) =>
-        prev.map((c) => {
-          const drivePhase = c.resumeDriveFolderId
-            ? folderIdToPhase.get(c.resumeDriveFolderId)
-            : c.resumeDriveFileId
-            ? fileIdToPhase.get(c.resumeDriveFileId)
-            : undefined;
-          if (drivePhase && drivePhase in PHASE_ORDER && drivePhase !== c.phase) {
-            movedCount++;
-            return { ...c, phase: drivePhase as SelectionPhase, lastUpdated: new Date().toISOString().split('T')[0] };
-          }
-          return c;
-        })
-      );
+      const phaseMoves: DriveSyncPhaseMove[] = [];
+      candidates.forEach((c) => {
+        const entry = c.resumeDriveFolderId
+          ? folderIdToEntry.get(c.resumeDriveFolderId)
+          : c.resumeDriveFileId
+          ? fileIdToEntry.get(c.resumeDriveFileId)
+          : undefined;
+        if (entry && entry.phase in PHASE_ORDER && entry.phase !== c.phase) {
+          phaseMoves.push({
+            candidateId: c.id,
+            candidateName: c.name,
+            currentPhase: c.phase,
+            drivePhase: entry.phase as SelectionPhase
+          });
+        }
+      });
 
       const knownFolderIds = new Set(candidates.map((c) => c.resumeDriveFolderId).filter(Boolean));
       const knownFileIds = new Set(candidates.map((c) => c.resumeDriveFileId).filter(Boolean));
       const deletedIds = new Set(deletedDriveItemIds);
-      // A folder/file we ourselves permanently deleted must never come back as a "new" candidate,
-      // even if it's still showing up in this scan (Drive's list index lagging behind the delete,
-      // or leftover residue for any other reason) — see permanentlyDeleteCandidate.
+      // A folder/file we ourselves permanently deleted (or previously chose "無視する" for) must
+      // never come back as a "new" candidate, even if it's still showing up in this scan (Drive's
+      // list index lagging behind the delete, or leftover residue for any other reason).
       const isKnown = (e: (typeof entries)[number]) =>
         e.folderId
           ? knownFolderIds.has(e.folderId) || deletedIds.has(e.folderId)
           : knownFileIds.has(e.file.id) || deletedIds.has(e.file.id);
 
-      // Several files can sit in one unregistered candidate folder — import once per folder
-      // (using its first file to parse candidate info from) rather than once per file.
+      // Several files can sit in one unregistered candidate folder — surface it once per folder
+      // rather than once per file.
       const seenFolderIds = new Set<string>();
       const unregistered = entries.filter((e) => {
         if (isKnown(e)) return false;
@@ -1495,10 +1511,56 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return true;
       });
 
+      const newImports: DriveSyncNewImport[] = unregistered.map((entry) => ({
+        key: entry.folderId || entry.file.id,
+        displayName: entry.folderName || entry.file.name,
+        phase: (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase,
+        folderId: entry.folderId,
+        file: entry.file
+      }));
+
+      if (phaseMoves.length === 0 && newImports.length === 0) {
+        showToast('Drive同期: 差分はありませんでした', 'info');
+      } else {
+        setDriveSyncPreview({ phaseMoves, newImports });
+      }
+    } catch (err: any) {
+      showToast(`Drive同期の確認に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+    } finally {
+      setIsSyncingDrive(false);
+    }
+  };
+
+  const cancelDriveSyncPreview = () => setDriveSyncPreview(null);
+
+  // Applies only what the user explicitly selected in the review modal: phase moves by candidate
+  // id, new-candidate imports by entry key, and Drive items to add to the permanent ignore list
+  // (deletedDriveItemIds) so they stop being offered on future syncs. Anything left unselected —
+  // neither applied nor ignored — is simply left for the next preview to ask about again.
+  const applyDriveSync = async (selection: {
+    phaseMoveCandidateIds: string[];
+    importKeys: string[];
+    ignoreKeys: string[];
+  }) => {
+    if (!driveAccessToken || !driveSyncPreview) return;
+    setIsApplyingDriveSync(true);
+    try {
+      const moveIds = new Set(selection.phaseMoveCandidateIds);
+      if (moveIds.size > 0) {
+        setCandidates((prev) =>
+          prev.map((c) => {
+            if (!moveIds.has(c.id)) return c;
+            const move = driveSyncPreview.phaseMoves.find((m) => m.candidateId === c.id);
+            return move ? { ...c, phase: move.drivePhase, lastUpdated: new Date().toISOString().split('T')[0] } : c;
+          })
+        );
+      }
+
+      const importSet = new Set(selection.importKeys);
+      const toImport = driveSyncPreview.newImports.filter((e) => importSet.has(e.key));
       let importedCount = 0;
       let failedCount = 0;
-      for (const entry of unregistered) {
-        const phase = (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase;
+      for (const entry of toImport) {
         try {
           const parsed = await importDriveResumeApi(driveAccessToken, entry.file);
           addCandidate({
@@ -1520,7 +1582,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             agencyId: 'ag-direct',
             agencyName: '直接応募 (自社採用HP)',
             assignees: [staffList[0]?.name || '山田 太郎'],
-            phase,
+            phase: entry.phase,
             scheduleStatus: 'UNARRANGED',
             resumeSummary: parsed.resumeSummary,
             rawResumeContent: parsed.rawResumeContent,
@@ -1538,20 +1600,26 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
+      if (selection.ignoreKeys.length > 0) {
+        setDeletedDriveItemIds((prev) => Array.from(new Set([...prev, ...selection.ignoreKeys])));
+      }
+
       const summary = [
-        movedCount > 0 ? `フェーズ更新 ${movedCount}件` : null,
+        moveIds.size > 0 ? `フェーズ更新 ${moveIds.size}件` : null,
         importedCount > 0 ? `新規取込 ${importedCount}件` : null,
-        failedCount > 0 ? `取込失敗 ${failedCount}件` : null
+        failedCount > 0 ? `取込失敗 ${failedCount}件` : null,
+        selection.ignoreKeys.length > 0 ? `無視リストに追加 ${selection.ignoreKeys.length}件` : null
       ].filter(Boolean);
 
       showToast(
         summary.length > 0 ? `Drive同期完了: ${summary.join(' / ')}` : 'Drive同期完了: 変更はありませんでした',
         failedCount > 0 ? 'warning' : 'success'
       );
+      setDriveSyncPreview(null);
     } catch (err: any) {
-      showToast(`Drive同期に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      showToast(`Drive同期の反映に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
     } finally {
-      setIsSyncingDrive(false);
+      setIsApplyingDriveSync(false);
     }
   };
 
@@ -1881,7 +1949,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         backupToDrive,
         restoreFromDrive,
         isSyncingDrive,
-        syncWithDrive
+        driveSyncPreview,
+        previewDriveSync,
+        cancelDriveSyncPreview,
+        isApplyingDriveSync,
+        applyDriveSync
       }}
     >
       {children}

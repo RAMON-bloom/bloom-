@@ -10,6 +10,7 @@ import { ArchivedListView } from './components/ArchivedListView';
 import { RecruitmentMeetingView } from './components/RecruitmentMeetingView';
 import { CandidateDetailModal } from './components/CandidateDetailModal';
 import { CandidateFormModal } from './components/CandidateFormModal';
+import { DriveSyncPreviewModal } from './components/DriveSyncPreviewModal';
 import { ToastContainer } from './components/ToastContainer';
 import { AuthGate } from './components/AuthGate';
 import { SelfRegistrationPrompt } from './components/SelfRegistrationPrompt';
@@ -47,6 +48,7 @@ export default function App() {
           <MainContent />
           <CandidateDetailModal />
           <CandidateFormModal />
+          <DriveSyncPreviewModal />
           <ToastContainer />
         </div>
       </ATSProvider>

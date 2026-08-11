@@ -53,7 +53,7 @@ export const Header: React.FC = () => {
     backupToDrive,
     restoreFromDrive,
     isSyncingDrive,
-    syncWithDrive
+    previewDriveSync
   } = useATS();
 
   const [isDriveMenuOpen, setIsDriveMenuOpen] = useState(false);
@@ -172,13 +172,13 @@ export const Header: React.FC = () => {
                     Driveから復元
                   </button>
                   <button
-                    onClick={() => { syncWithDrive(); setIsDriveMenuOpen(false); }}
+                    onClick={() => { previewDriveSync(); setIsDriveMenuOpen(false); }}
                     disabled={isSyncingDrive}
-                    title="Drive上で直接追加・移動されたレジュメを検知し、フェーズ更新や未登録候補者の取込を行います"
+                    title="Drive上で直接追加・移動されたレジュメを検知します。反映する項目は確認画面で選択できます"
                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isSyncingDrive ? 'animate-spin' : ''}`} />
-                    {isSyncingDrive ? 'Drive同期中...' : 'Driveと同期'}
+                    {isSyncingDrive ? 'Drive差分を確認中...' : 'Driveと同期'}
                   </button>
                   <button
                     onClick={() => { disconnectDrive(); setIsDriveMenuOpen(false); }}

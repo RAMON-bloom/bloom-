@@ -242,7 +242,7 @@ export const Header: React.FC = () => {
               { tab: 'dashboard' as ActiveTab, icon: BarChart3, label: '分析ダッシュボード' },
               { tab: 'onboarding' as ActiveTab, icon: UserCheck, label: '入社予定者管理', count: joiningScheduledCount || undefined },
               { tab: 'archived' as ActiveTab, icon: Archive, label: '過去候補者一覧', count: archivedCandidates.length || undefined },
-              { tab: 'agency_master' as ActiveTab, icon: Building2, label: 'エージェントマスタ' }
+              { tab: 'agency_master' as ActiveTab, icon: Building2, label: 'エージェント／採用担当' }
             ].map(({ tab, icon: Icon, label, count, primary }) => (
               <button
                 key={tab}

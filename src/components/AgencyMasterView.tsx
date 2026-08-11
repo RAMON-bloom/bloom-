@@ -653,6 +653,70 @@ export const AgencyMasterView: React.FC = () => {
             )}
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {staffList.map((staff) => {
+              const assignedCandidatesCount = candidates.filter((c) => c.assignees.includes(staff.name)).length;
+
+              return (
+                <div
+                  key={staff.id}
+                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs flex items-center justify-between hover:border-slate-300 transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center font-bold text-indigo-700 text-sm">
+                      {staff.name.slice(0, 1)}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-slate-900 text-sm">{staff.name}</h4>
+                        <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-medium">
+                          {staff.department}
+                        </span>
+                        {getAllStaffWebhookUrls(staff).length > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                            <MessageSquare className="w-3 h-3" />
+                            Webhook {getAllStaffWebhookUrls(staff).length}件
+                          </span>
+                        )}
+                        {staff.email === driveUserEmail && (
+                          <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                            あなた
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">{staff.role}</p>
+                      <p className="text-[11px] text-indigo-700 font-mono mt-1 font-medium">
+                        担当候補者数: <span className="font-bold text-slate-900">{assignedCandidatesCount}名</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {(userRole === 'ADMIN' || staff.email === driveUserEmail) && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleOpenEditStaff(staff)}
+                        className="p-1.5 text-slate-500 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                        title="編集"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      {userRole === 'ADMIN' && (
+                        <button
+                          onClick={() => setDeleteConfirmTarget({ type: 'staff', id: staff.id, name: staff.name })}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="削除"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
           {/* グループ用（複数人が見るスペース宛）Webhook設定。特定の担当者には属さない */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs overflow-hidden">
             <div
@@ -791,70 +855,6 @@ export const AgencyMasterView: React.FC = () => {
             )}
             </div>
             )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {staffList.map((staff) => {
-              const assignedCandidatesCount = candidates.filter((c) => c.assignees.includes(staff.name)).length;
-
-              return (
-                <div
-                  key={staff.id}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs flex items-center justify-between hover:border-slate-300 transition-all"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center font-bold text-indigo-700 text-sm">
-                      {staff.name.slice(0, 1)}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="font-bold text-slate-900 text-sm">{staff.name}</h4>
-                        <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-medium">
-                          {staff.department}
-                        </span>
-                        {getAllStaffWebhookUrls(staff).length > 0 && (
-                          <span className="flex items-center gap-0.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
-                            <MessageSquare className="w-3 h-3" />
-                            Webhook {getAllStaffWebhookUrls(staff).length}件
-                          </span>
-                        )}
-                        {staff.email === driveUserEmail && (
-                          <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
-                            あなた
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">{staff.role}</p>
-                      <p className="text-[11px] text-indigo-700 font-mono mt-1 font-medium">
-                        担当候補者数: <span className="font-bold text-slate-900">{assignedCandidatesCount}名</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  {(userRole === 'ADMIN' || staff.email === driveUserEmail) && (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleOpenEditStaff(staff)}
-                        className="p-1.5 text-slate-500 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-                        title="編集"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      {userRole === 'ADMIN' && (
-                        <button
-                          onClick={() => setDeleteConfirmTarget({ type: 'staff', id: staff.id, name: staff.name })}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="削除"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
         </div>
       )}

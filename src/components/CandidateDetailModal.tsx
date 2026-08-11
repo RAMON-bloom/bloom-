@@ -171,6 +171,9 @@ export const CandidateDetailModal: React.FC = () => {
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
   const [newNextInterviewer, setNewNextInterviewer] = useState<string>('');
   const [newNextInterviewFormat, setNewNextInterviewFormat] = useState<InterviewFormat | ''>('');
+  // 書類選考合格時のみ使う、次回選考をカジュアル面談にするか1次面接にするかの選択
+  // (getNextPhaseの第2引数に渡す。デフォルトは従来通りの「1次面接に直接進む」動作)。
+  const [newDocScreeningNextPhase, setNewDocScreeningNextPhase] = useState<SelectionPhase>('FIRST_INTERVIEW');
   // 次回面接官とは別に、この評価をGoogle Chatの候補者スレッドに書き込む際、追加でメンションしたい
   // メンバー（複数選択可）。評価データ自体には保存せず、保存時の通知にのみ使う一時的な選択。
   const [mentionMembers, setMentionMembers] = useState<string[]>([]);
@@ -593,7 +596,7 @@ export const CandidateDetailModal: React.FC = () => {
       comment: finalComment,
       resultStatus: evalResultStatus,
       failReason: evalResultStatus === 'FAIL' ? failReason : undefined
-    }, newNextInterviewer || undefined, mentionMembers, newNextInterviewFormat || undefined, commentText || undefined);
+    }, newNextInterviewer || undefined, mentionMembers, newNextInterviewFormat || undefined, commentText || undefined, newDocScreeningNextPhase);
 
     setNewGoodPoints('');
     setNewConcerns('');
@@ -617,7 +620,7 @@ export const CandidateDetailModal: React.FC = () => {
       setCollapsedSections((prev) => ({ ...prev, evalForm: true }));
 
       if (evalTargetPhase === candidate.phase) {
-        const nextPhase = getNextPhase(candidate.phase);
+        const nextPhase = getNextPhase(candidate.phase, newDocScreeningNextPhase);
         if (nextPhase) {
           updateCandidatePhase(candidate.id, nextPhase);
           if (newNextInterviewer) {
@@ -633,6 +636,7 @@ export const CandidateDetailModal: React.FC = () => {
             updateInterviewFormatForPhase(candidate.id, nextPhase, newNextInterviewFormat);
           }
           setEvalTargetPhase(nextPhase);
+          setNewDocScreeningNextPhase('FIRST_INTERVIEW');
           setNewNextInterviewer('');
           setNewNextInterviewFormat('');
         }
@@ -696,7 +700,8 @@ export const CandidateDetailModal: React.FC = () => {
 
   // 合格保存で現在地が進む先のフェーズ (対象フェーズが現在地と一致し、かつ次フェーズが存在する場合のみ)。
   // このフェーズが決まる場合のみ、保存ボタン横に次回面接官の指定欄を出す。
-  const pendingPassNextPhase = evalTargetPhase === candidate.phase ? getNextPhase(candidate.phase) : null;
+  const pendingPassNextPhase =
+    evalTargetPhase === candidate.phase ? getNextPhase(candidate.phase, newDocScreeningNextPhase) : null;
 
   const toggleLogImportPanel = (phase: SelectionPhase) => {
     if (logImportTargetPhase === phase) {
@@ -1969,6 +1974,25 @@ export const CandidateDetailModal: React.FC = () => {
                     </div>
 
                     <div className="flex items-center justify-end gap-3">
+                      {evalResultStatus === 'PASS' && pendingPassNextPhase && candidate.phase === 'DOCUMENT_SCREENING' && (
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-bold text-slate-600 whitespace-nowrap">次回の選考</label>
+                          <select
+                            value={newDocScreeningNextPhase}
+                            onChange={(e) => {
+                              // 選ぶフェーズが変わると次回面接官・面接方式の紐付け先も変わるため、
+                              // 前の選択が別フェーズ宛のまま残らないようクリアする。
+                              setNewDocScreeningNextPhase(e.target.value as SelectionPhase);
+                              setNewNextInterviewer('');
+                              setNewNextInterviewFormat('');
+                            }}
+                            className="bg-slate-50 border border-slate-300 text-slate-800 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:bg-white"
+                          >
+                            <option value="FIRST_INTERVIEW">1次面接</option>
+                            <option value="CASUAL_INTERVIEW">カジュアル面談</option>
+                          </select>
+                        </div>
+                      )}
                       {evalResultStatus === 'PASS' && pendingPassNextPhase && (
                         <div className="flex items-center gap-1.5">
                           <label className="text-[11px] font-bold text-slate-600 whitespace-nowrap">

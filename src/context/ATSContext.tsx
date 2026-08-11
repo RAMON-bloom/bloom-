@@ -112,7 +112,8 @@ interface ATSContextType {
     nextInterviewerName?: string,
     mentionMemberNames?: string[],
     nextInterviewFormat?: InterviewFormat,
-    overallComment?: string
+    overallComment?: string,
+    docScreeningNextPhase?: SelectionPhase
   ) => void;
   updateEvaluationNote: (candidateId: string, noteId: string, note: Omit<EvaluationNote, 'id' | 'createdAt'>) => void;
   deleteEvaluationNote: (candidateId: string, noteId: string) => void;
@@ -751,7 +752,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     nextInterviewerName?: string,
     mentionMemberNames?: string[],
     nextInterviewFormat?: InterviewFormat,
-    overallComment?: string
+    overallComment?: string,
+    docScreeningNextPhase?: SelectionPhase
   ) => {
     const newNote: EvaluationNote = {
       ...noteData,
@@ -856,7 +858,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // 次回(1次面接)の面接官アサイン状況・実施方式は、まだこの保存処理がsetCandidatesで
         // 反映される前なので、target(保存前のスナップショット)の既存値に、今回の保存で新たに
         // 選ばれた値(nextInterviewerName/nextInterviewFormat)をマージして最新状態を組み立てる。
-        const nextPhaseForThread = getNextPhase(noteData.phase);
+        const nextPhaseForThread = getNextPhase(noteData.phase, docScreeningNextPhase);
         const nextPhaseLabelForThread = nextPhaseForThread ? phaseLabels[nextPhaseForThread] : undefined;
         const existingNextInterviewersForThread = nextPhaseForThread ? target.interviewersByPhase?.[nextPhaseForThread] || [] : [];
         const nextInterviewerNamesForThread =

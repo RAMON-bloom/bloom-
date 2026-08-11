@@ -1102,7 +1102,14 @@ export const CandidateDetailModal: React.FC = () => {
                   <label className="block text-slate-500 font-semibold mb-1 text-[11px]">紹介エージェント / 経路</label>
                   <select
                     value={candidate.agencyId}
-                    onChange={(e) => updateCandidate({ ...candidate, agencyId: e.target.value })}
+                    onChange={(e) => {
+                      const selectedAgency = agencies.find((ag) => ag.id === e.target.value);
+                      updateCandidate({
+                        ...candidate,
+                        agencyId: e.target.value,
+                        agencyName: selectedAgency ? selectedAgency.name : candidate.agencyName
+                      });
+                    }}
                     className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                   >
                     {agencies.map((ag) => (

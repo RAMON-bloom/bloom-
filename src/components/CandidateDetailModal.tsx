@@ -109,6 +109,7 @@ export const CandidateDetailModal: React.FC = () => {
     deleteCandidate,
     restoreCandidate,
     staffList,
+    agencies,
     userRole,
     showToast,
     driveAccessToken,
@@ -1095,6 +1096,21 @@ export const CandidateDetailModal: React.FC = () => {
                       className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-200 sm:w-1/2 sm:pr-1.5">
+                  <label className="block text-slate-500 font-semibold mb-1 text-[11px]">紹介エージェント / 経路</label>
+                  <select
+                    value={candidate.agencyId}
+                    onChange={(e) => updateCandidate({ ...candidate, agencyId: e.target.value })}
+                    className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    {agencies.map((ag) => (
+                      <option key={ag.id} value={ag.id}>
+                        {ag.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-200">

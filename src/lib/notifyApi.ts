@@ -1,5 +1,53 @@
 // Client-side helper for the /api/notify/* backend endpoints.
 
+// Retries up to 2 extra times (3 attempts total, ~3s added latency worst case) on network-level
+// failures (fetch itself throwing — offline, DNS, connection reset) and 5xx responses, since those
+// plausibly describe a brief connectivity blip (e.g. Wi-Fi dropping mid-interview) rather than a
+// request that will fail identically every time. 4xx is never retried — that means the request
+// itself is invalid (bad webhook URL, malformed payload) and repeating it verbatim can't help.
+// Deliberately NOT persisted across reloads/sessions like the Drive backup retry: a Chat
+// notification that only manages to send minutes or hours later, after the interview has moved on,
+// would be confusing at best and could land out of order in a thread — better to fail after a few
+// seconds and let the existing "◯件失敗しました" toast surface it than to silently resurrect a
+// stale notification later.
+async function postJson(path: string, body: Record<string, unknown>): Promise<void> {
+  const MAX_ATTEMPTS = 3;
+  const RETRY_DELAYS_MS = [1000, 2000];
+
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    } catch {
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      throw new Error('通知の送信に失敗しました（ネットワークエラー）');
+    }
+
+    const rawText = await res.text();
+    let data: any;
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
+    }
+
+    if (res.ok && !data.error) return;
+
+    if (res.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+      continue;
+    }
+    throw new Error(data.error || `通知の送信に失敗しました (HTTP ${res.status})`);
+  }
+}
+
 export async function notifyCandidateRegistered(params: {
   accessToken: string | null;
   webhookUrl: string;
@@ -8,41 +56,7 @@ export async function notifyCandidateRegistered(params: {
   candidateName: string;
   candidateId: string;
 }): Promise<void> {
-  const res = await fetch('/api/notify/candidate-registered', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...params, appUrl: window.location.origin })
-  });
-
-  const rawText = await res.text();
-  let data: any;
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
-  }
-  if (!res.ok || data.error) {
-    throw new Error(data.error || '通知の送信に失敗しました');
-  }
-}
-
-async function postAttentionNotify(body: Record<string, unknown>): Promise<void> {
-  const res = await fetch('/api/notify/attention', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, appUrl: window.location.origin })
-  });
-
-  const rawText = await res.text();
-  let data: any;
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
-  }
-  if (!res.ok || data.error) {
-    throw new Error(data.error || '通知の送信に失敗しました');
-  }
+  return postJson('/api/notify/candidate-registered', { ...params, appUrl: window.location.origin });
 }
 
 export function notifyAttentionDigest(params: {
@@ -53,7 +67,7 @@ export function notifyAttentionDigest(params: {
   stalledCount: number;
   overdueCount: number;
 }): Promise<void> {
-  return postAttentionNotify({ kind: 'digest', ...params });
+  return postJson('/api/notify/attention', { kind: 'digest', ...params, appUrl: window.location.origin });
 }
 
 export function notifyDocScreeningNudge(params: {
@@ -65,7 +79,7 @@ export function notifyDocScreeningNudge(params: {
   candidateId: string;
   daysSinceUpdate: number;
 }): Promise<void> {
-  return postAttentionNotify({ kind: 'doc_screening_nudge', ...params });
+  return postJson('/api/notify/attention', { kind: 'doc_screening_nudge', ...params, appUrl: window.location.origin });
 }
 
 export async function notifyEvaluationResult(params: {
@@ -81,22 +95,7 @@ export async function notifyEvaluationResult(params: {
   concerns?: string;
   failReason?: string;
 }): Promise<void> {
-  const res = await fetch('/api/notify/evaluation-result', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...params, appUrl: window.location.origin })
-  });
-
-  const rawText = await res.text();
-  let data: any;
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
-  }
-  if (!res.ok || data.error) {
-    throw new Error(data.error || '通知の送信に失敗しました');
-  }
+  return postJson('/api/notify/evaluation-result', { ...params, appUrl: window.location.origin });
 }
 
 export async function notifyEvaluationSummaryThread(params: {
@@ -124,22 +123,7 @@ export async function notifyEvaluationSummaryThread(params: {
   interviewFormatLabel?: string;
   mentionedStaff?: { name: string; mentionId?: string }[];
 }): Promise<void> {
-  const res = await fetch('/api/notify/evaluation-summary-thread', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params)
-  });
-
-  const rawText = await res.text();
-  let data: any;
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
-  }
-  if (!res.ok || data.error) {
-    throw new Error(data.error || '通知の送信に失敗しました');
-  }
+  return postJson('/api/notify/evaluation-summary-thread', params);
 }
 
 export async function notifyDeveloperInquiry(params: {
@@ -150,22 +134,7 @@ export async function notifyDeveloperInquiry(params: {
   message: string;
   inquiryId: string;
 }): Promise<void> {
-  const res = await fetch('/api/notify/developer-inquiry', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params)
-  });
-
-  const rawText = await res.text();
-  let data: any;
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
-  }
-  if (!res.ok || data.error) {
-    throw new Error(data.error || '通知の送信に失敗しました');
-  }
+  return postJson('/api/notify/developer-inquiry', params);
 }
 
 export async function notifyDocumentScreeningThread(params: {
@@ -179,20 +148,5 @@ export async function notifyDocumentScreeningThread(params: {
   nextInterviewerNames?: string[];
   interviewFormatLabel?: string;
 }): Promise<void> {
-  const res = await fetch('/api/notify/document-screening-thread', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...params, appUrl: window.location.origin })
-  });
-
-  const rawText = await res.text();
-  let data: any;
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
-  }
-  if (!res.ok || data.error) {
-    throw new Error(data.error || '通知の送信に失敗しました');
-  }
+  return postJson('/api/notify/document-screening-thread', { ...params, appUrl: window.location.origin });
 }

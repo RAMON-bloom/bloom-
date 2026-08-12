@@ -326,12 +326,32 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Skips the very first run (mount/initial hydration, including the auto-restore below populating
   // these from Drive, is not a "change" worth writing straight back), and only failures get a
   // toast — success is meant to be invisible, matching what "automatic" implies.
+  // Persisted (not just in-memory) so a fresh page load knows what this device last confirmed
+  // synced even before any network call happens this session — see LAST_APPLIED_BACKUP_AT_KEY
+  // below for why that matters.
+  const LAST_APPLIED_BACKUP_AT_KEY = 'ats_last_applied_backup_at';
   // Timestamp of the newest Drive snapshot this tab has either written itself or already applied
   // (from restore or a background poll — see pollFromDrive below). Lets the poll tell "someone
   // else's newer edit" apart from "Drive still has whatever I most recently wrote/read," so it
   // never redundantly re-applies our own just-written data or, worse, replaces in-progress local
   // state with something no newer than what's already showing.
-  const lastAppliedBackupAtRef = useRef<string | null>(null);
+  const lastAppliedBackupAtRef = useRef<string | null>(
+    typeof window !== 'undefined' ? localStorage.getItem(LAST_APPLIED_BACKUP_AT_KEY) : null
+  );
+  const setLastAppliedBackupAt = (value: string) => {
+    lastAppliedBackupAtRef.current = value;
+    localStorage.setItem(LAST_APPLIED_BACKUP_AT_KEY, value);
+  };
+
+  // Persisted twin of pendingLocalWriteRef (below) — '1' from the moment a local change schedules
+  // an as-yet-unconfirmed Drive backup until that write actually succeeds. Unlike the in-memory
+  // ref, this survives a reload/tab-close, which is exactly the gap that used to lose data: an
+  // interview note saved right as Drive dropped out would sit safely in localStorage, but if the
+  // tab closed (or the page reloaded) before the debounced/retried backup ever landed, the
+  // mount-time auto-restore below had no way to know a local write was still outstanding and would
+  // unconditionally pull Drive's older copy over it — silently discarding the note. The mount-time
+  // check now consults this flag before ever overwriting local state with a Drive read.
+  const PENDING_BACKUP_KEY = 'ats_pending_drive_backup';
 
   // True from the moment a local change schedules the debounced auto-backup below until that
   // write actually lands on Drive. Closes a race the 20s poll could otherwise hit: if someone
@@ -386,7 +406,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Captured after the write completes (so it's already at least as new as whatever
         // timestamp the server just stamped the file with), not before — a poll landing right
         // after this should see its own echo and skip, not treat it as someone else's edit.
-        lastAppliedBackupAtRef.current = new Date().toISOString();
+        setLastAppliedBackupAt(new Date().toISOString());
+        localStorage.removeItem(PENDING_BACKUP_KEY);
         backupRetryCountRef.current = 0;
         pendingLocalWriteRef.current = false;
         if (hadBackupFailureRef.current) {
@@ -423,6 +444,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     backupRetryCountRef.current = 0;
     pendingLocalWriteRef.current = true;
+    localStorage.setItem(PENDING_BACKUP_KEY, '1');
     autoBackupTimerRef.current = setTimeout(attemptBackup, 5000);
 
     return () => {
@@ -430,22 +452,82 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries, driveAccessToken]);
 
+  // Shared by restoreFromDrive, the mount-time check below, and the 20s poll — applies a Drive
+  // snapshot to local state and records it as this device's new "known synced" point.
+  const applyDriveSnapshot = (data: {
+    candidates?: Candidate[];
+    agencies?: Agency[];
+    staffList?: InternalStaff[];
+    meetingLogs?: MeetingLog[];
+    groupChatWebhooks?: ChatWebhook[];
+    inquiries?: Inquiry[];
+    backedUpAt?: string;
+  }) => {
+    if (data.candidates) setCandidates(data.candidates);
+    if (data.agencies) setAgencies(data.agencies);
+    if (data.staffList) setStaffList(data.staffList);
+    if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
+    if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
+    if (data.inquiries) setInquiries(data.inquiries);
+    if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
+    localStorage.removeItem(PENDING_BACKUP_KEY);
+  };
+
   // Auto-restores from Drive once per login. Without this, candidates/agencies/staffList/
   // meetingLogs were seeded purely from this browser's own localStorage (or, on a brand-new
   // browser, this app's built-in demo data — dummy agencies, a dummy 山田太郎 etc.) and stayed
   // that way until someone remembered to open the Drive menu and click「Driveから復元」— so a new
   // teammate's first login showed fake data, and a returning teammate's browser could silently
-  // drift out of sync with whatever anyone else had since backed up. Runs restoreFromDrive with
-  // {silent: true} (no success toast; a "nothing backed up yet" 404 — the very first time anyone
-  // on the team ever signs in — is treated as a no-op, not a scary warning). Guarded by a ref
-  // rather than depending on identity/mount timing, so a background token refresh later in the
-  // session (AuthGate re-fires driveAccessToken on a schedule) doesn't re-trigger this and
-  // overwrite whatever's been edited locally since login.
+  // drift out of sync with whatever anyone else had since backed up. Guarded by a ref rather than
+  // depending on identity/mount timing, so a background token refresh later in the session
+  // (AuthGate re-fires driveAccessToken on a schedule) doesn't re-trigger this and overwrite
+  // whatever's been edited locally since login.
+  //
+  // Before blindly pulling Drive's copy, checks PENDING_BACKUP_KEY (see its declaration above) —
+  // set whenever a local edit schedules a backup, cleared only once that backup actually succeeds,
+  // and unlike the in-memory pendingLocalWriteRef this survives the very reload/tab-close this
+  // effect runs on. If it's still set, this device has an edit (e.g. an interview note saved right
+  // as Drive dropped out) that never confirmed reaching Drive last session — restoring now would
+  // silently discard it, which is exactly the "notes that used to be there later disappeared" bug
+  // this fixes. In that case, read Drive first only to check whether anyone else has backed up
+  // something newer than what this device last knew about:
+  //   - if not, nobody's work is at risk — push our pending local snapshot instead of pulling.
+  //   - if so, someone else's edit exists that we have no way to merge with our unconfirmed local
+  //     one — fall through to the normal restore. This is a real (rare) case where the pending
+  //     local edit can still be lost, but it's strictly better than the previous behavior, which
+  //     discarded it unconditionally on every single reload regardless of whether anyone else had
+  //     touched Drive at all.
   const hasAutoRestoredRef = useRef(false);
   useEffect(() => {
     if (!driveAccessToken || hasAutoRestoredRef.current) return;
     hasAutoRestoredRef.current = true;
-    restoreFromDrive({ silent: true });
+
+    const hasUnconfirmedLocalWrite = localStorage.getItem(PENDING_BACKUP_KEY) === '1';
+    if (!hasUnconfirmedLocalWrite) {
+      restoreFromDrive({ silent: true });
+      return;
+    }
+
+    (async () => {
+      let driveIsAheadOfWhatWeKnow = true; // fail safe: if we can't tell, don't risk pushing over newer work
+      try {
+        const data = await restoreFromDriveApi(driveAccessToken);
+        driveIsAheadOfWhatWeKnow =
+          !!data.backedUpAt && (!lastAppliedBackupAtRef.current || data.backedUpAt > lastAppliedBackupAtRef.current);
+        if (driveIsAheadOfWhatWeKnow) {
+          applyDriveSnapshot(data);
+          return;
+        }
+      } catch {
+        // Nothing backed up yet at all, or the read failed — either way there's nothing "ahead" of
+        // us to preserve, so it's safe to fall through to pushing our pending local snapshot below.
+        driveIsAheadOfWhatWeKnow = false;
+      }
+      if (!driveIsAheadOfWhatWeKnow) {
+        pendingLocalWriteRef.current = true;
+        attemptBackup();
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
 
@@ -477,13 +559,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!data.backedUpAt) return;
         if (lastAppliedBackupAtRef.current && data.backedUpAt <= lastAppliedBackupAtRef.current) return;
 
-        if (data.candidates) setCandidates(data.candidates);
-        if (data.agencies) setAgencies(data.agencies);
-        if (data.staffList) setStaffList(data.staffList);
-        if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
-        if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
-        if (data.inquiries) setInquiries(data.inquiries);
-        lastAppliedBackupAtRef.current = data.backedUpAt;
+        applyDriveSnapshot(data);
       } catch (err) {
         // Silent — a background poll failing (transient network blip, token mid-refresh, nothing
         // backed up yet) isn't something the user needs interrupted with a toast for; the button-
@@ -1529,7 +1605,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       // Same reasoning as the auto-backup effect: stamped after the write completes, so the
       // background poll recognizes this as its own echo instead of someone else's newer edit.
-      lastAppliedBackupAtRef.current = new Date().toISOString();
+      setLastAppliedBackupAt(new Date().toISOString());
+      localStorage.removeItem(PENDING_BACKUP_KEY);
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {
       showToast(`Driveバックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
@@ -1549,13 +1626,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     try {
       const data = await restoreFromDriveApi(driveAccessToken);
-      if (data.candidates) setCandidates(data.candidates);
-      if (data.agencies) setAgencies(data.agencies);
-      if (data.staffList) setStaffList(data.staffList);
-      if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
-      if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
-      if (data.inquiries) setInquiries(data.inquiries);
-      if (data.backedUpAt) lastAppliedBackupAtRef.current = data.backedUpAt;
+      applyDriveSnapshot(data);
       if (!options.silent) showToast('Driveのバックアップからデータを復元しました', 'success');
     } catch (err: any) {
       const notBackedUpYet = String(err.message || '').includes('見つかりませんでした');

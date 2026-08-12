@@ -60,6 +60,21 @@ export const RecruitmentMeetingView: React.FC = () => {
   );
   const recruiterStaffList = agencyAssignedStaffList.length > 0 ? agencyAssignedStaffList : staffList;
 
+  // Shared "no report yet" fallback shape — used both when the user starts typing into a
+  // recruiter's report before one has been created for them, and by the pipeline/yield snapshot
+  // backfill effect below when a meeting log never had a per-recruiter report at all (e.g. the
+  // pre-app historical logs, see historicalMeetingLogs.ts). Takes the meeting date explicitly
+  // rather than closing over `activeMeeting` so it can be defined ahead of that variable's
+  // not-yet-loaded early return.
+  const buildEmptyRecruiterReport = (recruiterName: string, meetingDateISO: string): RecruiterReport => ({
+    recruiterName,
+    progressNotes: '',
+    recommendationNotes: '',
+    yieldNotes: '',
+    upcomingInitiatives: [],
+    yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, meetingDateISO.slice(0, 7))
+  });
+
   // Selected Meeting Date/Log
   const [selectedMeetingId, setSelectedMeetingId] = useState<string>(
     meetingLogs[0]?.id || ''
@@ -120,6 +135,37 @@ export const RecruitmentMeetingView: React.FC = () => {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [selectedMeetingId]);
+
+  // Backfills a frozen pipeline/yield snapshot the first time this meeting+recruiter combination is
+  // viewed without one — covers both older per-app meetings saved before yieldSnapshot existed and
+  // the pre-app historical logs (recruiterReports intentionally starts empty for those). Without
+  // this, opening any past MTG's report for a recruiter who has no snapshot yet always shows
+  // today's live candidate phases instead of what was true back then. Deliberately keyed only on
+  // the meeting id + selected recruiter (not candidates/agencies), so it freezes once per view
+  // instead of re-freezing to "now" again on every background poll refresh.
+  useEffect(() => {
+    if (!activeMeeting) return;
+    const recruiterName = (recruiterStaffList.find((s) => s.name === selectedRecruiter) || recruiterStaffList[0])?.name;
+    if (!recruiterName) return;
+
+    const existingReports = activeMeeting.recruiterReports || [];
+    const reportIndex = existingReports.findIndex((r) => r.recruiterName === recruiterName);
+    if (reportIndex >= 0 && existingReports[reportIndex].yieldSnapshot) return;
+
+    const updatedReport: RecruiterReport = reportIndex >= 0
+      ? {
+          ...existingReports[reportIndex],
+          yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
+        }
+      : buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
+
+    const newReportsList = reportIndex >= 0
+      ? existingReports.map((r, i) => (i === reportIndex ? updatedReport : r))
+      : [...existingReports, updatedReport];
+
+    updateMeetingLog({ ...activeMeeting, recruiterReports: newReportsList }, { silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMeeting?.id, selectedRecruiter]);
 
   const handleSaveNotes = (label?: string) => {
     if (!activeMeeting) return;
@@ -380,15 +426,8 @@ export const RecruitmentMeetingView: React.FC = () => {
   ) => {
     const existingReports = activeMeeting.recruiterReports || [];
     const reportIndex = existingReports.findIndex(r => r.recruiterName === recruiterName);
-    
-    const targetReport = existingReports[reportIndex] || {
-      recruiterName,
-      progressNotes: '',
-      recommendationNotes: '',
-      yieldNotes: '',
-      upcomingInitiatives: [],
-      yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
-    };
+
+    const targetReport = existingReports[reportIndex] || buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
 
     const updatedReport = { ...targetReport, [field]: value };
     let newReportsList = [...existingReports];
@@ -410,14 +449,7 @@ export const RecruitmentMeetingView: React.FC = () => {
 
     const existingReports = activeMeeting.recruiterReports || [];
     const reportIndex = existingReports.findIndex(r => r.recruiterName === recruiterName);
-    const targetReport = existingReports[reportIndex] || {
-      recruiterName,
-      progressNotes: '',
-      recommendationNotes: '',
-      yieldNotes: '',
-      upcomingInitiatives: [],
-      yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
-    };
+    const targetReport = existingReports[reportIndex] || buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
 
     const updatedInitiatives = [...(targetReport.upcomingInitiatives || []), newInitiativeInput.trim()];
     const updatedReport = { ...targetReport, upcomingInitiatives: updatedInitiatives };
@@ -468,12 +500,20 @@ export const RecruitmentMeetingView: React.FC = () => {
     r => r.recruiterName === (currentRecruiterStaff?.name || selectedRecruiter)
   );
 
-  // Candidates assigned to selected recruiter
-  const assignedCandidates = candidates.filter(
-    c => !c.isArchived && 
-    c.assignees.includes(currentRecruiterStaff?.name || selectedRecruiter) && 
-    !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)
-  );
+  const yieldSnapshot = currentReport?.yieldSnapshot;
+
+  // Candidates assigned to selected recruiter — the frozen snapshot wins when present, so a past
+  // meeting's pipeline list keeps showing who was in progress (and at what phase) back when it was
+  // held, instead of always reflecting today's live candidate phases. The live filter below is only
+  // a fallback for a meeting/recruiter combination that hasn't been backfilled with a snapshot yet
+  // (the backfill effect above fills one in on next view, silently).
+  const assignedCandidates = yieldSnapshot
+    ? yieldSnapshot.pipelineCandidates
+    : candidates.filter(
+        c => !c.isArchived &&
+        c.assignees.includes(currentRecruiterStaff?.name || selectedRecruiter) &&
+        !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)
+      );
 
   // Agencies associated with selected recruiter
   const assignedAgencies = agencies.filter(
@@ -539,7 +579,6 @@ export const RecruitmentMeetingView: React.FC = () => {
 
   const liveAcceptCount = assignedRecruiterCandidates.filter(c => c.phase === 'OFFER_ACCEPTED').length;
 
-  const yieldSnapshot = currentReport?.yieldSnapshot;
   const docPassRate = yieldSnapshot?.docPassRate ?? liveDocPassRate;
   const firstPassRate = yieldSnapshot?.firstPassRate ?? liveFirstPassRate;
   const finalOfferCount = yieldSnapshot?.finalOfferCount ?? liveFinalOfferCount;
@@ -704,179 +743,7 @@ export const RecruitmentMeetingView: React.FC = () => {
         </div>
       </div>
 
-      {/* SECTION 1: 全体議事録・決定事項 & 全体ToDo (統合スマートカード) */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden transition-all">
-        {/* Header Bar */}
-        <div 
-          onClick={() => setIsOverallOpen(!isOverallOpen)}
-          className="bg-slate-50/80 hover:bg-slate-100/80 p-4 border-b border-slate-200 flex items-center justify-between cursor-pointer select-none transition-colors"
-        >
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
-              <ListTodo className="w-4 h-4" />
-            </div>
-            <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
-              1. 全体議事録・決定事項 & ToDo
-            </h3>
-            <span className="text-xs text-slate-500 font-normal hidden sm:inline">
-              （全体アジェンダ、共通決定事項、アクションアイテム）
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
-              未完了タスク: {activeMeeting.actionItems?.filter(a => !a.done).length || 0}件
-            </span>
-            {isOverallOpen ? (
-              <ChevronUp className="w-4 h-4 text-slate-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-slate-400" />
-            )}
-          </div>
-        </div>
-
-        {/* Content Body */}
-        {isOverallOpen && (
-          <div className="p-4 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-              {/* Left Column (6 cols): Overall Meeting Notes */}
-              <div className="lg:col-span-6 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                    全体決定事項・アジェンダメモ
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => handleSaveNotes('全体メモ')}
-                    disabled={isSaving}
-                    className="text-xs text-indigo-600 hover:underline font-bold flex items-center gap-1"
-                  >
-                    <Save className="w-3 h-3" />
-                    <span>保存</span>
-                  </button>
-                </div>
-
-                <textarea
-                  value={activeMeeting.overallSummary || ''}
-                  onChange={(e) => updateMeetingLog({ ...activeMeeting, overallSummary: e.target.value })}
-                  rows={5}
-                  className="w-full p-3 bg-slate-50/50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed transition-colors"
-                  placeholder="定例MTG全体の決定事項、会社方針の変更点や共有事項を入力..."
-                />
-
-                {/* AI / Drive Summary Box if present */}
-                {activeMeeting.fetchedOverallLog && (
-                  <div className="bg-indigo-50/80 border border-indigo-200/90 rounded-xl p-3.5 space-y-2 text-xs">
-                    <div className="flex items-center justify-between border-b border-indigo-200/60 pb-1.5">
-                      <span className="font-extrabold text-indigo-900 flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                        【AI / Drive 抽出要約】
-                        {activeMeeting.sourceDriveFileName && (
-                          <span className="ml-1 text-[10px] font-normal text-indigo-500 truncate max-w-[160px]">
-                            ({activeMeeting.sourceDriveFileName})
-                          </span>
-                        )}
-                      </span>
-                      <button
-                        onClick={() => copyToClipboard(activeMeeting.fetchedOverallLog || '', '要約ログ')}
-                        className="font-bold text-indigo-700 hover:underline text-[11px]"
-                      >
-                        コピー
-                      </button>
-                    </div>
-                    <div className="text-indigo-950 leading-relaxed whitespace-pre-wrap font-medium">
-                      {activeMeeting.fetchedOverallLog}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Right Column (6 cols): Action Items Checklist */}
-              <div className="lg:col-span-6 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
-                    全体アクションアイテム・ToDo
-                  </label>
-                  <span className="text-[11px] text-slate-500 font-mono">
-                    {activeMeeting.actionItems?.filter(a => a.done).length || 0} / {activeMeeting.actionItems?.length || 0} 完了
-                  </span>
-                </div>
-
-                {/* Add New Task Form */}
-                <form onSubmit={handleAddActionItem} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newActionItemText}
-                    onChange={(e) => setNewActionItemText(e.target.value)}
-                    placeholder="新しいToDoを入力..."
-                    className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-
-                  <select
-                    value={newActionItemAssignee}
-                    onChange={(e) => setNewActionItemAssignee(e.target.value)}
-                    className="px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 cursor-pointer"
-                  >
-                    {staffList.map((st) => (
-                      <option key={st.id} value={st.name}>
-                        {st.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    type="submit"
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
-                  >
-                    追加
-                  </button>
-                </form>
-
-                {/* Checklist */}
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {activeMeeting.actionItems && activeMeeting.actionItems.length > 0 ? (
-                    activeMeeting.actionItems.map((item) => (
-                      <div 
-                        key={item.id}
-                        onClick={() => handleToggleActionItem(item.id)}
-                        className={`p-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
-                          item.done 
-                            ? 'bg-slate-50 border-slate-200 text-slate-400 line-through' 
-                            : 'bg-white border-slate-200 hover:border-indigo-300 text-slate-800 shadow-2xs'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 text-xs font-medium min-w-0">
-                          {item.done ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                          ) : (
-                            <Circle className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-                          )}
-                          <span className="truncate">{item.text}</span>
-                        </div>
-
-                        <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.2 rounded-full shrink-0">
-                          {item.assignee}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-center text-xs text-slate-400 italic">
-                      タスクは未登録です
-                    </div>
-                  )}
-                </div>
-
-              </div>
-
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* SECTION 2: 担当者別選考報告シート */}
+      {/* SECTION 1: 担当者別選考報告シート */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-4">
 
         {/* Section Header & Recruiter Quick Selector Tab Bar */}
@@ -885,7 +752,7 @@ export const RecruitmentMeetingView: React.FC = () => {
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-indigo-600" />
               <h3 className="font-extrabold text-slate-900 text-base sm:text-lg">
-                2. 担当者別 選考報告シート
+                1. 担当者別 選考報告シート
               </h3>
             </div>
             <span className="text-xs text-slate-500 font-medium">
@@ -897,7 +764,10 @@ export const RecruitmentMeetingView: React.FC = () => {
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
             {recruiterStaffList.map((st) => {
               const isSelected = (currentRecruiterStaff?.name || selectedRecruiter) === st.name;
-              const candCount = candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length;
+              const stSnapshot = activeMeeting.recruiterReports?.find(r => r.recruiterName === st.name)?.yieldSnapshot;
+              const candCount = stSnapshot
+                ? stSnapshot.pipelineCandidates.length
+                : candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length;
 
               return (
                 <button
@@ -1181,6 +1051,178 @@ export const RecruitmentMeetingView: React.FC = () => {
 
         </div>
 
+      </div>
+
+      {/* SECTION 2: 全体議事録・決定事項 & 全体ToDo (統合スマートカード) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden transition-all">
+        {/* Header Bar */}
+        <div 
+          onClick={() => setIsOverallOpen(!isOverallOpen)}
+          className="bg-slate-50/80 hover:bg-slate-100/80 p-4 border-b border-slate-200 flex items-center justify-between cursor-pointer select-none transition-colors"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+              <ListTodo className="w-4 h-4" />
+            </div>
+            <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
+              2. 全体議事録・決定事項 & ToDo
+            </h3>
+            <span className="text-xs text-slate-500 font-normal hidden sm:inline">
+              （全体アジェンダ、共通決定事項、アクションアイテム）
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+              未完了タスク: {activeMeeting.actionItems?.filter(a => !a.done).length || 0}件
+            </span>
+            {isOverallOpen ? (
+              <ChevronUp className="w-4 h-4 text-slate-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-400" />
+            )}
+          </div>
+        </div>
+
+        {/* Content Body */}
+        {isOverallOpen && (
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+              {/* Left Column (6 cols): Overall Meeting Notes */}
+              <div className="lg:col-span-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    全体決定事項・アジェンダメモ
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveNotes('全体メモ')}
+                    disabled={isSaving}
+                    className="text-xs text-indigo-600 hover:underline font-bold flex items-center gap-1"
+                  >
+                    <Save className="w-3 h-3" />
+                    <span>保存</span>
+                  </button>
+                </div>
+
+                <textarea
+                  value={activeMeeting.overallSummary || ''}
+                  onChange={(e) => updateMeetingLog({ ...activeMeeting, overallSummary: e.target.value })}
+                  rows={5}
+                  className="w-full p-3 bg-slate-50/50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed transition-colors"
+                  placeholder="定例MTG全体の決定事項、会社方針の変更点や共有事項を入力..."
+                />
+
+                {/* AI / Drive Summary Box if present */}
+                {activeMeeting.fetchedOverallLog && (
+                  <div className="bg-indigo-50/80 border border-indigo-200/90 rounded-xl p-3.5 space-y-2 text-xs">
+                    <div className="flex items-center justify-between border-b border-indigo-200/60 pb-1.5">
+                      <span className="font-extrabold text-indigo-900 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                        【AI / Drive 抽出要約】
+                        {activeMeeting.sourceDriveFileName && (
+                          <span className="ml-1 text-[10px] font-normal text-indigo-500 truncate max-w-[160px]">
+                            ({activeMeeting.sourceDriveFileName})
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => copyToClipboard(activeMeeting.fetchedOverallLog || '', '要約ログ')}
+                        className="font-bold text-indigo-700 hover:underline text-[11px]"
+                      >
+                        コピー
+                      </button>
+                    </div>
+                    <div className="text-indigo-950 leading-relaxed whitespace-pre-wrap font-medium">
+                      {activeMeeting.fetchedOverallLog}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column (6 cols): Action Items Checklist */}
+              <div className="lg:col-span-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                    全体アクションアイテム・ToDo
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    {activeMeeting.actionItems?.filter(a => a.done).length || 0} / {activeMeeting.actionItems?.length || 0} 完了
+                  </span>
+                </div>
+
+                {/* Add New Task Form */}
+                <form onSubmit={handleAddActionItem} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newActionItemText}
+                    onChange={(e) => setNewActionItemText(e.target.value)}
+                    placeholder="新しいToDoを入力..."
+                    className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+
+                  <select
+                    value={newActionItemAssignee}
+                    onChange={(e) => setNewActionItemAssignee(e.target.value)}
+                    className="px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 cursor-pointer"
+                  >
+                    {staffList.map((st) => (
+                      <option key={st.id} value={st.name}>
+                        {st.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="submit"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+                  >
+                    追加
+                  </button>
+                </form>
+
+                {/* Checklist */}
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {activeMeeting.actionItems && activeMeeting.actionItems.length > 0 ? (
+                    activeMeeting.actionItems.map((item) => (
+                      <div 
+                        key={item.id}
+                        onClick={() => handleToggleActionItem(item.id)}
+                        className={`p-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
+                          item.done 
+                            ? 'bg-slate-50 border-slate-200 text-slate-400 line-through' 
+                            : 'bg-white border-slate-200 hover:border-indigo-300 text-slate-800 shadow-2xs'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 text-xs font-medium min-w-0">
+                          {item.done ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          ) : (
+                            <Circle className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                          )}
+                          <span className="truncate">{item.text}</span>
+                        </div>
+
+                        <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.2 rounded-full shrink-0">
+                          {item.assignee}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-center text-xs text-slate-400 italic">
+                      タスクは未登録です
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        )}
       </div>
 
       {/* SECTION 3: エージェント推薦・選考歩留まり分析 (折りたたみ統合コンテナ) */}

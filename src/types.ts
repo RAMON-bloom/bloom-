@@ -221,6 +221,17 @@ export interface AgencyYieldSnapshot {
   overallYieldRate: number; // %
 }
 
+// A candidate's identity/phase as they stood at snapshot time — deliberately not just a Candidate
+// id reference, so a past meeting's pipeline list keeps showing that candidate's phase from back
+// then even after their real phase has since moved on.
+export interface PipelineCandidateSnapshot {
+  id: string;
+  name: string;
+  jobTitle: string;
+  phase: SelectionPhase;
+  avatarUrl?: string;
+}
+
 export interface RecruiterYieldSnapshot {
   candidateCount: number;
   docPassRate: number; // %
@@ -228,6 +239,7 @@ export interface RecruiterYieldSnapshot {
   finalOfferCount: number;
   acceptCount: number;
   agencyStats: AgencyYieldSnapshot[];
+  pipelineCandidates: PipelineCandidateSnapshot[];
 }
 
 export interface RecruiterReport {

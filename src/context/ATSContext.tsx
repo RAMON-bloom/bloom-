@@ -83,7 +83,7 @@ interface ATSContextType {
   setIsAddModalOpen: (open: boolean) => void;
   meetingLogs: MeetingLog[];
   addMeetingLog: (log: Omit<MeetingLog, 'id'>) => string;
-  updateMeetingLog: (log: MeetingLog) => void;
+  updateMeetingLog: (log: MeetingLog, opts?: { silent?: boolean }) => void;
   deleteMeetingLog: (id: string) => void;
   importHistoricalMeetingLogs: () => number;
   
@@ -572,9 +572,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return id;
   };
 
-  const updateMeetingLog = (updatedLog: MeetingLog) => {
+  const updateMeetingLog = (updatedLog: MeetingLog, opts?: { silent?: boolean }) => {
     setMeetingLogs((prev) => prev.map((m) => (m.id === updatedLog.id ? updatedLog : m)));
-    showToast(`MTGログを更新しました`, 'info');
+    if (!opts?.silent) {
+      showToast(`MTGログを更新しました`, 'info');
+    }
   };
 
   const deleteMeetingLog = (id: string) => {

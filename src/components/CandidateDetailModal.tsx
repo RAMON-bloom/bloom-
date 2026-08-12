@@ -3,7 +3,7 @@ import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog, InterviewFormat } from '../types';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
-import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog } from '../lib/driveApi';
+import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { getNextPhase, PHASE_SEQUENCE } from '../lib/phaseUtils';
@@ -489,6 +489,23 @@ export const CandidateDetailModal: React.FC = () => {
             legacyFileId && legacyFileId !== primaryUploaded?.file.id && !priorDocIds.has(legacyFileId)
               ? [{ name: candidate.resumeFileName || '旧履歴書ファイル', driveUrl: candidate.resumeDriveUrl || '', driveFileId: legacyFileId }]
               : [];
+
+          // Recording the legacy file in resumeDocuments isn't enough on its own — it physically
+          // stays wherever it originally was (a bare file directly in some phase folder, never
+          // inside the per-candidate folder these uploads just created/reused). Left alone, this
+          // is exactly how a candidate's documents end up split across two different phase
+          // folders: the folder the app tracks and moves on every phase change, and this
+          // leftover file that nothing ever moves again. Fold it in physically, not just in data.
+          if (preservedLegacyDoc.length > 0 && folderId) {
+            try {
+              await moveFileIntoFolder(driveAccessToken, legacyFileId as string, folderId);
+            } catch (moveErr: any) {
+              showToast(
+                `既存ファイルをDriveフォルダへ統合できませんでした: ${moveErr.message || '不明なエラー'}`,
+                'warning'
+              );
+            }
+          }
 
           patch.resumeDriveFolderId = folderId || candidate.resumeDriveFolderId;
           patch.resumeDriveFileId = primaryUploaded?.file.id || candidate.resumeDriveFileId;
@@ -977,6 +994,53 @@ export const CandidateDetailModal: React.FC = () => {
           </div>
         </div>
 
+        {/* Original-document quick access — lives outside the scrolling tab content (unlike the
+            old per-tab copy that used to sit inside "選考・評価メモ") so any of the candidate's
+            registered files stays reachable no matter which tab is open or how far the evaluation
+            form below has been scrolled. */}
+        {resumeDocs.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-white border-b border-slate-200 px-4 py-2 shrink-0">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 min-w-0">
+              <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span className="shrink-0">原本:</span>
+              {resumeDocs.length > 1 ? (
+                <select
+                  value={activeResumeDocIndex}
+                  onChange={(e) => setSelectedResumeDocIndex(Number(e.target.value))}
+                  className="bg-slate-50 border border-slate-300 text-slate-800 font-bold rounded-lg px-2 py-1 text-[11px] focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[220px]"
+                >
+                  {resumeDocs.map((doc, i) => (
+                    <option key={doc.driveFileId || i} value={i}>{doc.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-slate-500 font-normal truncate max-w-[240px]">
+                  {resumeDocs[0].name}
+                </span>
+              )}
+            </div>
+            {activeResumeDoc?.driveUrl ? (
+              <a
+                href={activeResumeDoc.driveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors shadow-2xs shrink-0"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>原本を開く</span>
+              </a>
+            ) : (
+              <span
+                title="この候補者にはDrive上の原本ファイルが紐づいていません"
+                className="flex items-center gap-1 text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg cursor-not-allowed shrink-0"
+              >
+                <Download className="w-3 h-3" />
+                <span>原本未登録</span>
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Content Scroll Area */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-6 text-xs text-slate-700 bg-slate-50/40">
           
@@ -1237,50 +1301,18 @@ export const CandidateDetailModal: React.FC = () => {
           {activeSubTab === 'evaluation' && (
             <div className="space-y-6">
 
-              {/* Quick access to the resume/CV original — evaluating a candidate almost always
-                  means wanting to glance at the source document, which previously required
-                  switching to the separate "履歴書・書類原本" tab first. */}
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 min-w-0">
-                  <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span className="shrink-0">履歴書・職務経歴書:</span>
-                  {resumeDocs.length > 1 ? (
-                    <select
-                      value={activeResumeDocIndex}
-                      onChange={(e) => setSelectedResumeDocIndex(Number(e.target.value))}
-                      className="bg-slate-50 border border-slate-300 text-slate-800 font-bold rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[200px]"
-                    >
-                      {resumeDocs.map((doc, i) => (
-                        <option key={doc.driveFileId || i} value={i}>{doc.name}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="text-slate-500 font-normal truncate max-w-[220px]">
-                      {candidate.resumeFileName || 'ファイル名未登録'}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {activeResumeDoc?.driveUrl && (
-                    <a
-                      href={activeResumeDoc.driveUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-sm font-extrabold text-white bg-rose-600 hover:bg-rose-700 px-4 py-2.5 rounded-xl cursor-pointer transition-colors shadow-md ring-2 ring-rose-200"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>原本を開く</span>
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setActiveSubTab('resume')}
-                    className="flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>書類内容を確認</span>
-                  </button>
-                </div>
+              {/* Original-document open/select now lives in the always-visible header bar above
+                  (outside the scrolling tab content), so this only needs the shortcut into the
+                  parsed-content tab. */}
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('resume')}
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>書類内容を確認</span>
+                </button>
               </div>
 
               {/* Simplified Selection & Interview Adjustment Dashboard */}

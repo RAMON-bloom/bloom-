@@ -20,7 +20,8 @@ import {
   InterviewFormat,
   DriveSyncPreview,
   DriveSyncPhaseMove,
-  DriveSyncNewImport
+  DriveSyncNewImport,
+  DriveSyncDocUpdate
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -167,7 +168,12 @@ interface ATSContextType {
   previewDriveSync: () => Promise<void>;
   cancelDriveSyncPreview: () => void;
   isApplyingDriveSync: boolean;
-  applyDriveSync: (selection: { phaseMoveCandidateIds: string[]; importKeys: string[]; ignoreKeys: string[] }) => Promise<void>;
+  applyDriveSync: (selection: {
+    phaseMoveCandidateIds: string[];
+    importKeys: string[];
+    ignoreKeys: string[];
+    docUpdateCandidateIds?: string[];
+  }) => Promise<void>;
 }
 
 const ATSContext = createContext<ATSContextType | undefined>(undefined);
@@ -607,6 +613,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 3500);
   };
 
+  // Drive's move (GET current parents, then PATCH addParents/removeParents based on that read)
+  // isn't atomic — two moves fired for the same item close together can each read the same
+  // stale parent, so the second one's removeParents no longer matches reality and the item ends
+  // up with parents from both the old and the new phase folder at once (a candidate's resume
+  // "spanning" two folders). Chaining every move for the same drive item onto the previous one's
+  // promise (rather than firing them concurrently) keeps each PATCH's parent read accurate.
+  const driveMoveQueueRef = useRef<Map<string, Promise<any>>>(new Map());
+
   // Fire-and-forget: moves the candidate's whole Drive folder (resume, CV, anything else in it)
   // into the folder matching their new phase. Prefers the per-candidate folder; falls back to
   // moving the bare resume file for legacy candidates registered before that folder existed.
@@ -614,9 +628,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const moveResumeFolderIfNeeded = (candidate: Candidate, newPhase: SelectionPhase) => {
     const driveItemId = candidate.resumeDriveFolderId || candidate.resumeDriveFileId;
     if (!driveAccessToken || !driveItemId || candidate.phase === newPhase) return;
-    moveResumeToPhaseFolderApi(driveAccessToken, driveItemId, newPhase).catch((err: any) => {
-      showToast(`${candidate.name} さんの履歴書のDriveフォルダ移動に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-    });
+    const priorMove = driveMoveQueueRef.current.get(driveItemId) || Promise.resolve();
+    const thisMove = priorMove
+      .catch(() => {})
+      .then(() => moveResumeToPhaseFolderApi(driveAccessToken, driveItemId, newPhase))
+      .catch((err: any) => {
+        showToast(`${candidate.name} さんの履歴書のDriveフォルダ移動に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      });
+    driveMoveQueueRef.current.set(driveItemId, thisMove);
   };
 
   const updateCandidatePhase = (candidateId: string, newPhase: SelectionPhase) => {
@@ -1492,6 +1511,33 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
 
+      // A known candidate's folder can grow files the app was never told about — either because
+      // this candidate was originally imported by the old Drive-sync path (before it tracked
+      // every file in the folder, only ever kept one), or because a file was dropped into their
+      // folder by hand in Drive itself. Since these already live in the right folder (no move
+      // needed), surfacing them only needs comparing folder contents against resumeDocuments/
+      // resumeDriveFileId — applying just appends to resumeDocuments, nothing moves in Drive.
+      const folderIdToFiles = new Map<string, typeof entries[number]['file'][]>();
+      entries.forEach((e) => {
+        if (!e.folderId) return;
+        const list = folderIdToFiles.get(e.folderId) || [];
+        list.push(e.file);
+        folderIdToFiles.set(e.folderId, list);
+      });
+      const docUpdates: DriveSyncDocUpdate[] = [];
+      candidates.forEach((c) => {
+        if (!c.resumeDriveFolderId) return;
+        const filesInFolder = folderIdToFiles.get(c.resumeDriveFolderId);
+        if (!filesInFolder || filesInFolder.length === 0) return;
+        const knownIds = new Set(
+          [c.resumeDriveFileId, ...(c.resumeDocuments || []).map((d) => d.driveFileId)].filter(Boolean)
+        );
+        const newFiles = filesInFolder.filter((f) => !knownIds.has(f.id));
+        if (newFiles.length > 0) {
+          docUpdates.push({ candidateId: c.id, candidateName: c.name, newFiles });
+        }
+      });
+
       const knownFolderIds = new Set(candidates.map((c) => c.resumeDriveFolderId).filter(Boolean));
       const knownFileIds = new Set(candidates.map((c) => c.resumeDriveFileId).filter(Boolean));
       const deletedIds = new Set(deletedDriveItemIds);
@@ -1540,10 +1586,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         newImports.push(group);
       });
 
-      if (phaseMoves.length === 0 && newImports.length === 0) {
+      if (phaseMoves.length === 0 && newImports.length === 0 && docUpdates.length === 0) {
         showToast('Drive同期: 差分はありませんでした', 'info');
       } else {
-        setDriveSyncPreview({ phaseMoves, newImports });
+        setDriveSyncPreview({ phaseMoves, newImports, docUpdates });
       }
     } catch (err: any) {
       showToast(`Drive同期の確認に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
@@ -1562,17 +1608,36 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     phaseMoveCandidateIds: string[];
     importKeys: string[];
     ignoreKeys: string[];
+    docUpdateCandidateIds?: string[];
   }) => {
     if (!driveAccessToken || !driveSyncPreview) return;
     setIsApplyingDriveSync(true);
     try {
       const moveIds = new Set(selection.phaseMoveCandidateIds);
-      if (moveIds.size > 0) {
+      const docUpdateIds = new Set(selection.docUpdateCandidateIds || []);
+      if (moveIds.size > 0 || docUpdateIds.size > 0) {
         setCandidates((prev) =>
           prev.map((c) => {
-            if (!moveIds.has(c.id)) return c;
-            const move = driveSyncPreview.phaseMoves.find((m) => m.candidateId === c.id);
-            return move ? { ...c, phase: move.drivePhase, lastUpdated: new Date().toISOString().split('T')[0] } : c;
+            const move = moveIds.has(c.id) ? driveSyncPreview.phaseMoves.find((m) => m.candidateId === c.id) : undefined;
+            const docUpdate = docUpdateIds.has(c.id)
+              ? driveSyncPreview.docUpdates.find((d) => d.candidateId === c.id)
+              : undefined;
+            if (!move && !docUpdate) return c;
+            return {
+              ...c,
+              ...(move ? { phase: move.drivePhase } : {}),
+              // Already sitting in this candidate's own Drive folder — nothing to move, just make
+              // it selectable/openable alongside whatever resumeDocuments already has.
+              ...(docUpdate
+                ? {
+                    resumeDocuments: [
+                      ...(c.resumeDocuments || []),
+                      ...docUpdate.newFiles.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
+                    ]
+                  }
+                : {}),
+              lastUpdated: new Date().toISOString().split('T')[0]
+            };
           })
         );
       }
@@ -1654,6 +1719,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const summary = [
         moveIds.size > 0 ? `フェーズ更新 ${moveIds.size}件` : null,
+        docUpdateIds.size > 0 ? `既存候補者への書類追加 ${docUpdateIds.size}件` : null,
         importedCount > 0 ? `新規取込 ${importedCount}件` : null,
         failedCount > 0 ? `取込失敗 ${failedCount}件` : null,
         duplicateSkippedCount > 0

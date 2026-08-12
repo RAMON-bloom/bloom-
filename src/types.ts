@@ -320,8 +320,18 @@ export interface DriveSyncNewImport {
   files: { id: string; name: string; mimeType: string; webViewLink?: string }[]; // フォルダ内の全ファイル（履歴書・職務経歴書など複数保存時も取りこぼさないため）
 }
 
+// 既に登録済みの候補者のDriveフォルダに、アプリ側がまだ知らないファイル（履歴書に後から
+// 職務経歴書を追加した、等）が増えていた場合の差分。取り込んでもresumeDocumentsに追記される
+// だけでDrive側は一切変更しないため、フェーズ更新と同様デフォルトでチェック済みにして問題ない。
+export interface DriveSyncDocUpdate {
+  candidateId: string;
+  candidateName: string;
+  newFiles: { id: string; name: string; mimeType: string; webViewLink?: string }[];
+}
+
 export interface DriveSyncPreview {
   phaseMoves: DriveSyncPhaseMove[];
   newImports: DriveSyncNewImport[];
+  docUpdates: DriveSyncDocUpdate[];
 }
 

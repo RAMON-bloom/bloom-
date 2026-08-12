@@ -162,6 +162,22 @@ export async function moveResumeToPhaseFolder(
   return data.file;
 }
 
+// Moves a file directly into an already-known folder id, without re-resolving anything from a
+// phase name (unlike moveResumeToPhaseFolder). Used to fold a stray file into a candidate's
+// existing Drive folder so it stops living outside the folder that phase changes actually move.
+export async function moveFileIntoFolder(
+  accessToken: string,
+  fileId: string,
+  targetFolderId: string
+): Promise<DriveResumeFile> {
+  const data = await postJson<{ success: boolean; file: DriveResumeFile }>('/api/drive/move-file-to-folder', {
+    accessToken,
+    fileId,
+    targetFolderId
+  });
+  return data.file;
+}
+
 export interface DrivePhaseFileEntry {
   phase: string;
   folderId: string | null;

@@ -32,6 +32,14 @@ export default async function handler(req: any, res: any) {
       await getFileMetadata(accessToken, folderId);
     } catch (accessErr: any) {
       console.error('Drive restore: root folder access check failed:', accessErr);
+      // An expired/invalid token 401s here exactly the same way a genuine "not shared with you"
+      // permissions problem 403s — both fail this canary call — but they need very different
+      // messages: one just needs a re-login, the other needs a Workspace admin. Without this
+      // check, an expired token was misreported as a permissions problem the user couldn't
+      // actually fix themselves.
+      if (accessErr.status === 401) {
+        return res.status(401).json({ error: 'Googleアクセストークンの有効期限が切れています。再度ログインしてください。' });
+      }
       return res.status(403).json({
         error:
           '採用管理のDriveフォルダへのアクセス権がありません。Google Workspace管理者にこのフォルダへの共有設定をご確認ください。'
@@ -54,6 +62,9 @@ export default async function handler(req: any, res: any) {
     return res.json({ success: true, data });
   } catch (err: any) {
     console.error('Drive restore error:', err);
+    if (err.status === 401) {
+      return res.status(401).json({ error: 'Googleアクセストークンの有効期限が切れています。再度ログインしてください。' });
+    }
     return res.status(500).json({ error: 'Driveからの復元中にエラーが発生しました: ' + (err.message || '不明なエラー') });
   }
 }

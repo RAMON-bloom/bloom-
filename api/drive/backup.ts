@@ -38,6 +38,12 @@ export default async function handler(req: any, res: any) {
     return res.json({ success: true, file });
   } catch (err: any) {
     console.error('Drive backup error:', err);
+    // Propagated as a real 401 (rather than the generic 500 below) so the client can tell "the
+    // access token expired mid-session" apart from an actual server/Drive error and react
+    // accordingly (prompt reconnect) instead of just retrying the same doomed request forever.
+    if (err.status === 401) {
+      return res.status(401).json({ error: 'Googleアクセストークンの有効期限が切れています。再度ログインしてください。' });
+    }
     return res.status(500).json({ error: 'Driveへのバックアップ中にエラーが発生しました: ' + (err.message || '不明なエラー') });
   }
 }

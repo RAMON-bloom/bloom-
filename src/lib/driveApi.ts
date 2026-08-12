@@ -44,7 +44,13 @@ async function postJson<T>(url: string, body: object): Promise<T> {
     throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
   }
   if (!res.ok || data.error) {
-    throw new Error(data.error || `${url} でエラーが発生しました`);
+    const err: any = new Error(data.error || `${url} でエラーが発生しました`);
+    // Lets callers (ATSContext's auto-backup/poll) tell "the Google access token expired" apart
+    // from other failures and react by trying an immediate silent re-auth instead of just
+    // retrying the same doomed request, or showing a generic "sync failed" toast when what's
+    // actually needed is logging back in.
+    err.status = res.status;
+    throw err;
   }
   return data;
 }

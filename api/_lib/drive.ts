@@ -33,7 +33,13 @@ async function driveFetch(accessToken: string, url: string, init?: RequestInit) 
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Drive API error (${res.status}): ${text.slice(0, 500)}`);
+    const err: any = new Error(`Drive API error (${res.status}): ${text.slice(0, 500)}`);
+    // Lets callers (route handlers, and ultimately the client) tell "the access token is
+    // expired/invalid" apart from other failures (permissions, network, Drive-side errors) —
+    // without this, an expired token and a genuine "you don't have access to this folder" error
+    // were indistinguishable downstream, and both surfaced the same generic/misleading message.
+    err.status = res.status;
+    throw err;
   }
   return res;
 }

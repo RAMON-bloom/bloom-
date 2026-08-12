@@ -241,7 +241,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // AuthGate already requires a signed-in bloom-firm.com Google account (Drive-scoped) before
   // this provider ever renders, so the Drive token/email are sourced straight from that session
   // rather than tracked as separate state here.
-  const { email: driveUserEmail, accessToken: driveAccessToken, signIn: authSignIn, signOut: authSignOut } = useAuth();
+  const { email: driveUserEmail, accessToken: driveAccessToken, signIn: authSignIn, signOut: authSignOut, refreshNow: authRefreshNow } = useAuth();
   const [isDriveConnecting, setIsDriveConnecting] = useState(false);
   const [isSyncingDrive, setIsSyncingDrive] = useState(false);
   // Diff computed by previewDriveSync but not yet applied — non-null opens the review modal.
@@ -417,14 +417,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
       .catch((err: any) => {
         hadBackupFailureRef.current = true;
+        const isAuthExpired = err.status === 401;
         const now = Date.now();
         if (now - lastBackupFailureToastAtRef.current > 60_000) {
           lastBackupFailureToastAtRef.current = now;
           showToast(
-            `メモや変更内容はこの端末には保存済みです。Driveへの同期のみ一時的に失敗しています（自動で再試行します）: ${err.message || '不明なエラー'}`,
+            isAuthExpired
+              ? 'メモや変更内容はこの端末には保存済みです。Googleログインの有効期限が切れました。自動での再接続を試みています（うまくいかない場合は画面右上の「Drive連携」から再度ログインしてください）'
+              : `メモや変更内容はこの端末には保存済みです。Driveへの同期のみ一時的に失敗しています（自動で再試行します）: ${err.message || '不明なエラー'}`,
             'warning'
           );
         }
+        // A dead/expired token (as opposed to a network blip or Drive-side error) won't fix
+        // itself just by retrying the same request — try to silently re-auth right away instead
+        // of waiting on AuthGate's own scheduled/visibility-triggered check, which could be
+        // minutes off. The very next retry attempt below picks up whatever token
+        // driveAccessTokenRef ends up holding, whether or not this finishes first.
+        if (isAuthExpired) authRefreshNow();
         // Left true here (unlike the success branch) — the write still hasn't actually landed on
         // Drive, so the 20s poll should keep deferring to local state for the whole retry window
         // rather than risk clobbering an unsynced edit with Drive's stale copy partway through.
@@ -560,11 +569,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (lastAppliedBackupAtRef.current && data.backedUpAt <= lastAppliedBackupAtRef.current) return;
 
         applyDriveSnapshot(data);
-      } catch (err) {
+      } catch (err: any) {
         // Silent — a background poll failing (transient network blip, token mid-refresh, nothing
         // backed up yet) isn't something the user needs interrupted with a toast for; the button-
         // triggered restoreFromDrive still surfaces real failures when someone explicitly asks.
         console.error('Background Drive poll failed:', err);
+        // A dead token found here (rather than only when a local edit's backup fails) still means
+        // the same thing — try to self-heal right away instead of waiting for AuthGate's own
+        // schedule. No toast: attemptBackup's own 401 handling above already owns telling the
+        // user, and this poll running every 20s regardless of local activity would otherwise
+        // re-trigger that message far more often than the 60s throttle intends.
+        if (err.status === 401) authRefreshNow();
       }
     };
 

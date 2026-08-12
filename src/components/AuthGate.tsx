@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   signIn as googleSignIn,
   signOut as googleSignOut,
@@ -46,10 +46,12 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
           const result = await refreshTokenSilently();
           setIdentity(result.identity);
           setAccessToken(result.accessToken);
-        } catch {
+        } catch (err) {
           // No active Google browser session to resume (or consent has lapsed) — the login
           // screen below will ask for an explicit click, which is required anyway once a real
-          // interactive prompt is needed.
+          // interactive prompt is needed. Logged (not shown to the user) so a "why did I get
+          // logged out" report can be traced back to a cause from the browser console.
+          console.warn('Silent Drive re-auth on load failed:', err);
         }
       }
       setChecking(false);
@@ -77,9 +79,11 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
         setIdentity(result.identity);
         setAccessToken(result.accessToken);
         scheduleNext();
-      } catch {
+      } catch (err) {
         // Browser's own Google session likely ended — leave the current token in place (it may
-        // still be valid a while longer) and retry shortly rather than force a logout.
+        // still be valid a while longer) and retry shortly rather than force a logout. Logged so
+        // a "Drive disconnected while the tab was open" report can be traced to a cause.
+        console.warn('Scheduled silent Drive re-auth failed, will retry in 5min:', err);
         if (!cancelled) timerId = setTimeout(runRefresh, 5 * 60 * 1000);
       }
     };
@@ -113,6 +117,27 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
     setIdentity(result.identity);
     setAccessToken(result.accessToken);
     return result.accessToken;
+  };
+
+  // Coalesces concurrent callers (e.g. a backup retry and a poll both hitting a 401 around the
+  // same moment) into a single in-flight silent-refresh attempt rather than firing off several.
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+  const refreshNow = (): Promise<void> => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+    const attempt = (async () => {
+      try {
+        const result = await refreshTokenSilently();
+        setIdentity(result.identity);
+        setAccessToken(result.accessToken);
+      } catch {
+        // Nothing more to do here — the caller that triggered this (e.g. a failed Drive call)
+        // shows its own message; this was only a best-effort attempt to self-heal before that.
+      } finally {
+        refreshInFlightRef.current = null;
+      }
+    })();
+    refreshInFlightRef.current = attempt;
+    return attempt;
   };
 
   const handleSignInClick = async () => {
@@ -170,6 +195,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
     accessToken,
     signIn: performSignIn,
     signOut: handleSignOut,
+    refreshNow,
   };
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;

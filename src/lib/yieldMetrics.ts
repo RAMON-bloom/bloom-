@@ -22,6 +22,13 @@ function toPipelineSnapshot(candidates: Candidate[]): PipelineCandidateSnapshot[
   }));
 }
 
+// Exported so a legacy RecruiterYieldSnapshot (saved before pipelineCandidates existed) can have
+// just that field patched in without recomputing — and thereby silently overwriting — the rate
+// numbers that were already correctly frozen by the older code.
+export function computeRecruiterPipelineSnapshot(recruiterName: string, candidates: Candidate[]): PipelineCandidateSnapshot[] {
+  return toPipelineSnapshot(computeRecruiterPipeline(recruiterName, candidates));
+}
+
 // Mirrors RecruitmentMeetingView's getAgencyStats (MONTH period) exactly, so a frozen snapshot and
 // a live fallback calculation for the same recruiter/month never disagree.
 function computeAgencyYield(agency: Agency, candidates: Candidate[], meetingMonth: string): AgencyYieldSnapshot {

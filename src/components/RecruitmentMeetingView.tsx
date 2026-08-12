@@ -28,7 +28,7 @@ import { useATS } from '../context/ATSContext';
 import { RecruiterReport, MeetingActionItem } from '../types';
 import { summarizeDriveMeetingLog, findCalendarMeetingNotes } from '../lib/driveApi';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
-import { computeRecruiterYieldSnapshot } from '../lib/yieldMetrics';
+import { computeRecruiterYieldSnapshot, computeRecruiterPipelineSnapshot } from '../lib/yieldMetrics';
 
 export const RecruitmentMeetingView: React.FC = () => {
   const {
@@ -136,13 +136,18 @@ export const RecruitmentMeetingView: React.FC = () => {
     window.scrollTo(0, 0);
   }, [selectedMeetingId]);
 
-  // Backfills a frozen pipeline/yield snapshot the first time this meeting+recruiter combination is
-  // viewed without one — covers both older per-app meetings saved before yieldSnapshot existed and
-  // the pre-app historical logs (recruiterReports intentionally starts empty for those). Without
-  // this, opening any past MTG's report for a recruiter who has no snapshot yet always shows
-  // today's live candidate phases instead of what was true back then. Deliberately keyed only on
-  // the meeting id + selected recruiter (not candidates/agencies), so it freezes once per view
-  // instead of re-freezing to "now" again on every background poll refresh.
+  // Backfills a frozen pipeline snapshot the first time this meeting+recruiter combination is
+  // viewed without one — covers three cases: (1) the pre-app historical logs, whose
+  // recruiterReports intentionally starts empty; (2) older per-app meetings saved before
+  // yieldSnapshot existed at all; and (3) meetings saved after yieldSnapshot existed but before
+  // pipelineCandidates was added to it — those already have a yieldSnapshot (with rate numbers
+  // real users are relying on), so this patches just the missing pipelineCandidates field into the
+  // existing snapshot rather than recomputing the whole thing, which would silently shift the
+  // already-frozen rates to today's live numbers. Without this, opening any past MTG's report for a
+  // recruiter who has no pipeline snapshot yet always shows today's live candidate phases instead of
+  // what was true back then. Deliberately keyed only on the meeting id + selected recruiter (not
+  // candidates/agencies), so it freezes once per view instead of re-freezing to "now" again on every
+  // background poll refresh.
   useEffect(() => {
     if (!activeMeeting) return;
     const recruiterName = (recruiterStaffList.find((s) => s.name === selectedRecruiter) || recruiterStaffList[0])?.name;
@@ -150,14 +155,23 @@ export const RecruitmentMeetingView: React.FC = () => {
 
     const existingReports = activeMeeting.recruiterReports || [];
     const reportIndex = existingReports.findIndex((r) => r.recruiterName === recruiterName);
-    if (reportIndex >= 0 && existingReports[reportIndex].yieldSnapshot) return;
+    const existingSnapshot = reportIndex >= 0 ? existingReports[reportIndex].yieldSnapshot : undefined;
+    if (existingSnapshot?.pipelineCandidates) return;
 
-    const updatedReport: RecruiterReport = reportIndex >= 0
-      ? {
-          ...existingReports[reportIndex],
-          yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
-        }
-      : buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
+    let updatedReport: RecruiterReport;
+    if (reportIndex < 0) {
+      updatedReport = buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
+    } else if (!existingSnapshot) {
+      updatedReport = {
+        ...existingReports[reportIndex],
+        yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
+      };
+    } else {
+      updatedReport = {
+        ...existingReports[reportIndex],
+        yieldSnapshot: { ...existingSnapshot, pipelineCandidates: computeRecruiterPipelineSnapshot(recruiterName, candidates) }
+      };
+    }
 
     const newReportsList = reportIndex >= 0
       ? existingReports.map((r, i) => (i === reportIndex ? updatedReport : r))
@@ -504,10 +518,12 @@ export const RecruitmentMeetingView: React.FC = () => {
 
   // Candidates assigned to selected recruiter — the frozen snapshot wins when present, so a past
   // meeting's pipeline list keeps showing who was in progress (and at what phase) back when it was
-  // held, instead of always reflecting today's live candidate phases. The live filter below is only
-  // a fallback for a meeting/recruiter combination that hasn't been backfilled with a snapshot yet
-  // (the backfill effect above fills one in on next view, silently).
-  const assignedCandidates = yieldSnapshot
+  // held, instead of always reflecting today's live candidate phases. Checked on pipelineCandidates
+  // specifically, not just yieldSnapshot: a meeting saved before that field existed still has a
+  // yieldSnapshot (with rate numbers) but no pipelineCandidates — falling through to the live
+  // filter below is what keeps that case from crashing on `.length`/`.map` of undefined. The
+  // backfill effect above patches pipelineCandidates into those on next view, silently.
+  const assignedCandidates = yieldSnapshot?.pipelineCandidates
     ? yieldSnapshot.pipelineCandidates
     : candidates.filter(
         c => !c.isArchived &&
@@ -765,7 +781,7 @@ export const RecruitmentMeetingView: React.FC = () => {
             {recruiterStaffList.map((st) => {
               const isSelected = (currentRecruiterStaff?.name || selectedRecruiter) === st.name;
               const stSnapshot = activeMeeting.recruiterReports?.find(r => r.recruiterName === st.name)?.yieldSnapshot;
-              const candCount = stSnapshot
+              const candCount = stSnapshot?.pipelineCandidates
                 ? stSnapshot.pipelineCandidates.length
                 : candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length;
 

@@ -1,13 +1,46 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useATS } from '../context/ATSContext';
-import { SelectionPhase, ScheduleStatus, STANDARD_POSITIONS } from '../types';
-import { X, UserPlus, FileText, UploadCloud, Loader2, Sparkles, CheckCircle2, File, HardDrive } from 'lucide-react';
+import { Candidate, SelectionPhase, ScheduleStatus, STANDARD_POSITIONS } from '../types';
+import { X, UserPlus, FileText, UploadCloud, Loader2, Sparkles, CheckCircle2, File, HardDrive, AlertTriangle } from 'lucide-react';
 import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 
+const PHASE_LABELS: Record<SelectionPhase, string> = {
+  DOCUMENT_SCREENING: '書類選考',
+  CASUAL_INTERVIEW: 'カジュアル面談',
+  FIRST_INTERVIEW: '1次面接',
+  SECOND_INTERVIEW: '2次面接',
+  FINAL_INTERVIEW: '最終面接',
+  OFFER_ISSUED: '内定通知',
+  OFFER_ACCEPTED: '内定承諾',
+  REJECTED_DECLINED: '辞退 / 不採用'
+};
+
+// 完全一致(氏名・メール・電話番号)のみを重複候補とみなす — 部分一致や表記ゆれ(旧字体、
+// スペースの有無など)まで広げると同姓同名の別人を誤検知しやすく、かえって毎回の登録の
+// 手間が増えてしまうため。電話番号はハイフン等の区切り文字だけ正規化して比較する。
+const normalizePhone = (phone: string): string => phone.replace(/[^0-9]/g, '');
+
+const findDuplicateCandidates = (
+  candidates: Candidate[],
+  form: { name: string; email: string; phone: string }
+): Candidate[] => {
+  const nameNorm = form.name.trim();
+  const emailNorm = form.email.trim().toLowerCase();
+  const phoneNorm = normalizePhone(form.phone);
+  if (!nameNorm) return [];
+
+  return candidates.filter((c) => {
+    if (c.name.trim() === nameNorm) return true;
+    if (emailNorm && c.email && c.email.trim().toLowerCase() === emailNorm) return true;
+    if (phoneNorm && c.phone && normalizePhone(c.phone) === phoneNorm) return true;
+    return false;
+  });
+};
+
 export const CandidateFormModal: React.FC = () => {
-  const { isAddModalOpen, setIsAddModalOpen, addCandidate, agencies, staffList, showToast, driveAccessToken } = useATS();
+  const { isAddModalOpen, setIsAddModalOpen, addCandidate, candidates, agencies, staffList, showToast, driveAccessToken } = useATS();
 
   const getInitialFormData = useCallback(() => ({
     name: '',
@@ -55,6 +88,9 @@ export const CandidateFormModal: React.FC = () => {
   const [isDetectingPhoto, setIsDetectingPhoto] = useState(false);
   const [extraFileNames, setExtraFileNames] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 氏名・メール・電話番号のいずれかが完全一致した既存候補者。非空の間、通常のフォームの
+  // 代わりに重複確認パネルを表示する(handleSubmitが本登録の前にここへ入れる)。
+  const [duplicateMatches, setDuplicateMatches] = useState<Candidate[]>([]);
 
   // The modal component stays mounted (App always renders it, it just returns null while
   // closed), so without this the form kept whatever the previous candidate had typed in.
@@ -69,6 +105,7 @@ export const CandidateFormModal: React.FC = () => {
       setIsUploadingToDrive(false);
       setIsDetectingPhoto(false);
       setExtraFileNames([]);
+      setDuplicateMatches([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -350,18 +387,7 @@ export const CandidateFormModal: React.FC = () => {
 
   const isBusy = isCompressing || isParsing || isUploadingToDrive || isDetectingPhoto;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (isBusy) {
-      showToast('レジュメの解析・Drive保存・顔写真検出が完了するまでお待ちください', 'warning');
-      return;
-    }
-    if (!formData.name.trim()) {
-      showToast('候補者名を入力してください', 'warning');
-      return;
-    }
-
+  const submitCandidate = () => {
     const selectedAgency = agencies.find((a) => a.id === formData.agencyId);
 
     addCandidate({
@@ -401,10 +427,90 @@ export const CandidateFormModal: React.FC = () => {
     setIsAddModalOpen(false);
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (isBusy) {
+      showToast('レジュメの解析・Drive保存・顔写真検出が完了するまでお待ちください', 'warning');
+      return;
+    }
+    if (!formData.name.trim()) {
+      showToast('候補者名を入力してください', 'warning');
+      return;
+    }
+
+    const matches = findDuplicateCandidates(candidates, formData);
+    if (matches.length > 0) {
+      setDuplicateMatches(matches);
+      return;
+    }
+
+    submitCandidate();
+  };
+
+  // 重複確認パネルの「このまま登録する」。ユーザーが同一人物ではないと判断した場合の
+  // 意図的な選択なので、パネルを閉じて通常通り登録する。
+  const handleContinueDespiteDuplicate = () => {
+    setDuplicateMatches([]);
+    submitCandidate();
+  };
+
+  // 「キャンセル」。登録はせず、内容を見直せるようフォームへ戻る(モーダル自体は閉じない)。
+  const handleCancelDuplicate = () => {
+    setDuplicateMatches([]);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-xl p-6 shadow-sm animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-        
+        {duplicateMatches.length > 0 ? (
+          <div>
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              <h3 className="font-bold text-lg text-slate-900">登録済みの候補者と一致する可能性があります</h3>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-3">
+              入力された氏名・メールアドレス・電話番号のいずれかが、以下の登録済み候補者と一致しています。同一人物の重複登録でなければ「このまま登録する」を、内容を見直す場合は「キャンセル」を選んでください。
+            </p>
+
+            <div className="space-y-2 mb-5 max-h-64 overflow-y-auto pr-1">
+              {duplicateMatches.map((c) => (
+                <div key={c.id} className="bg-amber-50/70 border border-amber-200 rounded-xl p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-900 text-sm">{c.name}</span>
+                    <span className="font-mono text-[10px] text-slate-500">{c.id}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600 mt-1">
+                    <span>{c.isArchived ? '過去候補者（辞退/不採用等）' : PHASE_LABELS[c.phase]}</span>
+                    <span>{c.agencyName}</span>
+                    <span>応募日: {c.appliedDate}</span>
+                    {c.email && <span>{c.email}</span>}
+                    {c.phone && <span>{c.phone}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
+              <button
+                type="button"
+                onClick={handleCancelDuplicate}
+                className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-lg cursor-pointer font-medium"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleContinueDespiteDuplicate}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-2xs cursor-pointer"
+              >
+                このまま登録する
+              </button>
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
           <div className="flex items-center gap-2">
@@ -870,6 +976,8 @@ export const CandidateFormModal: React.FC = () => {
           </div>
 
         </form>
+        </>
+        )}
       </div>
     </div>
   );

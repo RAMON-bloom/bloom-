@@ -376,11 +376,25 @@ export const CandidateDetailModal: React.FC = () => {
 
   // Falls back to the single legacy resumeDriveUrl/resumeFileName for candidates registered
   // before multi-document tracking existed, so "原本を開く" still works for them with one option.
-  const resumeDocs = candidate.resumeDocuments && candidate.resumeDocuments.length > 0
+  const resumeDocsRaw = candidate.resumeDocuments && candidate.resumeDocuments.length > 0
     ? candidate.resumeDocuments
     : candidate.resumeDriveUrl
     ? [{ name: candidate.resumeFileName || 'ファイル', driveUrl: candidate.resumeDriveUrl, driveFileId: candidate.resumeDriveFileId || '' }]
     : [];
+
+  // A past Drive-sync bug could write the same file into resumeDocuments more than once (a
+  // multi-parent Drive file getting scanned once per parent folder, then merged in without
+  // checking for an id already present) — collapse those down to one entry per unique file here
+  // so a candidate with 2 real documents never renders 3 buttons where two open the same file.
+  // Falls back to driveUrl/name when driveFileId is blank (very old legacy entries) rather than
+  // treating every blank id as "the same file".
+  const seenDocKeys = new Set<string>();
+  const resumeDocs = resumeDocsRaw.filter((doc) => {
+    const key = doc.driveFileId ? `id:${doc.driveFileId}` : doc.driveUrl ? `url:${doc.driveUrl}` : `name:${doc.name}`;
+    if (seenDocKeys.has(key)) return false;
+    seenDocKeys.add(key);
+    return true;
+  });
 
   // Each registered document gets its own "原本（〜）を開く" button rather than one button behind
   // a dropdown — 履歴書 and 職務経歴書 need to be individually reachable at a glance, not require
@@ -553,12 +567,21 @@ export const CandidateDetailModal: React.FC = () => {
           patch.resumeDriveFileId = primaryUploaded?.file.id || candidate.resumeDriveFileId;
           patch.resumeDriveUrl = primaryUploaded?.file.webViewLink || candidate.resumeDriveUrl;
           // Appended (not replaced) — earlier uploads (from registration or a previous document
-          // drop) stay selectable alongside whatever's newly added here.
-          patch.resumeDocuments = [
+          // drop) stay selectable alongside whatever's newly added here. Deduped by driveFileId so
+          // this also self-heals a candidate that already has a duplicate entry from a past sync
+          // bug, instead of only ever adding more.
+          const combinedDocs = [
             ...preservedLegacyDoc,
             ...(candidate.resumeDocuments || []),
             ...allUploaded.map((u) => ({ name: u.file.name, driveUrl: u.file.webViewLink || '', driveFileId: u.file.id }))
           ];
+          const seenDocIds = new Set<string>();
+          patch.resumeDocuments = combinedDocs.filter((d) => {
+            const key = d.driveFileId ? `id:${d.driveFileId}` : d.driveUrl ? `url:${d.driveUrl}` : `name:${d.name}`;
+            if (seenDocIds.has(key)) return false;
+            seenDocIds.add(key);
+            return true;
+          });
           showToast(
             uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : `${files[0].name} をDriveフォルダに保存しました`,
             'success'

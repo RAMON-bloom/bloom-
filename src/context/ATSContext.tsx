@@ -1148,26 +1148,33 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // background "refresh this candidate's documents from their Drive folder" check on opening
   // their detail view. Deliberately no toast/lastUpdated bump: unlike updateCandidate, this runs
   // automatically and unprompted on every open, and announcing itself every time would be noise.
+  // Also self-heals any duplicate already sitting in resumeDocuments (same driveFileId appearing
+  // twice — the "3 buttons for 2 real documents" bug, from a multi-parent Drive file getting
+  // written in more than once by a past sync), by deduping the combined list on every run rather
+  // than only checking newFiles against what's already known.
   const mergeResumeDocuments = (
     candidateId: string,
     newFiles: { id: string; name: string; webViewLink?: string }[]
   ) => {
-    if (newFiles.length === 0) return;
     setCandidates((prev) =>
       prev.map((c) => {
         if (c.id !== candidateId) return c;
-        const knownIds = new Set(
-          [c.resumeDriveFileId, ...(c.resumeDocuments || []).map((d) => d.driveFileId)].filter(Boolean)
-        );
-        const toAdd = newFiles.filter((f) => !knownIds.has(f.id));
-        if (toAdd.length === 0) return c;
-        return {
-          ...c,
-          resumeDocuments: [
-            ...(c.resumeDocuments || []),
-            ...toAdd.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
-          ]
-        };
+        const existing = c.resumeDocuments || [];
+        const combined = [
+          ...existing,
+          ...newFiles.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
+        ];
+        const seen = new Set<string>();
+        const deduped = combined.filter((d) => {
+          const key = d.driveFileId ? `id:${d.driveFileId}` : d.driveUrl ? `url:${d.driveUrl}` : `name:${d.name}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        // Nothing new and nothing to clean up — same length means every newFile collided with an
+        // existing id and existing itself had no internal duplicates, so skip the update entirely.
+        if (deduped.length === existing.length) return c;
+        return { ...c, resumeDocuments: deduped };
       })
     );
   };
@@ -1550,7 +1557,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       entries.forEach((e) => {
         if (!e.folderId) return;
         const list = folderIdToFiles.get(e.folderId) || [];
-        list.push(e.file);
+        // Same multi-parent-file guard as the newImports grouping above.
+        if (!list.some((f) => f.id === e.file.id)) list.push(e.file);
         folderIdToFiles.set(e.folderId, list);
       });
       const docUpdates: DriveSyncDocUpdate[] = [];
@@ -1600,7 +1608,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         const existing = folderGroups.get(entry.folderId);
         if (existing) {
-          existing.files.push(entry.file);
+          // A file with more than one parent folder (a leftover from the historical "spans
+          // multiple folders" move race) can otherwise get scanned into the same folder's file
+          // list twice if it briefly shows up under this folderId from two different listings —
+          // guard so one real file never becomes two buttons pointing at the same document.
+          if (!existing.files.some((f) => f.id === entry.file.id)) {
+            existing.files.push(entry.file);
+          }
           return;
         }
         const group: DriveSyncNewImport = {
@@ -1652,19 +1666,32 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ? driveSyncPreview.docUpdates.find((d) => d.candidateId === c.id)
               : undefined;
             if (!move && !docUpdate) return c;
+            // Deduped by id/url/name — the preview's newFiles was already filtered against what
+            // resumeDocuments knew about at preview time, but state can drift between opening the
+            // review modal and clicking apply (e.g. the same file getting picked up in the
+            // background while a candidate's detail view happened to be open), so this is a
+            // second, cheap safety net against writing the same document in twice.
+            const docsWithUpdate = docUpdate
+              ? (() => {
+                  const combined = [
+                    ...(c.resumeDocuments || []),
+                    ...docUpdate.newFiles.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
+                  ];
+                  const seen = new Set<string>();
+                  return combined.filter((d) => {
+                    const key = d.driveFileId ? `id:${d.driveFileId}` : d.driveUrl ? `url:${d.driveUrl}` : `name:${d.name}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                  });
+                })()
+              : undefined;
             return {
               ...c,
               ...(move ? { phase: move.drivePhase } : {}),
               // Already sitting in this candidate's own Drive folder — nothing to move, just make
               // it selectable/openable alongside whatever resumeDocuments already has.
-              ...(docUpdate
-                ? {
-                    resumeDocuments: [
-                      ...(c.resumeDocuments || []),
-                      ...docUpdate.newFiles.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
-                    ]
-                  }
-                : {}),
+              ...(docsWithUpdate ? { resumeDocuments: docsWithUpdate } : {}),
               lastUpdated: new Date().toISOString().split('T')[0]
             };
           })

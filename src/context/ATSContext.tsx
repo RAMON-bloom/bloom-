@@ -1503,24 +1503,42 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? knownFolderIds.has(e.folderId) || deletedIds.has(e.folderId)
           : knownFileIds.has(e.file.id) || deletedIds.has(e.file.id);
 
-      // Several files can sit in one unregistered candidate folder — surface it once per folder
-      // rather than once per file.
-      const seenFolderIds = new Set<string>();
-      const unregistered = entries.filter((e) => {
-        if (isKnown(e)) return false;
-        if (!e.folderId) return true;
-        if (seenFolderIds.has(e.folderId)) return false;
-        seenFolderIds.add(e.folderId);
-        return true;
+      // Several files can sit in one unregistered candidate folder (履歴書 + 職務経歴書, etc.) —
+      // surface it once per folder rather than once per file, but keep every file in `files` so
+      // none of them get silently dropped from import (previously only the first file Drive
+      // happened to list survived into newImports, and every other file in that folder was never
+      // even referenced again — the source of "履歴書か職務経歴書のどちらかしか見られない").
+      const folderGroups = new Map<string, DriveSyncNewImport>();
+      const newImports: DriveSyncNewImport[] = [];
+      entries.forEach((entry) => {
+        if (isKnown(entry)) return;
+        if (!entry.folderId) {
+          newImports.push({
+            key: entry.file.id,
+            displayName: entry.folderName || entry.file.name,
+            phase: (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase,
+            folderId: entry.folderId,
+            file: entry.file,
+            files: [entry.file]
+          });
+          return;
+        }
+        const existing = folderGroups.get(entry.folderId);
+        if (existing) {
+          existing.files.push(entry.file);
+          return;
+        }
+        const group: DriveSyncNewImport = {
+          key: entry.folderId,
+          displayName: entry.folderName || entry.file.name,
+          phase: (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase,
+          folderId: entry.folderId,
+          file: entry.file,
+          files: [entry.file]
+        };
+        folderGroups.set(entry.folderId, group);
+        newImports.push(group);
       });
-
-      const newImports: DriveSyncNewImport[] = unregistered.map((entry) => ({
-        key: entry.folderId || entry.file.id,
-        displayName: entry.folderName || entry.file.name,
-        phase: (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase,
-        folderId: entry.folderId,
-        file: entry.file
-      }));
 
       if (phaseMoves.length === 0 && newImports.length === 0) {
         showToast('Drive同期: 差分はありませんでした', 'info');
@@ -1611,6 +1629,15 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             resumeDriveUrl: entry.file.webViewLink,
             resumeDriveFileId: entry.file.id,
             resumeDriveFolderId: entry.folderId || undefined,
+            // entry.files holds every file Drive found in this candidate's folder (not just the
+            // one used for AI parsing above) — without this, a second file like 職務経歴書 sitting
+            // alongside 履歴書 in the same folder never became reachable as its own document at
+            // all, so "原本を開く" could only ever show whichever file happened to be parsed.
+            resumeDocuments: entry.files.map((f) => ({
+              name: f.name,
+              driveUrl: f.webViewLink || '',
+              driveFileId: f.id
+            })),
             resumeSkills: parsed.resumeSkills,
             salaryExpectation: parsed.salaryExpectation
           });

@@ -316,7 +316,8 @@ export interface DriveSyncNewImport {
   displayName: string;
   phase: SelectionPhase;
   folderId: string | null;
-  file: { id: string; name: string; mimeType: string; webViewLink?: string };
+  file: { id: string; name: string; mimeType: string; webViewLink?: string }; // 代表ファイル（AI解析対象）。filesの1件目と同じ
+  files: { id: string; name: string; mimeType: string; webViewLink?: string }[]; // フォルダ内の全ファイル（履歴書・職務経歴書など複数保存時も取りこぼさないため）
 }
 
 export interface DriveSyncPreview {

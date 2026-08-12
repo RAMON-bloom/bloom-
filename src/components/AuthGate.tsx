@@ -23,12 +23,37 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const session = getCurrentSession();
-    if (session) {
-      setIdentity(session.identity);
-      setAccessToken(session.accessToken);
-    }
-    setChecking(false);
+    (async () => {
+      const session = getCurrentSession();
+      if (session) {
+        setIdentity(session.identity);
+        setAccessToken(session.accessToken);
+        setChecking(false);
+        return;
+      }
+      // No cached token, or it's expired — but this browser has signed in before (lastEmail is
+      // set on every successful sign-in and only cleared on explicit sign-out). Try resuming
+      // silently before ever showing the blocking login screen: this is what makes closing the
+      // tab/browser between interviews (or the OS reclaiming a backgrounded tab, or the access
+      // token's own ~1h lifetime simply elapsing) self-heal on its own, instead of requiring a
+      // manual re-login click every time. refreshTokenSilently only ever does the silent
+      // (prompt: '') request — never signIn()'s fallback to an interactive consent popup, which
+      // browsers would block anyway outside a real click and would be a surprising thing to pop
+      // open unprompted on page load.
+      const lastEmail = getLastKnownEmail();
+      if (lastEmail) {
+        try {
+          const result = await refreshTokenSilently();
+          setIdentity(result.identity);
+          setAccessToken(result.accessToken);
+        } catch {
+          // No active Google browser session to resume (or consent has lapsed) — the login
+          // screen below will ask for an explicit click, which is required anyway once a real
+          // interactive prompt is needed.
+        }
+      }
+      setChecking(false);
+    })();
   }, []);
 
   // Keep the Drive-scoped token alive for as long as the tab stays open, instead of letting it
@@ -39,6 +64,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
     let timerId: ReturnType<typeof setTimeout> | null = null;
 
     const scheduleNext = () => {
+      if (timerId) clearTimeout(timerId);
       const expiresAt = getSessionExpiresAt();
       const delay = expiresAt ? Math.max(expiresAt - Date.now() - REFRESH_MARGIN_MS, 10_000) : 30 * 60 * 1000;
       timerId = setTimeout(runRefresh, delay);
@@ -58,10 +84,25 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
       }
     };
 
+    // setTimeout doesn't run while the OS suspends the tab (laptop lid closed between
+    // interviews) — the scheduled refresh above can end up hours late by the time anyone's
+    // actually looking at the screen again. Re-check the moment the tab regains focus/visibility
+    // instead of waiting for that stale timer, so a token that quietly expired during the gap
+    // gets refreshed right away rather than only on the next Drive call's failure.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      const expiresAt = getSessionExpiresAt();
+      if (!expiresAt || expiresAt - Date.now() <= REFRESH_MARGIN_MS) {
+        runRefresh();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     scheduleNext();
     return () => {
       cancelled = true;
       if (timerId) clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [identity]);
 

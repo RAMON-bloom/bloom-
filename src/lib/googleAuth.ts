@@ -50,9 +50,14 @@ function waitForGis(): Promise<void> {
   return gisReadyPromise;
 }
 
+// localStorage, not sessionStorage — the access token still has its own real ~1h expiresAt (still
+// checked below), so this only widens *where the cached value survives*, not how long it's valid.
+// With sessionStorage, simply closing the tab/browser between interviews (or the OS reclaiming a
+// background tab) threw away a token that might still have had 50 minutes left on it, forcing a
+// full re-login the next time the app was opened even though nothing had actually gone wrong.
 function getStoredSession(): StoredSession | null {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const session: StoredSession = JSON.parse(raw);
     if (!session.expiresAt || session.expiresAt < Date.now()) return null;
@@ -63,11 +68,11 @@ function getStoredSession(): StoredSession | null {
 }
 
 function storeSession(session: StoredSession) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 export function getLastKnownEmail(): string | null {
@@ -186,7 +191,7 @@ export function getCurrentSession(): { accessToken: string; identity: GoogleIden
 /** Epoch ms at which the stored access token expires, without the expiry gate getCurrentSession applies. */
 export function getSessionExpiresAt(): number | null {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const session: StoredSession = JSON.parse(raw);
     return typeof session.expiresAt === 'number' ? session.expiresAt : null;

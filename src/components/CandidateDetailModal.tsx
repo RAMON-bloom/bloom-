@@ -3,7 +3,7 @@ import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog, InterviewFormat } from '../types';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
-import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder } from '../lib/driveApi';
+import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder, listFolderFiles } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { getNextPhase, PHASE_SEQUENCE } from '../lib/phaseUtils';
@@ -106,6 +106,7 @@ export const CandidateDetailModal: React.FC = () => {
     updateEvaluationNote,
     deleteEvaluationNote,
     updateCandidate,
+    mergeResumeDocuments,
     deleteCandidate,
     restoreCandidate,
     staffList,
@@ -133,7 +134,6 @@ export const CandidateDetailModal: React.FC = () => {
   const [isDetailCompressing, setIsDetailCompressing] = useState(false);
   const [isDetailDetectingPhoto, setIsDetailDetectingPhoto] = useState(false);
   const [isPhotoCropperOpen, setIsPhotoCropperOpen] = useState(false);
-  const [selectedResumeDocIndex, setSelectedResumeDocIndex] = useState(0);
 
   // Section Collapse State for Card Sections
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
@@ -326,6 +326,36 @@ export const CandidateDetailModal: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCandidateId]);
 
+  // Best-effort background refresh: if this candidate's Drive folder now holds files the app
+  // hasn't recorded yet (e.g. an old Drive-sync import from before every file in a folder was
+  // tracked, or a file dropped into the folder by hand), pull them in automatically on open
+  // instead of requiring a manual "Driveと同期" run just to see every registered document.
+  // Deliberately depends only on selectedCandidateId/driveAccessToken (not `candidates`, not
+  // `candidate.resumeDriveFolderId`) — see the note above this effect's neighbor: depending on
+  // the full candidates array would re-run this on every unrelated app update.
+  useEffect(() => {
+    if (!selectedCandidateId || !driveAccessToken) return;
+    const c = candidates.find((cand) => cand.id === selectedCandidateId);
+    if (!c?.resumeDriveFolderId) return;
+    let cancelled = false;
+    listFolderFiles(driveAccessToken, c.resumeDriveFolderId)
+      .then((files) => {
+        if (cancelled) return;
+        mergeResumeDocuments(
+          selectedCandidateId,
+          files.map((f) => ({ id: f.id, name: f.name, webViewLink: f.webViewLink }))
+        );
+      })
+      .catch(() => {
+        // Silently ignored — a permissions/network hiccup here shouldn't interrupt viewing the
+        // candidate, and this isn't a user-initiated action that needs a failure toast.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCandidateId, driveAccessToken]);
+
   const handleSaveOnboarding = (e: React.FormEvent) => {
     e.preventDefault();
     if (!candidate) return;
@@ -351,8 +381,20 @@ export const CandidateDetailModal: React.FC = () => {
     : candidate.resumeDriveUrl
     ? [{ name: candidate.resumeFileName || 'ファイル', driveUrl: candidate.resumeDriveUrl, driveFileId: candidate.resumeDriveFileId || '' }]
     : [];
-  const activeResumeDocIndex = Math.min(selectedResumeDocIndex, Math.max(0, resumeDocs.length - 1));
-  const activeResumeDoc = resumeDocs[activeResumeDocIndex];
+
+  // Each registered document gets its own "原本（〜）を開く" button rather than one button behind
+  // a dropdown — 履歴書 and 職務経歴書 need to be individually reachable at a glance, not require
+  // switching a selector first. Labels are inferred from the filename; anything that doesn't
+  // obviously say 履歴書/職務経歴書 falls back to its own (shortened) filename so multiple unlabeled
+  // documents still read as distinct buttons instead of all saying the same generic word.
+  const inferDocLabel = (doc: { name: string }): string => {
+    const name = doc.name || '';
+    if (name.includes('職務経歴書')) return '職務経歴書';
+    if (name.includes('履歴書')) return '履歴書';
+    const base = name.replace(/\.[^./]+$/, '').trim();
+    if (!base) return '書類';
+    return base.length > 14 ? `${base.slice(0, 14)}…` : base;
+  };
 
   const handleClose = () => setSelectedCandidateId(null);
 
@@ -997,46 +1039,37 @@ export const CandidateDetailModal: React.FC = () => {
         {/* Original-document quick access — lives outside the scrolling tab content (unlike the
             old per-tab copy that used to sit inside "選考・評価メモ") so any of the candidate's
             registered files stays reachable no matter which tab is open or how far the evaluation
-            form below has been scrolled. */}
+            form below has been scrolled. One button per file (not a dropdown behind a single
+            button) so 履歴書 and 職務経歴書 are both visible and openable at a glance. */}
         {resumeDocs.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-white border-b border-slate-200 px-4 py-2 shrink-0">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 min-w-0">
-              <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-              <span className="shrink-0">原本:</span>
-              {resumeDocs.length > 1 ? (
-                <select
-                  value={activeResumeDocIndex}
-                  onChange={(e) => setSelectedResumeDocIndex(Number(e.target.value))}
-                  className="bg-slate-50 border border-slate-300 text-slate-800 font-bold rounded-lg px-2 py-1 text-[11px] focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[220px]"
+          <div className="flex flex-wrap items-center gap-2 bg-white border-b border-slate-200 px-4 py-2 shrink-0">
+            <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500 shrink-0">
+              <FileText className="w-3.5 h-3.5 text-indigo-600" />
+              <span>原本:</span>
+            </span>
+            {resumeDocs.map((doc, i) =>
+              doc.driveUrl ? (
+                <a
+                  key={doc.driveFileId || i}
+                  href={doc.driveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors shadow-2xs shrink-0"
+                  title={doc.name}
                 >
-                  {resumeDocs.map((doc, i) => (
-                    <option key={doc.driveFileId || i} value={i}>{doc.name}</option>
-                  ))}
-                </select>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>原本（{inferDocLabel(doc)}）を開く</span>
+                </a>
               ) : (
-                <span className="text-slate-500 font-normal truncate max-w-[240px]">
-                  {resumeDocs[0].name}
+                <span
+                  key={doc.driveFileId || i}
+                  title={`${doc.name}: この候補者にはDrive上の原本ファイルが紐づいていません`}
+                  className="flex items-center gap-1 text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg cursor-not-allowed shrink-0"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>原本未登録（{inferDocLabel(doc)}）</span>
                 </span>
-              )}
-            </div>
-            {activeResumeDoc?.driveUrl ? (
-              <a
-                href={activeResumeDoc.driveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors shadow-2xs shrink-0"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>原本を開く</span>
-              </a>
-            ) : (
-              <span
-                title="この候補者にはDrive上の原本ファイルが紐づいていません"
-                className="flex items-center gap-1 text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg cursor-not-allowed shrink-0"
-              >
-                <Download className="w-3 h-3" />
-                <span>原本未登録</span>
-              </span>
+              )
             )}
           </div>
         )}
@@ -2744,59 +2777,26 @@ export const CandidateDetailModal: React.FC = () => {
                 )}
               </div>
               
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setDocCategory('cv')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                      docCategory === 'cv' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    職務経歴書 (CV)
-                  </button>
+              {/* Per-document "原本（〜）を開く" buttons now live in the always-visible header bar
+                  above — this only needs the parsed-content category toggle. */}
+              <div className="flex items-center gap-1 bg-white p-2.5 rounded-xl border border-slate-200">
+                <button
+                  onClick={() => setDocCategory('cv')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                    docCategory === 'cv' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  職務経歴書 (CV)
+                </button>
 
-                  <button
-                    onClick={() => setDocCategory('resume')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                      docCategory === 'resume' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    履歴書 (Resume)
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {resumeDocs.length > 1 && (
-                    <select
-                      value={activeResumeDocIndex}
-                      onChange={(e) => setSelectedResumeDocIndex(Number(e.target.value))}
-                      className="bg-slate-50 border border-slate-300 text-slate-800 font-bold rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[180px]"
-                    >
-                      {resumeDocs.map((doc, i) => (
-                        <option key={doc.driveFileId || i} value={i}>{doc.name}</option>
-                      ))}
-                    </select>
-                  )}
-                  {activeResumeDoc?.driveUrl ? (
-                    <a
-                      href={activeResumeDoc.driveUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-sm font-extrabold text-white bg-rose-600 hover:bg-rose-700 px-4 py-2.5 rounded-xl cursor-pointer transition-colors shadow-md ring-2 ring-rose-200"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>原本を開く{resumeDocs.length <= 1 ? `（${candidate.resumeFileName || 'ファイル名未登録'}）` : ''}</span>
-                    </a>
-                  ) : (
-                    <span
-                      title="この候補者にはDrive上の原本ファイルが紐づいていません"
-                      className="flex items-center gap-1.5 text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg cursor-not-allowed"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>原本未登録</span>
-                    </span>
-                  )}
-                </div>
+                <button
+                  onClick={() => setDocCategory('resume')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                    docCategory === 'resume' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  履歴書 (Resume)
+                </button>
               </div>
 
               {/* CV View */}

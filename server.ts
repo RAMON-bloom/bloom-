@@ -14,6 +14,7 @@ import driveRestore from './api/drive/restore';
 import driveUploadResume from './api/drive/upload-resume';
 import driveMoveResumeFolder from './api/drive/move-resume-folder';
 import driveMoveFileToFolder from './api/drive/move-file-to-folder';
+import driveListFolderFiles from './api/drive/list-folder-files';
 import driveScanResumes from './api/drive/scan-resumes';
 import driveImportResume from './api/drive/import-resume';
 import driveDetectPhotoCrop from './api/drive/detect-photo-crop';
@@ -43,6 +44,7 @@ async function startServer() {
   app.post('/api/drive/upload-resume', driveUploadResume);
   app.post('/api/drive/move-resume-folder', driveMoveResumeFolder);
   app.post('/api/drive/move-file-to-folder', driveMoveFileToFolder);
+  app.post('/api/drive/list-folder-files', driveListFolderFiles);
   app.post('/api/drive/scan-resumes', driveScanResumes);
   app.post('/api/drive/import-resume', driveImportResume);
   app.post('/api/drive/detect-photo-crop', driveDetectPhotoCrop);

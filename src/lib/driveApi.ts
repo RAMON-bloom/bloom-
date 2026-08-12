@@ -178,6 +178,18 @@ export async function moveFileIntoFolder(
   return data.file;
 }
 
+// Lists the files inside one already-known candidate folder — used to refresh a single
+// candidate's document list on demand (opening their detail view) without the bulk "Driveと同期"
+// flow, so a folder that already has more files than the app has recorded (e.g. from before this
+// app tracked every file, or a file dropped in by hand) shows up without an extra manual step.
+export async function listFolderFiles(accessToken: string, folderId: string): Promise<DriveResumeFile[]> {
+  const data = await postJson<{ success: boolean; files: DriveResumeFile[] }>('/api/drive/list-folder-files', {
+    accessToken,
+    folderId
+  });
+  return data.files;
+}
+
 export interface DrivePhaseFileEntry {
   phase: string;
   folderId: string | null;

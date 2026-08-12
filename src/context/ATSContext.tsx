@@ -121,6 +121,7 @@ interface ATSContextType {
   deleteEvaluationNote: (candidateId: string, noteId: string) => void;
   addCandidate: (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => void;
   updateCandidate: (updatedCandidate: Candidate) => void;
+  mergeResumeDocuments: (candidateId: string, newFiles: { id: string; name: string; webViewLink?: string }[]) => void;
   deleteCandidate: (id: string) => void;
   restoreCandidate: (id: string) => void;
   permanentlyDeleteCandidate: (id: string) => Promise<boolean>;
@@ -1143,6 +1144,34 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`${updatedCandidate.name} さんの情報を更新しました`, 'success');
   };
 
+  // Silently appends newly-discovered Drive files to a candidate's resumeDocuments — used for the
+  // background "refresh this candidate's documents from their Drive folder" check on opening
+  // their detail view. Deliberately no toast/lastUpdated bump: unlike updateCandidate, this runs
+  // automatically and unprompted on every open, and announcing itself every time would be noise.
+  const mergeResumeDocuments = (
+    candidateId: string,
+    newFiles: { id: string; name: string; webViewLink?: string }[]
+  ) => {
+    if (newFiles.length === 0) return;
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (c.id !== candidateId) return c;
+        const knownIds = new Set(
+          [c.resumeDriveFileId, ...(c.resumeDocuments || []).map((d) => d.driveFileId)].filter(Boolean)
+        );
+        const toAdd = newFiles.filter((f) => !knownIds.has(f.id));
+        if (toAdd.length === 0) return c;
+        return {
+          ...c,
+          resumeDocuments: [
+            ...(c.resumeDocuments || []),
+            ...toAdd.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
+          ]
+        };
+      })
+    );
+  };
+
   const deleteCandidate = (id: string) => {
     const candidate = candidates.find((c) => c.id === id);
     const deletedTime = new Date().toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
@@ -2035,6 +2064,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteEvaluationNote,
         addCandidate,
         updateCandidate,
+        mergeResumeDocuments,
         deleteCandidate,
         restoreCandidate,
         permanentlyDeleteCandidate,

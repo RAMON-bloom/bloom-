@@ -46,6 +46,7 @@ import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUt
 import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { getNextPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
+import { findDuplicateCandidates } from '../lib/duplicateUtils';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -1562,9 +1563,27 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const toImport = driveSyncPreview.newImports.filter((e) => importSet.has(e.key));
       let importedCount = 0;
       let failedCount = 0;
+      let duplicateSkippedCount = 0;
+      const duplicateSkippedNames: string[] = [];
+      // `candidates` here is a snapshot from when applyDriveSync started, so it never reflects
+      // candidates addCandidate has already added earlier in this same loop (setCandidates is
+      // async) — importedThisBatch closes that gap for two Drive folders belonging to the same
+      // person surfacing in one sync. Uses the same exact-match rule as the manual registration
+      // form's duplicate check, so a resume sitting unregistered in Drive can no longer slip past
+      // that protection just because it came in through 同期 instead of 新規候補者を登録.
+      const importedThisBatch = new Set<string>();
       for (const entry of toImport) {
         try {
           const parsed = await importDriveResumeApi(driveAccessToken, entry.file);
+          const nameNorm = parsed.name.trim();
+          const isDuplicate =
+            findDuplicateCandidates(candidates, parsed).length > 0 || (nameNorm && importedThisBatch.has(nameNorm));
+          if (isDuplicate) {
+            duplicateSkippedCount++;
+            duplicateSkippedNames.push(parsed.name || entry.displayName);
+            continue;
+          }
+          if (nameNorm) importedThisBatch.add(nameNorm);
           addCandidate({
             name: parsed.name,
             nameKana: parsed.nameKana,
@@ -1610,12 +1629,15 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         moveIds.size > 0 ? `フェーズ更新 ${moveIds.size}件` : null,
         importedCount > 0 ? `新規取込 ${importedCount}件` : null,
         failedCount > 0 ? `取込失敗 ${failedCount}件` : null,
+        duplicateSkippedCount > 0
+          ? `登録済み候補者と一致する可能性があるため${duplicateSkippedCount}件をスキップ（${duplicateSkippedNames.join('、')}。取り込むには「新規候補者を登録」から手動で登録してください）`
+          : null,
         selection.ignoreKeys.length > 0 ? `無視リストに追加 ${selection.ignoreKeys.length}件` : null
       ].filter(Boolean);
 
       showToast(
         summary.length > 0 ? `Drive同期完了: ${summary.join(' / ')}` : 'Drive同期完了: 変更はありませんでした',
-        failedCount > 0 ? 'warning' : 'success'
+        failedCount > 0 || duplicateSkippedCount > 0 ? 'warning' : 'success'
       );
       setDriveSyncPreview(null);
     } catch (err: any) {

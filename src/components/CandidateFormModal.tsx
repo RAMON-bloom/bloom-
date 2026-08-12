@@ -5,6 +5,7 @@ import { X, UserPlus, FileText, UploadCloud, Loader2, Sparkles, CheckCircle2, Fi
 import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
+import { findDuplicateCandidates } from '../lib/duplicateUtils';
 
 const PHASE_LABELS: Record<SelectionPhase, string> = {
   DOCUMENT_SCREENING: '書類選考',
@@ -15,28 +16,6 @@ const PHASE_LABELS: Record<SelectionPhase, string> = {
   OFFER_ISSUED: '内定通知',
   OFFER_ACCEPTED: '内定承諾',
   REJECTED_DECLINED: '辞退 / 不採用'
-};
-
-// 完全一致(氏名・メール・電話番号)のみを重複候補とみなす — 部分一致や表記ゆれ(旧字体、
-// スペースの有無など)まで広げると同姓同名の別人を誤検知しやすく、かえって毎回の登録の
-// 手間が増えてしまうため。電話番号はハイフン等の区切り文字だけ正規化して比較する。
-const normalizePhone = (phone: string): string => phone.replace(/[^0-9]/g, '');
-
-const findDuplicateCandidates = (
-  candidates: Candidate[],
-  form: { name: string; email: string; phone: string }
-): Candidate[] => {
-  const nameNorm = form.name.trim();
-  const emailNorm = form.email.trim().toLowerCase();
-  const phoneNorm = normalizePhone(form.phone);
-  if (!nameNorm) return [];
-
-  return candidates.filter((c) => {
-    if (c.name.trim() === nameNorm) return true;
-    if (emailNorm && c.email && c.email.trim().toLowerCase() === emailNorm) return true;
-    if (phoneNorm && c.phone && normalizePhone(c.phone) === phoneNorm) return true;
-    return false;
-  });
 };
 
 export const CandidateFormModal: React.FC = () => {
@@ -262,6 +241,14 @@ export const CandidateFormModal: React.FC = () => {
 
     if (driveAccessToken) {
       setIsUploadingToDrive(true);
+      // Everything below must run inside this try/finally: without it, any exception that
+      // escapes the per-file/per-photo try blocks below (network failure, an unexpected response
+      // shape, etc.) would skip setIsUploadingToDrive(false) entirely and leave isBusy stuck
+      // true for the rest of this modal session — every subsequent click of 登録する would just
+      // re-show the "お待ちください" warning with no way to actually submit until the modal is
+      // closed and reopened. This is what made a 4MB upload that hit a Drive error look like
+      // registration itself had silently broken.
+      try {
       const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
       let folderId: string | undefined;
       let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
@@ -270,12 +257,14 @@ export const CandidateFormModal: React.FC = () => {
 
       for (const file of [primaryFile, ...extraFiles]) {
         if (file.size > MAX_UPLOAD_FILE_BYTES) {
-          if (file !== primaryFile) {
-            showToast(
-              `${file.name} は圧縮後も${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
-              'warning'
-            );
-          }
+          // Previously silent for the primary file (on the assumption the earlier "AI解析の上限を
+          // 超えている" toast already covered it) — but that toast only explains AI parsing being
+          // skipped, not that the resume itself never got attached to Drive either. Always warning
+          // here is what actually tells the user the file didn't make it in.
+          showToast(
+            `${file.name} は圧縮後も${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
+            'warning'
+          );
           continue;
         }
         try {
@@ -357,7 +346,12 @@ export const CandidateFormModal: React.FC = () => {
           }
         }
       }
-      setIsUploadingToDrive(false);
+      } catch (uploadErr: any) {
+        console.error('Drive upload step failed', uploadErr);
+        showToast(`Drive保存中にエラーが発生しました: ${uploadErr?.message || '不明なエラー'}`, 'warning');
+      } finally {
+        setIsUploadingToDrive(false);
+      }
     }
   };
 

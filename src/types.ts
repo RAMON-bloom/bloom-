@@ -341,9 +341,30 @@ export interface DriveSyncDocUpdate {
   newFiles: { id: string; name: string; mimeType: string; webViewLink?: string }[];
 }
 
+// 書類選考通過後などにDrive側で新しいフェーズフォルダへ別フォルダが作られ、古いフェーズフォルダに
+// 残ったフォルダが誰にも参照されないまま残り続けるケースの検知結果。同一候補者名（Drive側の
+// フォルダ命名規則 "氏名" or "氏名_エージェント名" 、api/drive/upload-resume.ts参照）に一致する
+// フォルダがDrive上に複数フェーズにまたがって存在する場合に1件としてまとめる。
+export interface DriveSyncDuplicateFolderOption {
+  folderId: string;
+  phase: SelectionPhase | null; // 既知のフェーズフォルダ名に一致しない場合はnull（phaseLabelを表示に使う）
+  phaseLabel: string;
+  folderName: string;
+  files: { id: string; name: string; mimeType: string; webViewLink?: string }[];
+  isCurrent: boolean; // 候補者のresumeDriveFolderIdが指しているフォルダ
+}
+
+export interface DriveSyncDuplicateFolder {
+  candidateId: string;
+  candidateName: string;
+  candidatePhase: SelectionPhase;
+  options: DriveSyncDuplicateFolderOption[]; // 同一候補者に紐づくと判定された、2件以上のDriveフォルダ
+}
+
 export interface DriveSyncPreview {
   phaseMoves: DriveSyncPhaseMove[];
   newImports: DriveSyncNewImport[];
   docUpdates: DriveSyncDocUpdate[];
+  duplicateFolders: DriveSyncDuplicateFolder[];
 }
 

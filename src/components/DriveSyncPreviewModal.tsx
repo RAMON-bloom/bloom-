@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useATS } from '../context/ATSContext';
-import { X, EyeOff, FolderSync, UserPlus, FilePlus } from 'lucide-react';
-import { SelectionPhase } from '../types';
+import { X, EyeOff, FolderSync, UserPlus, FilePlus, Copy } from 'lucide-react';
+import { SelectionPhase, DriveSyncDuplicateFolder } from '../types';
 
 const PHASE_LABELS: Record<SelectionPhase, string> = {
   DOCUMENT_SCREENING: '書類選考',
@@ -14,17 +14,34 @@ const PHASE_LABELS: Record<SelectionPhase, string> = {
   REJECTED_DECLINED: '辞退 / 不採用'
 };
 
+// Which folder to keep by default when a candidate's resume turns out to be duplicated across
+// phase folders: the one the app already links to wins (no Drive change needed at all), then the
+// one sitting in the folder matching the candidate's current phase, then whichever option came
+// first — always a folder id in options, never left unset.
+const defaultKeepFolderId = (group: DriveSyncDuplicateFolder): string => {
+  const current = group.options.find((o) => o.isCurrent);
+  if (current) return current.folderId;
+  const phaseMatch = group.options.find((o) => o.phase === group.candidatePhase);
+  return (phaseMatch || group.options[0]).folderId;
+};
+
 // Reviews the diff previewDriveSync computed before anything is actually applied. Phase moves
 // default checked (existing, already-known candidates — low risk, usually a deliberate Drive
 // reorganization). New imports default UNCHECKED — this is the actual source of the "past data
 // silently lands in 選考" complaint, so bringing an old resume into the active pipeline now
 // requires an explicit opt-in per item, with a one-click way to permanently ignore it instead.
+// Duplicate folders default UNCHECKED too — deciding which of a candidate's Drive folders is the
+// "real" one and discarding the rest is exactly the kind of judgment call that shouldn't happen
+// silently, even though the discard itself only moves data into 99_完全削除済み rather than
+// deleting it outright.
 export const DriveSyncPreviewModal: React.FC = () => {
   const { driveSyncPreview, applyDriveSync, cancelDriveSyncPreview, isApplyingDriveSync } = useATS();
 
   const [checkedMoves, setCheckedMoves] = useState<Set<string>>(new Set());
   const [checkedDocUpdates, setCheckedDocUpdates] = useState<Set<string>>(new Set());
   const [checkedImports, setCheckedImports] = useState<Set<string>>(new Set());
+  const [checkedDuplicates, setCheckedDuplicates] = useState<Set<string>>(new Set());
+  const [duplicateKeepSelections, setDuplicateKeepSelections] = useState<Map<string, string>>(new Map());
   const [ignoredKeys, setIgnoredKeys] = useState<Set<string>>(new Set());
 
   // driveSyncPreview gets a fresh object identity every time previewDriveSync runs, so this
@@ -37,6 +54,10 @@ export const DriveSyncPreviewModal: React.FC = () => {
       // own Drive folder to resumeDocuments, nothing moves or changes in Drive itself.
       setCheckedDocUpdates(new Set(driveSyncPreview.docUpdates.map((d) => d.candidateId)));
       setCheckedImports(new Set());
+      setCheckedDuplicates(new Set());
+      setDuplicateKeepSelections(
+        new Map(driveSyncPreview.duplicateFolders.map((g) => [g.candidateId, defaultKeepFolderId(g)]))
+      );
       setIgnoredKeys(new Set());
     }
   }, [driveSyncPreview]);
@@ -79,15 +100,31 @@ export const DriveSyncPreviewModal: React.FC = () => {
     });
   };
 
+  const toggleDuplicate = (candidateId: string) => {
+    setCheckedDuplicates((prev) => {
+      const next = new Set(prev);
+      if (next.has(candidateId)) next.delete(candidateId);
+      else next.add(candidateId);
+      return next;
+    });
+  };
+
+  const selectDuplicateOption = (candidateId: string, folderId: string) => {
+    setDuplicateKeepSelections((prev) => new Map(prev).set(candidateId, folderId));
+  };
+
   const visibleImports = driveSyncPreview.newImports.filter((e) => !ignoredKeys.has(e.key));
-  const selectedTotal = checkedMoves.size + checkedDocUpdates.size + checkedImports.size;
+  const selectedTotal = checkedMoves.size + checkedDocUpdates.size + checkedImports.size + checkedDuplicates.size;
 
   const handleApply = () => {
     applyDriveSync({
       phaseMoveCandidateIds: Array.from(checkedMoves),
       importKeys: Array.from(checkedImports),
       ignoreKeys: Array.from(ignoredKeys),
-      docUpdateCandidateIds: Array.from(checkedDocUpdates)
+      docUpdateCandidateIds: Array.from(checkedDocUpdates),
+      duplicateResolutions: Array.from(checkedDuplicates)
+        .map((candidateId) => ({ candidateId, keepFolderId: duplicateKeepSelections.get(candidateId) || '' }))
+        .filter((r) => r.keepFolderId)
     });
   };
 
@@ -112,9 +149,74 @@ export const DriveSyncPreviewModal: React.FC = () => {
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
           {driveSyncPreview.phaseMoves.length === 0 &&
             driveSyncPreview.docUpdates.length === 0 &&
+            driveSyncPreview.duplicateFolders.length === 0 &&
             visibleImports.length === 0 && (
               <p className="text-sm text-slate-400 text-center py-8">確認する差分はありません。</p>
             )}
+
+          {driveSyncPreview.duplicateFolders.length > 0 && (
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
+                <Copy className="w-4 h-4 text-rose-600" />
+                <span>重複フォルダ（{driveSyncPreview.duplicateFolders.length}件）</span>
+              </h4>
+              <p className="text-[11px] text-slate-500 mb-2">
+                同じ候補者のフォルダが複数のフェーズにまたがって残っています。残すフォルダを選んでください。選ばなかったフォルダは「99_完全削除済み」へ移動します（完全な削除ではありません）。
+              </p>
+              <div className="space-y-2.5">
+                {driveSyncPreview.duplicateFolders.map((g) => {
+                  const keepFolderId = duplicateKeepSelections.get(g.candidateId) || '';
+                  const checked = checkedDuplicates.has(g.candidateId);
+                  return (
+                    <div key={g.candidateId} className="bg-slate-50/80 border border-slate-200 rounded-lg px-3 py-2.5">
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleDuplicate(g.candidateId)}
+                          className="accent-indigo-600 shrink-0"
+                        />
+                        <span className="text-xs font-bold text-slate-900 flex-1 truncate">{g.candidateName}</span>
+                        <span className="text-[11px] text-slate-500 shrink-0">{PHASE_LABELS[g.candidatePhase]}</span>
+                      </label>
+                      <div className="mt-2 ml-6 space-y-1.5">
+                        {g.options.map((o) => (
+                          <label
+                            key={o.folderId}
+                            className={`flex items-center gap-2 text-[11px] rounded-md px-2 py-1.5 border cursor-pointer ${
+                              keepFolderId === o.folderId
+                                ? 'border-indigo-300 bg-indigo-50'
+                                : 'border-slate-200 bg-white hover:border-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`dup-${g.candidateId}`}
+                              checked={keepFolderId === o.folderId}
+                              onChange={() => selectDuplicateOption(g.candidateId, o.folderId)}
+                              className="accent-indigo-600 shrink-0"
+                            />
+                            <span className="font-semibold text-slate-700 shrink-0">
+                              {(o.phase && PHASE_LABELS[o.phase]) || o.phaseLabel}
+                            </span>
+                            <span
+                              className="text-slate-500 flex-1 truncate"
+                              title={o.files.map((f) => f.name).join('、')}
+                            >
+                              {o.files.length > 0 ? `${o.files.length}件（${o.files.map((f) => f.name).join('、')}）` : 'ファイルなし'}
+                            </span>
+                            {o.isCurrent && (
+                              <span className="shrink-0 text-indigo-600 font-bold">現在アプリに登録中</span>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {driveSyncPreview.phaseMoves.length > 0 && (
             <div>

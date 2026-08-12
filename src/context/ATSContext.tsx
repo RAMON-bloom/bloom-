@@ -21,7 +21,9 @@ import {
   DriveSyncPreview,
   DriveSyncPhaseMove,
   DriveSyncNewImport,
-  DriveSyncDocUpdate
+  DriveSyncDocUpdate,
+  DriveSyncDuplicateFolder,
+  DriveSyncDuplicateFolderOption
 } from '../types';
 import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
@@ -174,6 +176,7 @@ interface ATSContextType {
     importKeys: string[];
     ignoreKeys: string[];
     docUpdateCandidateIds?: string[];
+    duplicateResolutions?: { candidateId: string; keepFolderId: string }[];
   }) => Promise<void>;
 }
 
@@ -1716,15 +1719,81 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
 
+      // A candidate's resume folder can end up duplicated across phase folders — e.g. an old
+      // 書類選考-phase folder left orphaned after a later phase change linked a freshly-created
+      // folder instead of moving the original one (upload-resume.ts always creates a brand-new
+      // folder when no candidateFolderId is passed, never reuses one with a matching name).
+      // Detected by matching the Drive folder-naming convention from buildCandidateFolderName in
+      // upload-resume.ts ("氏名" or "氏名_エージェント名") against known candidates, so the stale
+      // folder stops silently reappearing as a "new import" every sync and getting silently
+      // skipped as a duplicate candidate (see applyDriveSync's duplicateSkippedNames) without ever
+      // actually being cleaned up.
+      const folderMeta = new Map<string, { phase: string; folderName: string }>();
+      entries.forEach((e) => {
+        if (e.folderId && e.folderName && !folderMeta.has(e.folderId)) {
+          folderMeta.set(e.folderId, { phase: e.phase, folderName: e.folderName });
+        }
+      });
+      const folderMatchesCandidate = (folderName: string, candidateName: string) => {
+        const name = candidateName.trim();
+        if (!name) return false;
+        return folderName === name || folderName.startsWith(`${name}_`);
+      };
+      const buildDuplicateOption = (
+        folderId: string,
+        meta: { phase: string; folderName: string },
+        isCurrent: boolean
+      ): DriveSyncDuplicateFolderOption => ({
+        folderId,
+        phase: (meta.phase in PHASE_ORDER ? meta.phase : null) as SelectionPhase | null,
+        phaseLabel: meta.phase,
+        folderName: meta.folderName,
+        files: folderIdToFiles.get(folderId) || [],
+        isCurrent
+      });
+
+      // A folder we ourselves already resolved/discarded (deletedDriveItemIds) must never come
+      // back as a "still duplicated" choice — same reasoning as isKnown() below (Drive's list
+      // index can lag behind a move, or the folder can briefly show up again for any other
+      // reason).
+      const deletedIds = new Set(deletedDriveItemIds);
+
+      const duplicateFolders: DriveSyncDuplicateFolder[] = [];
+      const duplicateOrphanFolderIds = new Set<string>();
+      candidates.forEach((c) => {
+        const matchingIds = new Set(
+          Array.from(folderMeta.entries())
+            .filter(([folderId, meta]) => !deletedIds.has(folderId) && folderMatchesCandidate(meta.folderName, c.name))
+            .map(([folderId]) => folderId)
+        );
+        // Always include the folder the app currently considers this candidate's own, even if its
+        // name doesn't match exactly (e.g. the candidate's name was edited in-app after the Drive
+        // folder was created) — otherwise it wouldn't be offered as a "keep this one" choice.
+        if (c.resumeDriveFolderId && folderMeta.has(c.resumeDriveFolderId) && !deletedIds.has(c.resumeDriveFolderId)) {
+          matchingIds.add(c.resumeDriveFolderId);
+        }
+        if (matchingIds.size < 2) return;
+
+        const options = Array.from(matchingIds).map((folderId) =>
+          buildDuplicateOption(folderId, folderMeta.get(folderId)!, folderId === c.resumeDriveFolderId)
+        );
+        duplicateFolders.push({ candidateId: c.id, candidateName: c.name, candidatePhase: c.phase, options });
+        options.forEach((o) => {
+          if (!o.isCurrent) duplicateOrphanFolderIds.add(o.folderId);
+        });
+      });
+
       const knownFolderIds = new Set(candidates.map((c) => c.resumeDriveFolderId).filter(Boolean));
       const knownFileIds = new Set(candidates.map((c) => c.resumeDriveFileId).filter(Boolean));
-      const deletedIds = new Set(deletedDriveItemIds);
       // A folder/file we ourselves permanently deleted (or previously chose "無視する" for) must
       // never come back as a "new" candidate, even if it's still showing up in this scan (Drive's
-      // list index lagging behind the delete, or leftover residue for any other reason).
+      // list index lagging behind the delete, or leftover residue for any other reason). Orphan
+      // folders already captured above as part of a duplicateFolders group are excluded too —
+      // they're reviewed (and resolved: keep-or-discard) there instead of resurfacing here as an
+      // unrelated "new candidate".
       const isKnown = (e: (typeof entries)[number]) =>
         e.folderId
-          ? knownFolderIds.has(e.folderId) || deletedIds.has(e.folderId)
+          ? knownFolderIds.has(e.folderId) || deletedIds.has(e.folderId) || duplicateOrphanFolderIds.has(e.folderId)
           : knownFileIds.has(e.file.id) || deletedIds.has(e.file.id);
 
       // Several files can sit in one unregistered candidate folder (履歴書 + 職務経歴書, etc.) —
@@ -1770,10 +1839,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         newImports.push(group);
       });
 
-      if (phaseMoves.length === 0 && newImports.length === 0 && docUpdates.length === 0) {
+      if (phaseMoves.length === 0 && newImports.length === 0 && docUpdates.length === 0 && duplicateFolders.length === 0) {
         showToast('Drive同期: 差分はありませんでした', 'info');
       } else {
-        setDriveSyncPreview({ phaseMoves, newImports, docUpdates });
+        setDriveSyncPreview({ phaseMoves, newImports, docUpdates, duplicateFolders });
       }
     } catch (err: any) {
       showToast(`Drive同期の確認に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
@@ -1793,6 +1862,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     importKeys: string[];
     ignoreKeys: string[];
     docUpdateCandidateIds?: string[];
+    duplicateResolutions?: { candidateId: string; keepFolderId: string }[];
   }) => {
     if (!driveAccessToken || !driveSyncPreview) return;
     setIsApplyingDriveSync(true);
@@ -1914,6 +1984,73 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setDeletedDriveItemIds((prev) => Array.from(new Set([...prev, ...selection.ignoreKeys])));
       }
 
+      // Each resolution says which of a candidate's several Drive folders (across phase folders)
+      // to keep — the rest get moved into 99_完全削除済み (not hard-deleted, same precedent as
+      // permanentlyDeleteCandidate) so they stop resurfacing on every future sync. If the kept
+      // folder isn't the one the candidate record already points to, re-link it and pull in any
+      // files that only existed in that folder.
+      const duplicateResolutions = selection.duplicateResolutions || [];
+      let duplicateResolvedCount = 0;
+      let duplicateDiscardFailedCount = 0;
+      if (duplicateResolutions.length > 0) {
+        const resolutionMap = new Map(duplicateResolutions.map((r) => [r.candidateId, r.keepFolderId]));
+        // Resolved entirely from driveSyncPreview (already-known data) rather than from inside the
+        // setCandidates updater below — a functional setState updater isn't guaranteed to run
+        // synchronously with this call, so building discardIds as a side effect of it and reading
+        // it right after produced an empty array in practice (the Drive move never fired).
+        const discardIds: string[] = [];
+        const relinkByCandidateId = new Map<string, DriveSyncDuplicateFolderOption>();
+        driveSyncPreview.duplicateFolders.forEach((group) => {
+          const keepFolderId = resolutionMap.get(group.candidateId);
+          const keptOption = keepFolderId ? group.options.find((o) => o.folderId === keepFolderId) : undefined;
+          if (!keptOption) return;
+          group.options.forEach((o) => {
+            if (o.folderId !== keepFolderId) discardIds.push(o.folderId);
+          });
+          if (!keptOption.isCurrent) relinkByCandidateId.set(group.candidateId, keptOption);
+        });
+
+        if (relinkByCandidateId.size > 0) {
+          setCandidates((prev) =>
+            prev.map((c) => {
+              const keptOption = relinkByCandidateId.get(c.id);
+              if (!keptOption) return c;
+              const docMap = new Map<string, { name: string; driveUrl: string; driveFileId: string }>();
+              [
+                ...(c.resumeDocuments || []),
+                ...keptOption.files.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
+              ].forEach((d) => {
+                const key = d.name?.trim() ? `name:${d.name.trim()}` : d.driveFileId ? `id:${d.driveFileId}` : `url:${d.driveUrl}`;
+                docMap.set(key, d);
+              });
+              return {
+                ...c,
+                resumeDriveFolderId: keptOption.folderId,
+                resumeDriveFileId: keptOption.files[0]?.id || c.resumeDriveFileId,
+                resumeDocuments: Array.from(docMap.values()),
+                lastUpdated: new Date().toISOString().split('T')[0]
+              };
+            })
+          );
+        }
+        duplicateResolvedCount = duplicateResolutions.length;
+
+        if (discardIds.length > 0) {
+          const results = await Promise.allSettled(
+            discardIds.map((id) => moveResumeToDeletedFolderApi(driveAccessToken, id))
+          );
+          const succeededIds = discardIds.filter((_, i) => results[i].status === 'fulfilled');
+          duplicateDiscardFailedCount = discardIds.length - succeededIds.length;
+          // Only ids Drive confirms were actually moved go on the permanent ignore list — a
+          // failed move must keep surfacing on the next sync (same reasoning as
+          // permanentlyDeleteCandidate: never mark something "handled" that's still sitting where
+          // it was).
+          if (succeededIds.length > 0) {
+            setDeletedDriveItemIds((prev) => Array.from(new Set([...prev, ...succeededIds])));
+          }
+        }
+      }
+
       const summary = [
         moveIds.size > 0 ? `フェーズ更新 ${moveIds.size}件` : null,
         docUpdateIds.size > 0 ? `既存候補者への書類追加 ${docUpdateIds.size}件` : null,
@@ -1922,12 +2059,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         duplicateSkippedCount > 0
           ? `登録済み候補者と一致する可能性があるため${duplicateSkippedCount}件をスキップ（${duplicateSkippedNames.join('、')}。取り込むには「新規候補者を登録」から手動で登録してください）`
           : null,
+        duplicateResolvedCount > 0 ? `重複フォルダの整理 ${duplicateResolvedCount}件` : null,
+        duplicateDiscardFailedCount > 0
+          ? `重複フォルダの削除に失敗 ${duplicateDiscardFailedCount}件（時間を置いて再度お試しください）`
+          : null,
         selection.ignoreKeys.length > 0 ? `無視リストに追加 ${selection.ignoreKeys.length}件` : null
       ].filter(Boolean);
 
       showToast(
         summary.length > 0 ? `Drive同期完了: ${summary.join(' / ')}` : 'Drive同期完了: 変更はありませんでした',
-        failedCount > 0 || duplicateSkippedCount > 0 ? 'warning' : 'success'
+        failedCount > 0 || duplicateSkippedCount > 0 || duplicateDiscardFailedCount > 0 ? 'warning' : 'success'
       );
       setDriveSyncPreview(null);
     } catch (err: any) {

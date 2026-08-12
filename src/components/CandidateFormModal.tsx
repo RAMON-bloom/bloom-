@@ -115,6 +115,14 @@ export const CandidateFormModal: React.FC = () => {
   const processResumeFiles = async (rawFiles: globalThis.File[]) => {
     if (!rawFiles || rawFiles.length === 0) return;
 
+    // Without this, dropping a second batch while the first is still uploading raced two
+    // independent folderId trackers below and could create two separate Drive folders for the
+    // same not-yet-registered candidate.
+    if (isBusy) {
+      showToast('レジュメの解析・Drive保存が完了してから、次のファイルを追加してください', 'warning');
+      return;
+    }
+
     setParsedSuccess(false);
 
     // Oversized PDFs/images are compressed client-side (rasterize + re-encode as JPEG) before
@@ -250,7 +258,12 @@ export const CandidateFormModal: React.FC = () => {
       // registration itself had silently broken.
       try {
       const selectedAgencyForUpload = agencies.find((a) => a.id === formData.agencyId);
-      let folderId: string | undefined;
+      // Seeded from whatever this candidate's Drive folder already is (set by an earlier drop in
+      // this same registration session) — without this, dropping files in more than one batch
+      // before submitting created a second, separate Drive folder each time, silently orphaning
+      // the previous batch's folder and files (resumeDriveFolderId/resumeDocuments below only
+      // ever pointed at the most recent batch).
+      let folderId: string | undefined = formData.resumeDriveFolderId || undefined;
       let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
       const allUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>>[] = [];
       let uploadedCount = 0;
@@ -289,17 +302,27 @@ export const CandidateFormModal: React.FC = () => {
       }
 
       if (uploadedCount > 0) {
-        setFormData((prev) => ({
-          ...prev,
-          resumeDriveUrl: primaryUploaded?.file.webViewLink || prev.resumeDriveUrl,
-          resumeDriveFileId: primaryUploaded?.file.id || prev.resumeDriveFileId,
-          resumeDriveFolderId: folderId || prev.resumeDriveFolderId,
-          resumeDocuments: allUploaded.map((u) => ({
-            name: u.file.name,
-            driveUrl: u.file.webViewLink || '',
-            driveFileId: u.file.id
-          }))
-        }));
+        setFormData((prev) => {
+          // Merged with whatever this batch's files replaced/added to, keyed by filename (not
+          // driveFileId) and later entries winning on collision — same convention used for this
+          // merge elsewhere (e.g. ATSContext's Drive sync doc-update apply) — so a second drop
+          // adds to the first batch's documents instead of replacing them outright.
+          const docMap = new Map<string, { name: string; driveUrl: string; driveFileId: string }>();
+          [
+            ...prev.resumeDocuments,
+            ...allUploaded.map((u) => ({ name: u.file.name, driveUrl: u.file.webViewLink || '', driveFileId: u.file.id }))
+          ].forEach((d) => {
+            const key = d.name?.trim() ? `name:${d.name.trim()}` : `id:${d.driveFileId}`;
+            docMap.set(key, d);
+          });
+          return {
+            ...prev,
+            resumeDriveUrl: primaryUploaded?.file.webViewLink || prev.resumeDriveUrl,
+            resumeDriveFileId: primaryUploaded?.file.id || prev.resumeDriveFileId,
+            resumeDriveFolderId: folderId || prev.resumeDriveFolderId,
+            resumeDocuments: Array.from(docMap.values())
+          };
+        });
         showToast(
           uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : '履歴書・応募書類をDriveフォルダに保存しました',
           'success'

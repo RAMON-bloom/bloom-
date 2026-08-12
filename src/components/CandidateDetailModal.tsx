@@ -382,19 +382,20 @@ export const CandidateDetailModal: React.FC = () => {
     ? [{ name: candidate.resumeFileName || 'ファイル', driveUrl: candidate.resumeDriveUrl, driveFileId: candidate.resumeDriveFileId || '' }]
     : [];
 
-  // A past Drive-sync bug could write the same file into resumeDocuments more than once (a
-  // multi-parent Drive file getting scanned once per parent folder, then merged in without
-  // checking for an id already present) — collapse those down to one entry per unique file here
-  // so a candidate with 2 real documents never renders 3 buttons where two open the same file.
-  // Falls back to driveUrl/name when driveFileId is blank (very old legacy entries) rather than
-  // treating every blank id as "the same file".
-  const seenDocKeys = new Set<string>();
-  const resumeDocs = resumeDocsRaw.filter((doc) => {
-    const key = doc.driveFileId ? `id:${doc.driveFileId}` : doc.driveUrl ? `url:${doc.driveUrl}` : `name:${doc.name}`;
-    if (seenDocKeys.has(key)) return false;
-    seenDocKeys.add(key);
-    return true;
+  // A past sync/upload bug could write what's meant to be the same document into resumeDocuments
+  // twice as two genuinely separate Drive files (different driveFileId each — e.g. the same
+  // source file getting uploaded twice, most likely from two sessions/tabs both adding a document
+  // to the same candidate around the same time). Deduping by id alone can't catch that, since the
+  // ids really are different — key primarily by filename instead, which is what actually matches
+  // for "the same document accidentally uploaded twice". Falls back to id/url only when the name
+  // itself is blank (very old legacy entries). Uses a Map so each name keeps its first-seen
+  // position (stable button order) but the most recently recorded reference for that name wins.
+  const resumeDocsByKey = new Map<string, (typeof resumeDocsRaw)[number]>();
+  resumeDocsRaw.forEach((doc) => {
+    const key = doc.name?.trim() ? `name:${doc.name.trim()}` : doc.driveFileId ? `id:${doc.driveFileId}` : `url:${doc.driveUrl}`;
+    resumeDocsByKey.set(key, doc);
   });
+  const resumeDocs = Array.from(resumeDocsByKey.values());
 
   // Each registered document gets its own "原本（〜）を開く" button rather than one button behind
   // a dropdown — 履歴書 and 職務経歴書 need to be individually reachable at a glance, not require
@@ -567,21 +568,22 @@ export const CandidateDetailModal: React.FC = () => {
           patch.resumeDriveFileId = primaryUploaded?.file.id || candidate.resumeDriveFileId;
           patch.resumeDriveUrl = primaryUploaded?.file.webViewLink || candidate.resumeDriveUrl;
           // Appended (not replaced) — earlier uploads (from registration or a previous document
-          // drop) stay selectable alongside whatever's newly added here. Deduped by driveFileId so
-          // this also self-heals a candidate that already has a duplicate entry from a past sync
-          // bug, instead of only ever adding more.
-          const combinedDocs = [
+          // drop) stay selectable alongside whatever's newly added here. Merged by filename (a Map
+          // keyed by name, later entries overwriting earlier ones on collision) rather than just
+          // appended: this both self-heals a candidate that already has a stale duplicate entry
+          // from a past upload bug, and — since allUploaded is last in this list — always keeps
+          // this fresh upload as the tracked entry instead of silently discarding it in favor of
+          // an old duplicate that happens to share its filename.
+          const docMap = new Map<string, { name: string; driveUrl: string; driveFileId: string }>();
+          [
             ...preservedLegacyDoc,
             ...(candidate.resumeDocuments || []),
             ...allUploaded.map((u) => ({ name: u.file.name, driveUrl: u.file.webViewLink || '', driveFileId: u.file.id }))
-          ];
-          const seenDocIds = new Set<string>();
-          patch.resumeDocuments = combinedDocs.filter((d) => {
-            const key = d.driveFileId ? `id:${d.driveFileId}` : d.driveUrl ? `url:${d.driveUrl}` : `name:${d.name}`;
-            if (seenDocIds.has(key)) return false;
-            seenDocIds.add(key);
-            return true;
+          ].forEach((d) => {
+            const key = d.name?.trim() ? `name:${d.name.trim()}` : d.driveFileId ? `id:${d.driveFileId}` : `url:${d.driveUrl}`;
+            docMap.set(key, d);
           });
+          patch.resumeDocuments = Array.from(docMap.values());
           showToast(
             uploadedCount > 1 ? `${uploadedCount}件のファイルをDriveフォルダに保存しました` : `${files[0].name} をDriveフォルダに保存しました`,
             'success'

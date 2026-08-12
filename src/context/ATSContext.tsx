@@ -1148,10 +1148,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // background "refresh this candidate's documents from their Drive folder" check on opening
   // their detail view. Deliberately no toast/lastUpdated bump: unlike updateCandidate, this runs
   // automatically and unprompted on every open, and announcing itself every time would be noise.
-  // Also self-heals any duplicate already sitting in resumeDocuments (same driveFileId appearing
-  // twice — the "3 buttons for 2 real documents" bug, from a multi-parent Drive file getting
-  // written in more than once by a past sync), by deduping the combined list on every run rather
-  // than only checking newFiles against what's already known.
+  // Also self-heals a candidate that already has what's meant to be the same document written in
+  // twice under two different Drive file ids (e.g. uploaded from two sessions/tabs around the
+  // same time) — keyed by filename rather than id, since the ids genuinely differ in that case
+  // and an id-only dedup can't tell they're duplicates. newFiles (the fresh Drive folder listing)
+  // is merged in last, so it always wins a name collision over a stale existing entry.
   const mergeResumeDocuments = (
     candidateId: string,
     newFiles: { id: string; name: string; webViewLink?: string }[]
@@ -1160,19 +1161,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((c) => {
         if (c.id !== candidateId) return c;
         const existing = c.resumeDocuments || [];
-        const combined = [
+        const docMap = new Map<string, { name: string; driveUrl: string; driveFileId: string }>();
+        [
           ...existing,
           ...newFiles.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
-        ];
-        const seen = new Set<string>();
-        const deduped = combined.filter((d) => {
-          const key = d.driveFileId ? `id:${d.driveFileId}` : d.driveUrl ? `url:${d.driveUrl}` : `name:${d.name}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
+        ].forEach((d) => {
+          const key = d.name?.trim() ? `name:${d.name.trim()}` : d.driveFileId ? `id:${d.driveFileId}` : `url:${d.driveUrl}`;
+          docMap.set(key, d);
         });
+        const deduped = Array.from(docMap.values());
         // Nothing new and nothing to clean up — same length means every newFile collided with an
-        // existing id and existing itself had no internal duplicates, so skip the update entirely.
+        // existing entry and existing itself had no internal duplicates, so skip the update.
         if (deduped.length === existing.length) return c;
         return { ...c, resumeDocuments: deduped };
       })
@@ -1666,24 +1665,24 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ? driveSyncPreview.docUpdates.find((d) => d.candidateId === c.id)
               : undefined;
             if (!move && !docUpdate) return c;
-            // Deduped by id/url/name — the preview's newFiles was already filtered against what
-            // resumeDocuments knew about at preview time, but state can drift between opening the
-            // review modal and clicking apply (e.g. the same file getting picked up in the
-            // background while a candidate's detail view happened to be open), so this is a
-            // second, cheap safety net against writing the same document in twice.
+            // Merged by filename (Map, later entries win on collision) rather than plain append —
+            // the preview's newFiles was already filtered against what resumeDocuments knew about
+            // at preview time, but state can drift between opening the review modal and clicking
+            // apply (e.g. the same file getting picked up by the background auto-refresh while the
+            // review modal was open), so this is a second, cheap safety net. Keying by name (not
+            // just id) also catches what's meant to be the same document sitting under two
+            // different Drive file ids, same as mergeResumeDocuments above.
             const docsWithUpdate = docUpdate
               ? (() => {
-                  const combined = [
+                  const docMap = new Map<string, { name: string; driveUrl: string; driveFileId: string }>();
+                  [
                     ...(c.resumeDocuments || []),
                     ...docUpdate.newFiles.map((f) => ({ name: f.name, driveUrl: f.webViewLink || '', driveFileId: f.id }))
-                  ];
-                  const seen = new Set<string>();
-                  return combined.filter((d) => {
-                    const key = d.driveFileId ? `id:${d.driveFileId}` : d.driveUrl ? `url:${d.driveUrl}` : `name:${d.name}`;
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
+                  ].forEach((d) => {
+                    const key = d.name?.trim() ? `name:${d.name.trim()}` : d.driveFileId ? `id:${d.driveFileId}` : `url:${d.driveUrl}`;
+                    docMap.set(key, d);
                   });
+                  return Array.from(docMap.values());
                 })()
               : undefined;
             return {

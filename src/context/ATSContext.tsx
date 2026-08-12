@@ -344,8 +344,75 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // by which point our own write (5s) has long since landed and lastAppliedBackupAtRef reflects it.
   const pendingLocalWriteRef = useRef(false);
 
+  // Mirrors driveAccessToken into a ref so attemptBackup (below) always reads the freshest token
+  // even mid-retry — e.g. AuthGate's silent refresh lands a new token while a backoff retry from
+  // an earlier failure is still pending; without this the retry chain would keep hammering Drive
+  // with the stale token it originally closed over instead of picking up the refreshed one.
+  const driveAccessTokenRef = useRef(driveAccessToken);
+  useEffect(() => {
+    driveAccessTokenRef.current = driveAccessToken;
+  }, [driveAccessToken]);
+
+  // Tracks whether the *last* backup attempt failed, purely to decide whether a subsequent success
+  // is worth announcing ("同期が復旧しました") — most successes are the normal happy path and stay
+  // silent, but after a visible failure the user deserves a visible all-clear.
+  const hadBackupFailureRef = useRef(false);
+  // Throttles the failure toast itself: a dropped connection mid-interview (e.g. Wi-Fi hiccup in a
+  // meeting room) would otherwise fire a fresh warning every retry, which reads as repeated data
+  // loss even though nothing is actually lost — see attemptBackup's comment below.
+  const lastBackupFailureToastAtRef = useRef(0);
+  const backupRetryCountRef = useRef(0);
+
   const autoBackupMountedRef = useRef(false);
   const autoBackupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Actually performs one backup attempt and, on failure, reschedules itself with exponential
+  // backoff (capped at 2 min) instead of giving up until the next unrelated edit happens to
+  // reschedule the normal debounce below. Without this, a candidate note typed right as Drive
+  // drops out would sit unsynced indefinitely if nothing else gets edited afterward — the note
+  // itself is always safe in localStorage regardless (see addEvaluationNote, a pure local state
+  // write with no Drive dependency), but it deserves to actually reach the shared team backup once
+  // the connection comes back, not wait for someone to happen to touch something else first.
+  const attemptBackup = () => {
+    const token = driveAccessTokenRef.current;
+    if (!token) {
+      // Signed out / disconnected mid-retry — nothing left to protect against the poll for.
+      pendingLocalWriteRef.current = false;
+      return;
+    }
+
+    backupToDriveApi(token, latestBackupStateRef.current)
+      .then(() => {
+        // Captured after the write completes (so it's already at least as new as whatever
+        // timestamp the server just stamped the file with), not before — a poll landing right
+        // after this should see its own echo and skip, not treat it as someone else's edit.
+        lastAppliedBackupAtRef.current = new Date().toISOString();
+        backupRetryCountRef.current = 0;
+        pendingLocalWriteRef.current = false;
+        if (hadBackupFailureRef.current) {
+          hadBackupFailureRef.current = false;
+          showToast('Driveへの同期が復旧し、保留していた変更を保存しました', 'success');
+        }
+      })
+      .catch((err: any) => {
+        hadBackupFailureRef.current = true;
+        const now = Date.now();
+        if (now - lastBackupFailureToastAtRef.current > 60_000) {
+          lastBackupFailureToastAtRef.current = now;
+          showToast(
+            `メモや変更内容はこの端末には保存済みです。Driveへの同期のみ一時的に失敗しています（自動で再試行します）: ${err.message || '不明なエラー'}`,
+            'warning'
+          );
+        }
+        // Left true here (unlike the success branch) — the write still hasn't actually landed on
+        // Drive, so the 20s poll should keep deferring to local state for the whole retry window
+        // rather than risk clobbering an unsynced edit with Drive's stale copy partway through.
+        backupRetryCountRef.current = Math.min(backupRetryCountRef.current + 1, 5);
+        const retryDelay = Math.min(5000 * 2 ** backupRetryCountRef.current, 120_000);
+        autoBackupTimerRef.current = setTimeout(attemptBackup, retryDelay);
+      });
+  };
+
   useEffect(() => {
     if (!autoBackupMountedRef.current) {
       autoBackupMountedRef.current = true;
@@ -354,22 +421,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!driveAccessToken) return;
 
     if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
+    backupRetryCountRef.current = 0;
     pendingLocalWriteRef.current = true;
-    autoBackupTimerRef.current = setTimeout(() => {
-      backupToDriveApi(driveAccessToken, latestBackupStateRef.current)
-        .then(() => {
-          // Captured after the write completes (so it's already at least as new as whatever
-          // timestamp the server just stamped the file with), not before — a poll landing right
-          // after this should see its own echo and skip, not treat it as someone else's edit.
-          lastAppliedBackupAtRef.current = new Date().toISOString();
-        })
-        .catch((err: any) => {
-          showToast(`Driveへの自動バックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-        })
-        .finally(() => {
-          pendingLocalWriteRef.current = false;
-        });
-    }, 5000);
+    autoBackupTimerRef.current = setTimeout(attemptBackup, 5000);
 
     return () => {
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);

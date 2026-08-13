@@ -133,7 +133,8 @@ interface ATSContextType {
   deleteCandidate: (id: string) => void;
   restoreCandidate: (id: string) => void;
   permanentlyDeleteCandidate: (id: string) => Promise<boolean>;
-  
+  reissueCandidateId: (oldId: string) => Promise<void>;
+
   // Agency Actions
   addAgency: (agency: Omit<Agency, 'id'>) => void;
   updateAgency: (agency: Agency) => void;
@@ -202,6 +203,21 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
   'OFFER_ACCEPTED': 7,
   'REJECTED_DECLINED': 0
 };
+
+// Shared by addEvaluationNote and reissueCandidateId — both build Chat notification text and need
+// the same phase/format wording. Kept file-local (this codebase duplicates a phase-label map per
+// component rather than sharing one globally; not something this change tries to fix everywhere).
+const PHASE_LABEL_MAP: Record<SelectionPhase, string> = {
+  DOCUMENT_SCREENING: '書類選考',
+  CASUAL_INTERVIEW: 'カジュアル面談',
+  FIRST_INTERVIEW: '1次面接',
+  SECOND_INTERVIEW: '2次面接',
+  FINAL_INTERVIEW: '最終面接',
+  OFFER_ISSUED: '内定通知',
+  OFFER_ACCEPTED: '内定承諾',
+  REJECTED_DECLINED: '辞退 / 不採用'
+};
+const INTERVIEW_FORMAT_LABEL_MAP: Record<InterviewFormat, string> = { IN_PERSON: '対面', ONLINE: 'オンライン' };
 
 // Every write to the shared Drive backup used to replace candidates/agencies/staffList/
 // meetingLogs/groupChatWebhooks wholesale with whatever this one tab happened to have in memory
@@ -358,6 +374,28 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextCandidateIdNumRef = useRef<number>(0);
   const toastIdCounterRef = useRef<number>(0);
+
+  // Highest CAND-#### number ever issued anywhere, including ones later permanently deleted.
+  // addCandidate's own floor (maxExistingIdNum, below) only looks at currently-*live* candidates,
+  // so a permanently-deleted candidate's number was free for the very next addCandidate call
+  // anywhere to reuse — harmless to the candidates list itself, but not to anything else keyed by
+  // candidate id that outlives the deleted record: a Google Chat thread (threadKey
+  // `cand-${candidateId}`, see document-screening-thread.ts) from the old candidate was still
+  // sitting in the shared space, so a brand-new, unrelated candidate issued that same recycled
+  // number had their own 書類選考通過 notification silently posted as a reply into the old
+  // candidate's thread instead of starting its own (confirmed in production — see CAND-0013).
+  // Persisted locally and, via candidateIdSeq in the shared Drive backup below, across devices too
+  // — a monotonic max, never allowed to decrease, so restoring/polling/backing-up from any device
+  // can only push this forward, never regress it.
+  const CANDIDATE_ID_SEQ_KEY = 'ats_candidate_id_seq';
+  const candidateIdSeqRef = useRef<number>(
+    typeof window !== 'undefined' ? parseInt(localStorage.getItem(CANDIDATE_ID_SEQ_KEY) || '0', 10) || 0 : 0
+  );
+  const bumpCandidateIdSeq = (value: number) => {
+    if (!value || value <= candidateIdSeqRef.current) return;
+    candidateIdSeqRef.current = value;
+    localStorage.setItem(CANDIDATE_ID_SEQ_KEY, String(value));
+  };
 
   const [filters, setFilters] = useState<FilterState>({
     searchQuery: '',
@@ -580,6 +618,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (remote.staffList) remoteStaffList = remote.staffList;
         if (remote.meetingLogs) remoteMeetingLogs = remote.meetingLogs;
         if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
+        // A monotonic max, not a merge — see candidateIdSeqRef's declaration — so folding in
+        // whatever Drive currently has can only push this device's counter forward, never back.
+        bumpCandidateIdSeq(remote.candidateIdSeq);
       } catch {
         // Nothing backed up yet, or the read failed — fall back to merging against this tab's own
         // last-known base (equivalent to a plain overwrite for these collections), matching
@@ -601,7 +642,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         agencies: mergedAgencies,
         staffList: mergedStaffList,
         meetingLogs: mergedMeetingLogs,
-        groupChatWebhooks: mergedGroupChatWebhooks
+        groupChatWebhooks: mergedGroupChatWebhooks,
+        candidateIdSeq: candidateIdSeqRef.current
       })
         .then(() => {
           // Captured after the write completes (so it's already at least as new as whatever
@@ -690,6 +732,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     groupChatWebhooks?: ChatWebhook[];
     inquiries?: Inquiry[];
     aptitudeTestSettings?: AptitudeTestSettings;
+    candidateIdSeq?: number;
     backedUpAt?: string;
   }) => {
     if (data.candidates) setCandidates(data.candidates);
@@ -699,6 +742,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
     if (data.inquiries) setInquiries(data.inquiries);
     if (data.aptitudeTestSettings) setAptitudeTestSettings(data.aptitudeTestSettings);
+    // Monotonic max, not a plain apply — see candidateIdSeqRef's declaration.
+    if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
     if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
     // Whatever just arrived from Drive is by definition in sync with Drive — record it as the new
     // merge base so the next write's three-way merge diffs against this, not a stale earlier point.
@@ -1358,17 +1403,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Best-effort Google Chat notification when a selection result is finalized (合格/不採用、
     // 書類選考も含む) — PENDINGでは発火しない。宛先は各Webhookのkinds選択のみで決まる。
     if (target && (noteData.resultStatus === 'PASS' || noteData.resultStatus === 'FAIL')) {
-      const phaseLabels: Record<SelectionPhase, string> = {
-        DOCUMENT_SCREENING: '書類選考',
-        CASUAL_INTERVIEW: 'カジュアル面談',
-        FIRST_INTERVIEW: '1次面接',
-        SECOND_INTERVIEW: '2次面接',
-        FINAL_INTERVIEW: '最終面接',
-        OFFER_ISSUED: '内定通知',
-        OFFER_ACCEPTED: '内定承諾',
-        REJECTED_DECLINED: '辞退 / 不採用'
-      };
-      const interviewFormatLabels: Record<InterviewFormat, string> = { IN_PERSON: '対面', ONLINE: 'オンライン' };
+      const phaseLabels = PHASE_LABEL_MAP;
+      const interviewFormatLabels = INTERVIEW_FORMAT_LABEL_MAP;
 
       const recipients = staffList;
       const notifyCalls: Promise<void>[] = [];
@@ -1543,6 +1579,64 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Repairs a candidate whose id got recycled from a permanently-deleted one before
+  // candidateIdSeqRef existed (see its declaration above) — issues them a brand-new, guaranteed-
+  // unused id and, if they'd already passed 書類選考, fires a fresh DOCUMENT_SCREENING_THREAD
+  // notification under that new id so a correct, dedicated Chat thread is created instead of this
+  // candidate's future updates continuing to land in whatever old candidate's thread the recycled
+  // id collided with. Does NOT touch the old, already-misthreaded message itself — Chat has no API
+  // this app can use to move or delete someone else's message, so that has to be cleaned up by
+  // hand; this only stops the situation from getting worse and gives the team a correct thread to
+  // use going forward.
+  const reissueCandidateId = async (oldId: string) => {
+    const target = candidates.find((c) => c.id === oldId);
+    if (!target) return;
+
+    const newId = issueNextCandidateId();
+    setCandidates((prev) => prev.map((c) => (c.id === oldId ? { ...c, id: newId } : c)));
+    if (selectedCandidateId === oldId) setSelectedCandidateId(newId);
+    showToast(`候補者IDを ${oldId} → ${newId} に再発行しました`, 'success');
+
+    const hasPassedDocScreening = target.evaluationNotes.some(
+      (n) => n.phase === 'DOCUMENT_SCREENING' && n.resultStatus === 'PASS'
+    );
+    if (!hasPassedDocScreening) return;
+
+    const currentPhaseLabel = PHASE_LABEL_MAP[target.phase] || target.phase;
+    const currentInterviewers = target.interviewersByPhase?.[target.phase] || [];
+    const currentFormat = target.interviewFormatByPhase?.[target.phase];
+    const threadPayload = {
+      accessToken: driveAccessToken,
+      candidateName: target.name,
+      candidateId: newId,
+      agencyName: target.agencyName,
+      positionLabel: target.jobTitle,
+      nextPhaseLabel: `${currentPhaseLabel}（IDの重複によりスレッドを作り直しました。旧ID: ${oldId}）`,
+      nextInterviewerNames: currentInterviewers,
+      interviewFormatLabel: currentFormat ? INTERVIEW_FORMAT_LABEL_MAP[currentFormat] : undefined
+    };
+
+    const notifyCalls: Promise<void>[] = [];
+    staffList.forEach((staff) => {
+      getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
+        notifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayload, webhookUrl }));
+      });
+    });
+    getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
+      notifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayload, webhookUrl }));
+    });
+    if (notifyCalls.length === 0) return;
+
+    const results = await Promise.allSettled(notifyCalls);
+    const failedCount = results.filter((r) => r.status === 'rejected').length;
+    if (failedCount > 0) {
+      console.error(`Reissue thread-recreate Chat notify: ${failedCount}件の送信に失敗しました`);
+      showToast(`新スレッド作成の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+    } else {
+      showToast('新しいスレッドを作成しました', 'success');
+    }
+  };
+
   // Edits an existing note in place (keeps its id/createdAt/position in the list). The candidate's
   // rollup fields (interviewRating, L/C/M, etc.) always re-sync to whatever is now the first note
   // in the array — same "most recent note wins" rule addEvaluationNote uses — so editing the
@@ -1614,6 +1708,27 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  // The ref-backed counter (rather than reading `candidates.length` directly) still guarantees
+  // unique IDs when this is called multiple times back-to-back in the same tick — e.g. importing
+  // several unregistered Drive resumes in a loop.
+  // The floor must be the highest CAND-#### number currently in use, not just the live count:
+  // permanently deleting a candidate shrinks candidates.length without freeing up its number for
+  // reuse by anyone still on the list, so on a fresh page load (ref reset to 0) `candidates.length`
+  // could fall below another still-existing candidate's number and collide with it — two candidates
+  // sharing one id, where deleting either one deletes both (since delete/permanentlyDelete filter
+  // by id match, which then matches both records). candidateIdSeqRef (see its declaration above)
+  // also factors in here so a number freed up by a permanent delete — on this device or any other
+  // that has since synced — is never reissued. Shared by addCandidate and reissueCandidateId.
+  const issueNextCandidateId = (): string => {
+    const maxExistingIdNum = candidates.reduce((max, c) => {
+      const num = parseInt(c.id.replace('CAND-', ''), 10);
+      return Number.isNaN(num) ? max : Math.max(max, num);
+    }, 0);
+    nextCandidateIdNumRef.current = Math.max(maxExistingIdNum, nextCandidateIdNumRef.current, candidateIdSeqRef.current) + 1;
+    bumpCandidateIdSeq(nextCandidateIdNumRef.current);
+    return `CAND-${String(nextCandidateIdNumRef.current).padStart(4, '0')}`;
+  };
+
   const addCandidate = (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => {
     const appliedMonth = candidateData.appliedDate ? candidateData.appliedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
 
@@ -1622,23 +1737,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // synchronously, so a value only assigned inside it isn't safe to read right after the call
     // (this used to throw "Cannot read properties of undefined (reading 'name')" here and abort
     // the caller mid-function, which is why the registration modal sometimes failed to close).
-    // The ref-backed counter (rather than reading `candidates.length` directly) still guarantees
-    // unique IDs when addCandidate is called multiple times back-to-back in the same tick — e.g.
-    // importing several unregistered Drive resumes in a loop.
-    // The floor must be the highest CAND-#### number currently in use, not just the live count:
-    // permanently deleting a candidate shrinks candidates.length without freeing up its number for
-    // reuse by anyone still on the list, so on a fresh page load (ref reset to 0) `candidates.length`
-    // could fall below another still-existing candidate's number and collide with it — two candidates
-    // sharing one id, where deleting either one deletes both (since delete/permanentlyDelete filter
-    // by id match, which then matches both records).
-    const maxExistingIdNum = candidates.reduce((max, c) => {
-      const num = parseInt(c.id.replace('CAND-', ''), 10);
-      return Number.isNaN(num) ? max : Math.max(max, num);
-    }, 0);
-    nextCandidateIdNumRef.current = Math.max(maxExistingIdNum, nextCandidateIdNumRef.current) + 1;
     const newCandidate: Candidate = {
       ...candidateData,
-      id: `CAND-${String(nextCandidateIdNumRef.current).padStart(4, '0')}`,
+      id: issueNextCandidateId(),
       appliedMonth,
       evaluationNotes: [],
       lastUpdated: new Date().toISOString().split('T')[0]
@@ -2040,6 +2141,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (remote.staffList) remoteStaffList = remote.staffList;
         if (remote.meetingLogs) remoteMeetingLogs = remote.meetingLogs;
         if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
+        bumpCandidateIdSeq(remote.candidateIdSeq);
       } catch {
         // Nothing backed up yet, or the read failed — fall back to this tab's own base.
       }
@@ -2056,7 +2158,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         meetingLogs: mergedMeetingLogs,
         groupChatWebhooks: mergedGroupChatWebhooks,
         inquiries,
-        aptitudeTestSettings
+        aptitudeTestSettings,
+        candidateIdSeq: candidateIdSeqRef.current
       });
       // Same reasoning as the auto-backup effect: stamped after the write completes, so the
       // background poll recognizes this as its own echo instead of someone else's newer edit.
@@ -2830,6 +2933,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteCandidate,
         restoreCandidate,
         permanentlyDeleteCandidate,
+        reissueCandidateId,
         addAgency,
         updateAgency,
         deleteAgency,

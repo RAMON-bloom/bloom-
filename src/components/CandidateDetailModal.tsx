@@ -45,6 +45,7 @@ import {
   UploadCloud,
   Trash2,
   RotateCcw,
+  RefreshCw,
   Camera,
   Crop,
   LayoutDashboard,
@@ -118,6 +119,7 @@ export const CandidateDetailModal: React.FC = () => {
     mergeResumeDocuments,
     deleteCandidate,
     restoreCandidate,
+    reissueCandidateId,
     staffList,
     agencies,
     userRole,
@@ -145,6 +147,8 @@ export const CandidateDetailModal: React.FC = () => {
   const [isDetailCompressing, setIsDetailCompressing] = useState(false);
   const [isDetailDetectingPhoto, setIsDetailDetectingPhoto] = useState(false);
   const [isPhotoCropperOpen, setIsPhotoCropperOpen] = useState(false);
+  const [isReissueConfirmOpen, setIsReissueConfirmOpen] = useState(false);
+  const [isReissuing, setIsReissuing] = useState(false);
 
   // Section Collapse State for Card Sections
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
@@ -1419,6 +1423,15 @@ export const CandidateDetailModal: React.FC = () => {
                             <span>過去候補者へ移動 (アーカイブ)</span>
                           </button>
                         )}
+                        <button
+                          type="button"
+                          title="過去に完全削除された別候補者とIDが衝突し、Chatスレッドが混線してしまった場合の復旧用です"
+                          onClick={() => setIsReissueConfirmOpen(true)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>IDを再発行してスレッドを作り直す</span>
+                        </button>
                       </>
                     )}
                   </div>
@@ -3221,6 +3234,59 @@ export const CandidateDetailModal: React.FC = () => {
           showToast('履歴書から切り抜いた顔写真を適用・保存しました', 'success');
         }}
       />
+
+      {/* Reissue Candidate ID Confirmation Modal */}
+      {isReissueConfirmOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+                <RefreshCw className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">候補者IDの再発行</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  過去に完全削除された別候補者とIDが偶然一致し、Chatの選考スレッドが混線してしまった場合の復旧用です。
+                </p>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5">
+              <p>
+                対象: <span className="font-bold text-slate-900">{candidate.name}</span>（現在のID: <span className="font-mono">{candidate.id}</span>）
+              </p>
+              <p>新しいIDを発行し直します。書類選考を通過済みの場合、その新IDで新しいChatスレッドも作成されます。</p>
+              <p className="text-slate-500">
+                すでに混線してしまった過去のメッセージ自体は自動では直せません（Chat側で手動確認が必要です）。
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isReissuing}
+                onClick={() => setIsReissueConfirmOpen(false)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg cursor-pointer font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={isReissuing}
+                onClick={async () => {
+                  setIsReissuing(true);
+                  await reissueCandidateId(candidate.id);
+                  setIsReissuing(false);
+                  setIsReissueConfirmOpen(false);
+                }}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isReissuing ? '再発行中…' : 'IDを再発行する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

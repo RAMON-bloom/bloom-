@@ -15,6 +15,7 @@ import {
   OverdueDocScreeningInfo,
   ImportedInterviewLog,
   ChatWebhook,
+  AptitudeTestSettings,
   Inquiry,
   InquiryCategory,
   InterviewFormat,
@@ -43,12 +44,14 @@ import {
   notifyEvaluationResult as notifyEvaluationResultApi,
   notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi,
   notifyDeveloperInquiry as notifyDeveloperInquiryApi,
-  notifyEvaluationSummaryThread as notifyEvaluationSummaryThreadApi
+  notifyEvaluationSummaryThread as notifyEvaluationSummaryThreadApi,
+  notifyAptitudeTestReminder as notifyAptitudeTestReminderApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { getNextPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
+import { AptitudeTestStatus, applyAptitudeTestStatus, APTITUDE_TEST_STATUS_META } from '../lib/aptitudeTestStatus';
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
@@ -101,6 +104,8 @@ interface ATSContextType {
   updateInterviewersForPhase: (candidateId: string, phase: SelectionPhase, interviewers: string[]) => void;
   updateInterviewFormatForPhase: (candidateId: string, phase: SelectionPhase, format?: InterviewFormat) => void;
   updateInterviewLogForPhase: (candidateId: string, phase: SelectionPhase, log: ImportedInterviewLog) => void;
+  markAptitudeTestSent: (candidateId: string) => void;
+  updateAptitudeTestStatus: (candidateId: string, status: AptitudeTestStatus) => void;
   updateOnboardingInfo: (
     candidateId: string,
     info: {
@@ -143,6 +148,10 @@ interface ATSContextType {
   // グループ用（複数人が見るスペース宛）Webhook。特定の担当者に属さない一覧をまるごと置き換える。
   groupChatWebhooks: ChatWebhook[];
   updateGroupChatWebhooks: (webhooks: ChatWebhook[]) => void;
+
+  // 適性検査メール送信のグローバル設定（差出人表示名・返信先・件名/本文テンプレート・Form URL）。
+  aptitudeTestSettings: AptitudeTestSettings;
+  updateAptitudeTestSettings: (settings: AptitudeTestSettings) => void;
 
   // アプリ内「お問い合わせ」。開発者とのチャット形式のスレッド一覧。
   inquiries: Inquiry[];
@@ -307,6 +316,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : [];
   });
 
+  // 適性検査メール送信のグローバル設定。groupChatWebhooksのようなid付き配列ではなく単一の設定
+  // オブジェクトなので、3-way mergeの対象にはせずinquiries同様プレーンな上書きで扱う。
+  const [aptitudeTestSettings, setAptitudeTestSettings] = useState<AptitudeTestSettings>(() => {
+    const saved = localStorage.getItem('ats_aptitude_test_settings');
+    return saved ? JSON.parse(saved) : {};
+  });
+
   // Every Drive item id (folder/file) permanentlyDeleteCandidate has ever deleted, plus anything
   // explicitly marked "無視する" in the Drive sync review modal — checked by previewDriveSync so
   // it never offers either back up as a "new" unregistered resume. Needed because Drive's own
@@ -377,6 +393,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [inquiries]);
 
   useEffect(() => {
+    localStorage.setItem('ats_aptitude_test_settings', JSON.stringify(aptitudeTestSettings));
+  }, [aptitudeTestSettings]);
+
+  useEffect(() => {
     localStorage.setItem('ats_deleted_drive_item_ids', JSON.stringify(deletedDriveItemIds));
   }, [deletedDriveItemIds]);
 
@@ -385,9 +405,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // candidates/agencies/staffList may have moved on from whatever they were when the meetingLogs
   // change that scheduled it happened, and the Drive backup should reflect the latest, not a
   // slightly-stale snapshot from several seconds earlier.
-  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries });
+  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries, aptitudeTestSettings });
   useEffect(() => {
-    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries };
+    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries, aptitudeTestSettings };
   });
 
   // The merge base for mergeCollection (above): each collection as of the last time this tab
@@ -629,6 +649,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     meetingLogs?: MeetingLog[];
     groupChatWebhooks?: ChatWebhook[];
     inquiries?: Inquiry[];
+    aptitudeTestSettings?: AptitudeTestSettings;
     backedUpAt?: string;
   }) => {
     if (data.candidates) setCandidates(data.candidates);
@@ -637,6 +658,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
     if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
     if (data.inquiries) setInquiries(data.inquiries);
+    if (data.aptitudeTestSettings) setAptitudeTestSettings(data.aptitudeTestSettings);
     if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
     // Whatever just arrived from Drive is by definition in sync with Drive — record it as the new
     // merge base so the next write's three-way merge diffs against this, not a stale earlier point.
@@ -731,12 +753,103 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // entirely while the tab is hidden so a pile of background browser tabs isn't polling Drive for
   // no one to see.
   const DRIVE_POLL_INTERVAL_MS = 20000;
+
+  // Always-fresh snapshot for checkAptitudeReminders (below), read from inside the poll timer's
+  // closure rather than captured at effect-setup time — same reasoning as latestAttentionStateRef
+  // further down, just for a different periodic check.
+  const latestAptitudeReminderStateRef = useRef({ candidates, staffList, groupChatWebhooks });
+  useEffect(() => {
+    latestAptitudeReminderStateRef.current = { candidates, staffList, groupChatWebhooks };
+  });
+
+  // Guards against firing the same candidate's reminder twice within one browser session while the
+  // persisted aptitudeTestReminderNotifiedAt write (below) is still in flight — candidates aren't
+  // covered by mergeCollection, so that field round-trips through the normal (plain-overwrite)
+  // candidate sync just like any other candidate edit.
+  const firedAptitudeReminderIdsRef = useRef<Set<string>>(new Set());
+
+  // 適性検査の送信リマインド通知。サーバーCron・サービスアカウントが存在しない構成上、
+  // ATTENTION_DIGEST/DOC_SCREENING_NUDGEと同じく「誰かがアプリを開いている間にブラウザ側で
+  // チェックする」しかない。ただしあちらは1日1回のダイジェストだが、こちらは候補者ごとに一度きり
+  // 通知できればよいので、日付の間引きは行わず単に`aptitudeTestReminderNotifiedAt`未設定の候補者を
+  // 毎ポーリング（20秒ごと、タブが可視の間）チェックする。
+  const checkAptitudeReminders = () => {
+    if (!driveAccessToken) return;
+    const {
+      candidates: latestCandidates,
+      staffList: latestStaffList,
+      groupChatWebhooks: latestGroupWebhooks
+    } = latestAptitudeReminderStateRef.current;
+    const now = new Date();
+
+    const due = latestCandidates.filter(
+      (c) =>
+        c.aptitudeTestReminderAt &&
+        new Date(c.aptitudeTestReminderAt) <= now &&
+        !c.aptitudeTestReminderNotifiedAt &&
+        !firedAptitudeReminderIdsRef.current.has(c.id)
+    );
+    if (due.length === 0) return;
+
+    due.forEach((candidate) => {
+      firedAptitudeReminderIdsRef.current.add(candidate.id);
+
+      const notifyPromises: Promise<void>[] = [];
+      const targetStaffNames = new Set(
+        [candidate.documentScreeningAssignee, ...candidate.assignees].filter((n): n is string => !!n)
+      );
+      targetStaffNames.forEach((name) => {
+        const staff = latestStaffList.find((s) => s.name === name);
+        if (!staff) return;
+        getStaffWebhooksForKind(staff, 'APTITUDE_TEST_REMINDER').forEach((webhookUrl) => {
+          notifyPromises.push(
+            notifyAptitudeTestReminderApi({
+              accessToken: driveAccessToken,
+              webhookUrl,
+              staffName: staff.name,
+              staffMentionId: staff.chatMentionId,
+              candidateName: candidate.name,
+              candidateId: candidate.id,
+              deadline: candidate.aptitudeTestDeadline
+            })
+          );
+        });
+      });
+      getGroupWebhooksForKind(latestGroupWebhooks, 'APTITUDE_TEST_REMINDER').forEach((webhookUrl) => {
+        notifyPromises.push(
+          notifyAptitudeTestReminderApi({
+            accessToken: driveAccessToken,
+            webhookUrl,
+            candidateName: candidate.name,
+            candidateId: candidate.id,
+            deadline: candidate.aptitudeTestDeadline
+          })
+        );
+      });
+
+      Promise.allSettled(notifyPromises).then((results) => {
+        const failedCount = results.filter((r) => r.status === 'rejected').length;
+        if (failedCount > 0) {
+          console.error(`適性検査リマインド通知: ${failedCount}件の送信に失敗しました`);
+        }
+        // Best-effort, same convention as ATTENTION_DIGEST/DOC_SCREENING_NUDGE below: mark notified
+        // regardless of individual webhook failures, so a broken webhook URL doesn't cause this
+        // candidate to be re-attempted forever. Uses setCandidates directly (not updateCandidate)
+        // to avoid a user-facing "更新しました" toast for a fully background action.
+        setCandidates((prev) =>
+          prev.map((c) => (c.id === candidate.id ? { ...c, aptitudeTestReminderNotifiedAt: new Date().toISOString() } : c))
+        );
+      });
+    });
+  };
+
   useEffect(() => {
     if (!driveAccessToken) return;
 
     let cancelled = false;
     const poll = async () => {
       if (document.visibilityState !== 'visible') return;
+      checkAptitudeReminders();
       // A local edit is still mid-flight to Drive (debounced write not yet landed) — skip this
       // tick rather than risk applying someone else's snapshot from before our edit existed. The
       // next tick, 20s later, will see it once our own write has long since completed.
@@ -1096,6 +1209,32 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           : c
       )
+    );
+  };
+
+  // 適性検査メール送信成功時に呼ばれる。updateCandidateと違い、呼び出し側（送信ボタンのハンドラ）
+  // が既に「送信しました」の専用トーストを出すため、ここではsetCandidatesを直接使い二重トースト
+  // を避ける（updateInterviewLogForPhaseと同じ流儀）。
+  const markAptitudeTestSent = (candidateId: string) => {
+    setCandidates((prev) =>
+      prev.map((c) =>
+        c.id === candidateId
+          ? { ...c, aptitudeTestSentAt: new Date().toISOString(), lastUpdated: new Date().toISOString().split('T')[0] }
+          : c
+      )
+    );
+  };
+
+  // 適性検査ステータスバッジ（カンバンカード・一覧・ダッシュボード・候補者詳細）のクリック切り替え
+  // で使う専用アップデータ。updateCandidatePhase/updateCandidateScheduleと同じく、クイック操作
+  // なので専用の分かりやすいトーストを出す（updateCandidateの汎用トーストとは別扱い）。
+  const updateAptitudeTestStatus = (candidateId: string, status: AptitudeTestStatus) => {
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (c.id !== candidateId) return c;
+        showToast(`${c.name} さんの適性検査ステータスを「${APTITUDE_TEST_STATUS_META[status].label}」に更新しました`, 'info');
+        return { ...applyAptitudeTestStatus(c, status), lastUpdated: new Date().toISOString().split('T')[0] };
+      })
     );
   };
 
@@ -1808,6 +1947,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('グループ通知用Webhookを更新しました', 'success');
   };
 
+  const updateAptitudeTestSettings = (settings: AptitudeTestSettings) => {
+    setAptitudeTestSettings(settings);
+    showToast('適性検査メール設定を更新しました', 'success');
+  };
+
 
   // Google Drive Integration — re-runs the same login used to enter the app, e.g. after the
   // access token has expired and the background silent refresh in AuthGate couldn't restore it.
@@ -1858,7 +2002,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         staffList: mergedStaffList,
         meetingLogs,
         groupChatWebhooks: mergedGroupChatWebhooks,
-        inquiries
+        inquiries,
+        aptitudeTestSettings
       });
       // Same reasoning as the auto-backup effect: stamped after the write completes, so the
       // background poll recognizes this as its own echo instead of someone else's newer edit.
@@ -2612,6 +2757,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateInterviewersForPhase,
         updateInterviewFormatForPhase,
         updateInterviewLogForPhase,
+        markAptitudeTestSent,
+        updateAptitudeTestStatus,
         updateOnboardingInfo,
         addEvaluationNote,
         updateEvaluationNote,
@@ -2631,6 +2778,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateStaff,
         groupChatWebhooks,
         updateGroupChatWebhooks,
+        aptitudeTestSettings,
+        updateAptitudeTestSettings,
         inquiries,
         addInquiryMessage,
         yieldMetrics,

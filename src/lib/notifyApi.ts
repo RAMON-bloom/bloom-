@@ -137,6 +137,29 @@ export async function notifyDeveloperInquiry(params: {
   return postJson('/api/notify/developer-inquiry', params);
 }
 
+export async function sendAptitudeTestEmail(params: {
+  accessToken: string | null;
+  to: string;
+  subject: string;
+  bodyText: string;
+  replyTo?: string;
+  senderDisplayName?: string;
+}): Promise<void> {
+  return postJson('/api/notify/send-aptitude-test-email', params);
+}
+
+export async function notifyAptitudeTestReminder(params: {
+  accessToken: string | null;
+  webhookUrl: string;
+  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
+  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
+  candidateName: string;
+  candidateId: string;
+  deadline?: string;
+}): Promise<void> {
+  return postJson('/api/notify/aptitude-test-reminder', { ...params, appUrl: window.location.origin });
+}
+
 export async function notifyDocumentScreeningThread(params: {
   accessToken: string | null;
   webhookUrl: string;

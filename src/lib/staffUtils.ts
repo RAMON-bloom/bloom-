@@ -8,7 +8,8 @@ export const CHAT_NOTIFICATION_KINDS: { key: ChatNotificationKind; label: string
   { key: 'EVALUATION_RESULT', label: '選考結果確定', description: '評価メモが合格/不採用として確定した際（書類選考含む）' },
   { key: 'DOCUMENT_SCREENING_THREAD', label: '書類選考通過スレッド作成', description: '書類選考を通過した候補者ごとに、候補者名＋エージェント名で新規スレッドを作成' },
   { key: 'DEVELOPER_INQUIRY', label: '開発者へのお問い合わせ', description: 'アプリ内「お問い合わせ」からバグ報告・改善提案等のメッセージが送信された際' },
-  { key: 'EVALUATION_SUMMARY_THREAD', label: '候補者スレッドへの評価サマリ書き込み', description: '各選考フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む' }
+  { key: 'EVALUATION_SUMMARY_THREAD', label: '候補者スレッドへの評価サマリ書き込み', description: '各選考フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む' },
+  { key: 'APTITUDE_TEST_REMINDER', label: '適性検査 送信リマインド', description: '候補者ごとに設定した適性検査の送信リマインド日時が到来した際' }
 ];
 
 // 指定した通知種別(kind)を送るべきWebhook URL一覧を返す。担当者は複数のWebhookを登録でき、

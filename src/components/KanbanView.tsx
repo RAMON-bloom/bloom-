@@ -4,6 +4,8 @@ import { SelectionPhase, ScheduleStatus } from '../types';
 import { FilterBar } from './FilterBar';
 import { InterviewScheduleCalendar } from './InterviewScheduleCalendar';
 import { renderGradeBadge } from './CandidateDetailModal';
+import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
+import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
   FileText, 
   UserCheck, 
@@ -303,6 +305,13 @@ export const KanbanView: React.FC = () => {
                               <span>経験社数: <strong className="text-slate-800 font-semibold">{candidate.companyCount ? `${candidate.companyCount}社目` : '未記載'}</strong></span>
                             </div>
                           </div>
+
+                          {/* 適性検査ステータス（1次面接合格以降のみ表示） */}
+                          {isAptitudeTestRelevantPhase(candidate) && (
+                            <div className="mt-2">
+                              <AptitudeTestStatusBadge candidate={candidate} />
+                            </div>
+                          )}
 
                           {/* Schedule & Interviewer Details (1次面接以上は面接官・調整状況を特別表示) */}
                           {isFirstInterviewOrAbove(candidate.phase) ? (

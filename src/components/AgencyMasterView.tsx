@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Agency, InternalStaff, AgencyContact, ChatWebhook, ChatNotificationKind } from '../types';
+import { Agency, InternalStaff, AgencyContact, ChatWebhook, ChatNotificationKind, AptitudeTestSettings } from '../types';
 import { getAllStaffWebhookUrls, CHAT_NOTIFICATION_KINDS } from '../lib/staffUtils';
+import { DEFAULT_APTITUDE_TEST_SUBJECT_TEMPLATE, DEFAULT_APTITUDE_TEST_BODY_TEMPLATE } from '../lib/aptitudeTestTemplate';
 import {
   Building2,
   Plus,
@@ -24,7 +25,8 @@ import {
   Star,
   MessageSquare,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ClipboardCheck
 } from 'lucide-react';
 
 export const AgencyMasterView: React.FC = () => {
@@ -42,7 +44,9 @@ export const AgencyMasterView: React.FC = () => {
     deleteStaff,
     updateStaff,
     groupChatWebhooks,
-    updateGroupChatWebhooks
+    updateGroupChatWebhooks,
+    aptitudeTestSettings,
+    updateAptitudeTestSettings
   } = useATS();
 
   const [activeSubTab, setActiveSubTab] = useState<'agencies' | 'staff'>('agencies');
@@ -87,6 +91,34 @@ export const AgencyMasterView: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupChatWebhooks]);
+
+  // 適性検査メール設定の編集用ドラフト。groupWebhookDraftと同じ考え方（保存ボタンを押すまで
+  // contextに反映しない）だが、id付き配列ではなく単一オブジェクトなのでdraftも単一オブジェクト。
+  const [aptitudeSettingsDraft, setAptitudeSettingsDraft] = useState<AptitudeTestSettings>(aptitudeTestSettings);
+  const [isAptitudeSettingsDirty, setIsAptitudeSettingsDirty] = useState(false);
+  const [isAptitudeSettingsCollapsed, setIsAptitudeSettingsCollapsed] = useState(true);
+
+  useEffect(() => {
+    if (!isAptitudeSettingsDirty) {
+      setAptitudeSettingsDraft(aptitudeTestSettings);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aptitudeTestSettings]);
+
+  const handleAptitudeSettingsChange = (field: keyof AptitudeTestSettings, value: string) => {
+    setAptitudeSettingsDraft((prev) => ({ ...prev, [field]: value }));
+    setIsAptitudeSettingsDirty(true);
+  };
+
+  const handleSaveAptitudeSettings = () => {
+    updateAptitudeTestSettings(aptitudeSettingsDraft);
+    setIsAptitudeSettingsDirty(false);
+  };
+
+  const handleCancelAptitudeSettingsEdits = () => {
+    setAptitudeSettingsDraft(aptitudeTestSettings);
+    setIsAptitudeSettingsDirty(false);
+  };
 
   // Delete Confirm Modal State
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{
@@ -854,6 +886,138 @@ export const AgencyMasterView: React.FC = () => {
               </div>
             )}
             </div>
+            )}
+          </div>
+
+          {/* 適性検査メール設定。差出人表示名・返信先・件名/本文テンプレート・Form URLはグローバルで1つ */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs overflow-hidden">
+            <div
+              onClick={() => setIsAptitudeSettingsCollapsed((prev) => !prev)}
+              className="p-4 flex items-center justify-between flex-wrap gap-2 cursor-pointer hover:bg-slate-50/80 transition-colors"
+            >
+              <div>
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                  <ClipboardCheck className="w-4 h-4 text-indigo-600" />
+                  <span>適性検査メール設定</span>
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  候補者に送る適性検査案内メールの差出人表示名・件名/本文テンプレート・Google Form URLを設定します。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setIsAptitudeSettingsCollapsed((prev) => !prev); }}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 transition-all cursor-pointer shrink-0"
+                title={isAptitudeSettingsCollapsed ? '展開する' : '折りたたむ'}
+              >
+                {isAptitudeSettingsCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {!isAptitudeSettingsCollapsed && (
+              <div className="px-4 pb-4 space-y-3">
+                <div className="bg-amber-50/70 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-800 leading-relaxed">
+                  実際の送信元メールアドレスは、送信操作を行った担当者本人のGoogleアカウントに固定されます（Gmail APIの仕様上、任意のアドレスへの変更はできません）。ここで設定できるのは差出人の表示名と返信先アドレスです。
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-600 font-bold mb-1 text-[11px]">差出人表示名</label>
+                    <input
+                      type="text"
+                      placeholder="例: bloom採用担当"
+                      value={aptitudeSettingsDraft.senderDisplayName || ''}
+                      onChange={(e) => handleAptitudeSettingsChange('senderDisplayName', e.target.value)}
+                      disabled={userRole !== 'ADMIN'}
+                      className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 font-bold mb-1 text-[11px]">返信先(Reply-To)アドレス</label>
+                    <input
+                      type="email"
+                      placeholder="例: recruit@bloom-firm.com"
+                      value={aptitudeSettingsDraft.replyToAddress || ''}
+                      onChange={(e) => handleAptitudeSettingsChange('replyToAddress', e.target.value)}
+                      disabled={userRole !== 'ADMIN'}
+                      className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-600 font-bold mb-1 text-[11px]">適性検査Google Form URL ①</label>
+                    <input
+                      type="url"
+                      placeholder="https://forms.gle/..."
+                      value={aptitudeSettingsDraft.formUrl1 || ''}
+                      onChange={(e) => handleAptitudeSettingsChange('formUrl1', e.target.value)}
+                      disabled={userRole !== 'ADMIN'}
+                      className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 font-bold mb-1 text-[11px]">適性検査Google Form URL ②</label>
+                    <input
+                      type="url"
+                      placeholder="https://forms.gle/..."
+                      value={aptitudeSettingsDraft.formUrl2 || ''}
+                      onChange={(e) => handleAptitudeSettingsChange('formUrl2', e.target.value)}
+                      disabled={userRole !== 'ADMIN'}
+                      className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 font-bold mb-1 text-[11px]">件名テンプレート</label>
+                  <input
+                    type="text"
+                    placeholder={DEFAULT_APTITUDE_TEST_SUBJECT_TEMPLATE}
+                    value={aptitudeSettingsDraft.subjectTemplate || ''}
+                    onChange={(e) => handleAptitudeSettingsChange('subjectTemplate', e.target.value)}
+                    disabled={userRole !== 'ADMIN'}
+                    className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-bold mb-1 text-[11px]">本文テンプレート</label>
+                  <textarea
+                    rows={8}
+                    placeholder={DEFAULT_APTITUDE_TEST_BODY_TEMPLATE}
+                    value={aptitudeSettingsDraft.bodyTemplate || ''}
+                    onChange={(e) => handleAptitudeSettingsChange('bodyTemplate', e.target.value)}
+                    disabled={userRole !== 'ADMIN'}
+                    className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-2 text-xs leading-relaxed focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    件名・本文で使えるプレースホルダ: <code className="bg-slate-100 px-1 rounded">{'{{candidateName}}'}</code> 候補者氏名 /{' '}
+                    <code className="bg-slate-100 px-1 rounded">{'{{deadline}}'}</code> 実施期限 /{' '}
+                    <code className="bg-slate-100 px-1 rounded">{'{{formUrl1}}'}</code> <code className="bg-slate-100 px-1 rounded">{'{{formUrl2}}'}</code> Form URL。空欄の場合はプレースホルダ入りのデフォルト文面が使われます。
+                  </p>
+                </div>
+
+                {userRole === 'ADMIN' && isAptitudeSettingsDirty && (
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleCancelAptitudeSettingsEdits}
+                      className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveAptitudeSettings}
+                      className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>保存する</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

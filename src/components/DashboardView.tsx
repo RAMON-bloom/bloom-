@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
 import { SelectionPhase, STANDARD_POSITIONS } from '../types';
+import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
+import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
   BarChart, 
   Bar, 
@@ -335,8 +337,9 @@ export const DashboardView: React.FC = () => {
               <div
                 key={c.id}
                 onClick={() => setSelectedCandidateId(c.id)}
-                className="bg-slate-50/70 hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 rounded-xl p-3.5 transition-all cursor-pointer group flex items-start justify-between gap-3 shadow-2xs hover:shadow-xs"
+                className="bg-slate-50/70 hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 rounded-xl p-3.5 transition-all cursor-pointer group shadow-2xs hover:shadow-xs space-y-2"
               >
+              <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="relative shrink-0">
                     {c.avatarUrl ? (
@@ -377,6 +380,12 @@ export const DashboardView: React.FC = () => {
                     詳細 <ChevronRight className="w-3 h-3" />
                   </span>
                 </div>
+              </div>
+              {isAptitudeTestRelevantPhase(c) && (
+                <div className="flex items-center justify-end">
+                  <AptitudeTestStatusBadge candidate={c} />
+                </div>
+              )}
               </div>
             ))}
         </div>

@@ -27,3 +27,26 @@ export async function isBloomFirmAccessToken(accessToken: string): Promise<boole
     clearTimeout(timer);
   }
 }
+
+// isBloomFirmAccessTokenと同じ検証に加えて、トークン本人のメールアドレスも返す。Gmail送信の
+// `From`ヘッダーは送信者本人のアカウントに固定する必要があるため、
+// api/notify/send-aptitude-test-email.tsだけがこちらを使う。既存の呼び出し元には影響しない。
+export async function verifyBloomFirmAccessToken(accessToken: string): Promise<{ email: string } | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TOKENINFO_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(accessToken)}`,
+      { signal: controller.signal }
+    );
+    if (!res.ok) return null;
+    const info = await res.json();
+    const email = String(info.email || '');
+    if (!email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`)) return null;
+    return { email };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -137,6 +137,13 @@ export interface Candidate {
   notes?: string;
   isArchived?: boolean; // 削除・過去アーカイブ済みフラグ
   deletedAt?: string;  // 削除・アーカイブ日時
+  aptitudeTestDeadline?: string; // 適性検査 実施期限日時 (datetime-local形式 YYYY-MM-DDTHH:mm)
+  aptitudeTestReminderAt?: string; // 適性検査 送信リマインド予定日時（デフォルトは期限の1週間前、担当者が上書き可）
+  aptitudeTestSentAt?: string; // 適性検査メールを送信した日時 (ISO)
+  aptitudeTestCompletedAt?: string; // 候補者が適性検査を実施済みとして手動でマークした日時 (ISO)。Google Form回答の自動検知はしないため手動運用
+  aptitudeTestReminderNotifiedAt?: string; // 送信リマインドのChat通知を送った日時 (ISO、重複通知防止のガード)
+  aptitudeTestVerbalScore?: number; // 適性検査 言語スコア (0〜10点満点)
+  aptitudeTestNonVerbalScore?: number; // 適性検査 非言語スコア (0〜10点満点)
   lastUpdated: string;
 }
 
@@ -172,7 +179,8 @@ export type ChatNotificationKind =
   | 'EVALUATION_RESULT'           // 選考結果（合格/不採用、書類選考含む）確定の通知
   | 'DOCUMENT_SCREENING_THREAD'   // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
   | 'DEVELOPER_INQUIRY'           // アプリ内「お問い合わせ」からのメッセージ送信
-  | 'EVALUATION_SUMMARY_THREAD';  // 各フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む
+  | 'EVALUATION_SUMMARY_THREAD'   // 各フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む
+  | 'APTITUDE_TEST_REMINDER';     // 適性検査の送信リマインド予定日時が到来した際
 
 // 個人用・グループ用どちらのWebhook登録にも使う共通の形。「誰に属するか」は保持先（InternalStaff.
 // googleChatWebhooksか、組織全体のgroupChatWebhooksか）で決まる。
@@ -192,6 +200,18 @@ export interface InternalStaff {
   googleChatWebhooks?: ChatWebhook[]; // 本人のGoogle Chatスペースの着信Webhook URL一覧。1件ごとに送る通知の種類(kinds)を指定できる
   email?: string; // Googleログインアカウントのメールアドレス。自己登録・自己編集の識別キー（管理者が手動追加した過去のレコードでは未設定のことがある）
   chatMentionId?: string; // 本人のGoogle Chat数値ユーザーID。設定すると個人宛通知の「@名前」が本物のメンション（相手に通知が飛ぶ）になる。未設定なら太字テキストのみのフォールバック表示
+}
+
+// 適性検査メール送信のグローバル設定（組織で1つ、Driveバックアップに他の設定同様プレーン上書きで保存）。
+// 送信自体は担当者本人のGoogleアカウントから行うため、実際の送信元メールアドレスはGmail APIの制約上
+// そのアカウントに固定される（senderDisplayNameは表示名のみを変える）。
+export interface AptitudeTestSettings {
+  senderDisplayName?: string; // メールの差出人表示名（例: 「bloom採用担当」）
+  replyToAddress?: string; // 返信先(Reply-To)アドレス
+  subjectTemplate?: string; // 件名テンプレート。{{candidateName}} {{deadline}} {{formUrl1}} {{formUrl2}} が使える
+  bodyTemplate?: string; // 本文テンプレート。同上のプレースホルダが使える
+  formUrl1?: string; // 適性検査Google Form URL（1つ目）
+  formUrl2?: string; // 適性検査Google Form URL（2つ目）
 }
 
 export interface YieldMetrics {

@@ -7,6 +7,14 @@ import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, s
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { getNextPhase, PHASE_SEQUENCE } from '../lib/phaseUtils';
+import { sendAptitudeTestEmail } from '../lib/notifyApi';
+import {
+  DEFAULT_APTITUDE_TEST_SUBJECT_TEMPLATE,
+  DEFAULT_APTITUDE_TEST_BODY_TEMPLATE,
+  renderAptitudeTestTemplate
+} from '../lib/aptitudeTestTemplate';
+import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
+import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
   X, 
   Calendar, 
@@ -43,7 +51,8 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
-  AtSign
+  AtSign,
+  ClipboardCheck
 } from 'lucide-react';
 
 const EVALUATION_GRADES: EvaluationGrade[] = ['A+', 'A-', 'B+', 'B', 'B-', 'C'];
@@ -115,7 +124,9 @@ export const CandidateDetailModal: React.FC = () => {
     showToast,
     driveAccessToken,
     connectDrive,
-    updateInterviewLogForPhase
+    updateInterviewLogForPhase,
+    markAptitudeTestSent,
+    aptitudeTestSettings
   } = useATS();
 
   const [activeSubTab, setActiveSubTab] = useState<'evaluation' | 'resume' | 'onboarding'>('evaluation');
@@ -140,6 +151,7 @@ export const CandidateDetailModal: React.FC = () => {
     dashboard: false,
     evalForm: false,
     evalHistory: false,
+    aptitudeTest: false,
     resume: false,
     onboarding: false,
   });
@@ -187,6 +199,9 @@ export const CandidateDetailModal: React.FC = () => {
   const [logImportTargetPhase, setLogImportTargetPhase] = useState<SelectionPhase | null>(null);
   const [logImportDate, setLogImportDate] = useState<string>('');
   const [isImportingLogPhase, setIsImportingLogPhase] = useState<SelectionPhase | null>(null);
+
+  // 適性検査メール送信中フラグ（送信ボタンのローディング表示用）
+  const [isSendingAptitudeTest, setIsSendingAptitudeTest] = useState(false);
 
   // Evaluation Log edit/delete state
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -876,6 +891,71 @@ export const CandidateDetailModal: React.FC = () => {
     }
   };
 
+  // 実施期限日時を変更した際、送信リマインド予定日時を「期限−7日」に再計算する。既にリマインド
+  // 通知が済んでいてもクリアする（期限の再設定＝リマインドサイクルのやり直しという意図）。
+  const computeDefaultAptitudeReminder = (deadline: string): string | undefined => {
+    if (!deadline) return undefined;
+    const d = new Date(deadline);
+    if (Number.isNaN(d.getTime())) return undefined;
+    d.setDate(d.getDate() - 7);
+    // datetime-local入力が期待する "YYYY-MM-DDTHH:mm" 形式に切り詰める（toISOStringはUTC/秒以下
+    // まで含むため、getFullYear等から組み立ててローカル時刻のまま保つ）。
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const handleSendAptitudeTest = async () => {
+    if (!driveAccessToken) {
+      showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
+      await connectDrive();
+      return;
+    }
+    if (!candidate.email) {
+      showToast('この候補者にはメールアドレスが登録されていません。', 'warning');
+      return;
+    }
+
+    setIsSendingAptitudeTest(true);
+    try {
+      const vars = {
+        candidateName: candidate.name,
+        deadline: candidate.aptitudeTestDeadline ? candidate.aptitudeTestDeadline.replace('T', ' ') : '未設定',
+        formUrl1: aptitudeTestSettings.formUrl1 || '(Form URL未設定)',
+        formUrl2: aptitudeTestSettings.formUrl2 || '(Form URL未設定)'
+      };
+      const subject = renderAptitudeTestTemplate(
+        aptitudeTestSettings.subjectTemplate || DEFAULT_APTITUDE_TEST_SUBJECT_TEMPLATE,
+        vars
+      );
+      const bodyText = renderAptitudeTestTemplate(
+        aptitudeTestSettings.bodyTemplate || DEFAULT_APTITUDE_TEST_BODY_TEMPLATE,
+        vars
+      );
+
+      await sendAptitudeTestEmail({
+        accessToken: driveAccessToken,
+        to: candidate.email,
+        subject,
+        bodyText,
+        replyTo: aptitudeTestSettings.replyToAddress || undefined,
+        senderDisplayName: aptitudeTestSettings.senderDisplayName || undefined
+      });
+
+      markAptitudeTestSent(candidate.id);
+      showToast('適性検査メールを送信しました', 'success');
+    } catch (err: any) {
+      const message = err.message || '不明なエラー';
+      showToast(
+        message.includes('403') || message.includes('401')
+          ? 'メール送信の権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
+          : `送信に失敗しました: ${message}`,
+        'warning'
+      );
+    } finally {
+      setIsSendingAptitudeTest(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-xs flex justify-end transition-opacity">
       
@@ -1419,6 +1499,9 @@ export const CandidateDetailModal: React.FC = () => {
                         L:{candidate.lRating || '-'} C:{candidate.cRating || '-'} M:{candidate.mRating || '-'}
                       </span>
                     </div>
+
+                    {/* 適性検査ステータス（1次面接合格以降のみ表示） */}
+                    {isAptitudeTestRelevantPhase(candidate) && <AptitudeTestStatusBadge candidate={candidate} />}
 
                     {/* 折り畳みアイコン */}
                     <button 
@@ -2579,6 +2662,147 @@ export const CandidateDetailModal: React.FC = () => {
                         </div>
                       ))
                     )}
+                  </div>
+                )}
+              </div>
+
+              {/* 適性検査 */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                <div
+                  onClick={() => toggleSection('aptitudeTest')}
+                  className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between cursor-pointer hover:bg-slate-100/80 transition-colors"
+                >
+                  <h3 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                    <ClipboardCheck className="w-4 h-4 text-indigo-600" />
+                    <span>適性検査</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleSection('aptitudeTest'); }}
+                    className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-200/80 hover:bg-indigo-600 hover:text-white text-slate-700 transition-all cursor-pointer shrink-0 shadow-2xs"
+                    title={collapsedSections.aptitudeTest ? "展開する" : "折りたたむ"}
+                  >
+                    {collapsedSections.aptitudeTest ? <ChevronDown className="w-5 h-5 stroke-[2.5]" /> : <ChevronUp className="w-5 h-5 stroke-[2.5]" />}
+                  </button>
+                </div>
+
+                {!collapsedSections.aptitudeTest && (
+                  <div className="p-4 space-y-3 bg-slate-50/20">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-1 text-[11px]">実施期限日時</label>
+                        <input
+                          type="datetime-local"
+                          value={candidate.aptitudeTestDeadline || ''}
+                          onChange={(e) => {
+                            const deadline = e.target.value;
+                            updateCandidate({
+                              ...candidate,
+                              aptitudeTestDeadline: deadline || undefined,
+                              aptitudeTestReminderAt: deadline ? computeDefaultAptitudeReminder(deadline) : undefined,
+                              aptitudeTestReminderNotifiedAt: undefined
+                            });
+                          }}
+                          className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-1 text-[11px]">送信リマインド予定日時</label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="datetime-local"
+                            value={candidate.aptitudeTestReminderAt || ''}
+                            onChange={(e) =>
+                              updateCandidate({
+                                ...candidate,
+                                aptitudeTestReminderAt: e.target.value || undefined,
+                                aptitudeTestReminderNotifiedAt: undefined
+                              })
+                            }
+                            className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            disabled={!candidate.aptitudeTestDeadline}
+                            onClick={() =>
+                              updateCandidate({
+                                ...candidate,
+                                aptitudeTestReminderAt: computeDefaultAptitudeReminder(candidate.aptitudeTestDeadline!),
+                                aptitudeTestReminderNotifiedAt: undefined
+                              })
+                            }
+                            className="shrink-0 px-2.5 py-1.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            1週間前に設定
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-1 text-[11px]">言語スコア (10点満点)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          step={1}
+                          value={candidate.aptitudeTestVerbalScore ?? ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const score = raw === '' ? undefined : Math.min(10, Math.max(0, Number(raw)));
+                            updateCandidate({ ...candidate, aptitudeTestVerbalScore: score });
+                          }}
+                          className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-1 text-[11px]">非言語スコア (10点満点)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          step={1}
+                          value={candidate.aptitudeTestNonVerbalScore ?? ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const score = raw === '' ? undefined : Math.min(10, Math.max(0, Number(raw)));
+                            updateCandidate({ ...candidate, aptitudeTestNonVerbalScore: score });
+                          }}
+                          className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                      <AptitudeTestStatusBadge candidate={candidate} size="sm" />
+                      {candidate.aptitudeTestSentAt && (
+                        <span className="text-slate-500">送信: {new Date(candidate.aptitudeTestSentAt).toLocaleString('ja-JP')}</span>
+                      )}
+                      {candidate.aptitudeTestCompletedAt && (
+                        <span className="text-slate-500">実施: {new Date(candidate.aptitudeTestCompletedAt).toLocaleString('ja-JP')}</span>
+                      )}
+                      {candidate.aptitudeTestReminderNotifiedAt && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          リマインド通知済み ({new Date(candidate.aptitudeTestReminderNotifiedAt).toLocaleString('ja-JP')})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <p className="text-[10px] text-slate-400">
+                        送信先: {candidate.email || '（メールアドレス未登録）'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleSendAptitudeTest}
+                        disabled={isSendingAptitudeTest || !candidate.email}
+                        className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSendingAptitudeTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        <span>{isSendingAptitudeTest ? '送信中...' : '適性検査メールを送信'}</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

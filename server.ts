@@ -27,6 +27,8 @@ import notifyEvaluationResult from './api/notify/evaluation-result';
 import notifyDocumentScreeningThread from './api/notify/document-screening-thread';
 import notifyDeveloperInquiry from './api/notify/developer-inquiry';
 import notifyEvaluationSummaryThread from './api/notify/evaluation-summary-thread';
+import notifySendAptitudeTestEmail from './api/notify/send-aptitude-test-email';
+import notifyAptitudeTestReminder from './api/notify/aptitude-test-reminder';
 
 async function startServer() {
   const app = express();
@@ -57,6 +59,8 @@ async function startServer() {
   app.post('/api/notify/document-screening-thread', notifyDocumentScreeningThread);
   app.post('/api/notify/developer-inquiry', notifyDeveloperInquiry);
   app.post('/api/notify/evaluation-summary-thread', notifyEvaluationSummaryThread);
+  app.post('/api/notify/send-aptitude-test-email', notifySendAptitudeTestEmail);
+  app.post('/api/notify/aptitude-test-reminder', notifyAptitudeTestReminder);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

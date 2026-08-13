@@ -5,6 +5,8 @@ import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { FilterBar } from './FilterBar';
 import { InterviewScheduleCalendar } from './InterviewScheduleCalendar';
 import { renderGradeBadge } from './CandidateDetailModal';
+import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
+import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
   Eye, 
   Trash2, 
@@ -624,6 +626,7 @@ export const ListView: React.FC = () => {
                 <th className="py-2.5 px-2.5">担当エージェント</th>
                 {renderSortHeader('選考フェーズ', 'phase')}
                 <th className="py-2.5 px-2.5">次回調整状況</th>
+                <th className="py-2.5 px-2.5">適性検査</th>
                 <th className="py-2.5 px-2.5">社内担当者</th>
                 {renderSortHeader('面接評価', 'interviewRating', false)}
                 <th className="py-2.5 px-2.5 text-right">操作</th>
@@ -632,7 +635,7 @@ export const ListView: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
               {sortedCandidates.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-slate-400">
+                  <td colSpan={11} className="py-8 text-center text-slate-400">
                     条件に一致する候補者が見つかりませんでした。
                   </td>
                 </tr>
@@ -839,6 +842,11 @@ export const ListView: React.FC = () => {
                             </div>
                           )}
                         </div>
+                      </td>
+
+                      {/* 適性検査ステータス（1次面接合格以降のみ表示） */}
+                      <td className="py-2 px-2.5 whitespace-nowrap">
+                        {isAptitudeTestRelevantPhase(c) && <AptitudeTestStatusBadge candidate={c} />}
                       </td>
 
                       {/* Assignees (社内担当者 - クッキリ表示・マルチバッジ＋編集) */}

@@ -33,7 +33,8 @@ import {
   moveResumeToPhaseFolder as moveResumeToPhaseFolderApi,
   scanDriveResumes as scanDriveResumesApi,
   importDriveResume as importDriveResumeApi,
-  moveResumeToDeletedFolder as moveResumeToDeletedFolderApi
+  moveResumeToDeletedFolder as moveResumeToDeletedFolderApi,
+  saveEvaluationLogToDrive as saveEvaluationLogToDriveApi
 } from '../lib/driveApi';
 import {
   notifyCandidateRegistered as notifyCandidateRegisteredApi,
@@ -967,6 +968,34 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     driveMoveQueueRef.current.set(driveItemId, thisMove);
   };
 
+  // Backs up a candidate's full evaluationNotes array into their own Drive folder, independent of
+  // the single shared bloom_ats_backup.json blob — evaluation history shouldn't be at the mercy of
+  // that one file getting overwritten (candidates aren't covered by the merge added for agencies/
+  // staffList/groupChatWebhooks — see mergeCollection's comment — since candidates change far more
+  // often and have deeper nested structure). Queued per candidate id (same pattern as
+  // driveMoveQueueRef above) so two rapid note edits on the same candidate can't race each other
+  // into two concurrent "create the folder" calls and end up with duplicate folders.
+  const evalLogSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
+  const saveEvaluationLogForCandidate = (candidate: Candidate, evaluationNotes: EvaluationNote[]) => {
+    if (!driveAccessToken) return;
+    const priorSave = evalLogSaveQueueRef.current.get(candidate.id) || Promise.resolve();
+    const thisSave = priorSave
+      .catch(() => {})
+      .then(() => saveEvaluationLogToDriveApi(driveAccessToken, candidate, evaluationNotes))
+      .then((result) => {
+        // No resume folder existed yet, so one was just created for this candidate — record it so
+        // the next save (or a resume upload) reuses it instead of creating a second, separate
+        // folder for the same person.
+        if (!candidate.resumeDriveFolderId && result.folderId) {
+          setCandidates((prev) => prev.map((c) => (c.id === candidate.id ? { ...c, resumeDriveFolderId: result.folderId } : c)));
+        }
+      })
+      .catch((err: any) => {
+        showToast(`${candidate.name} さんの面接評価ログのDrive保存に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      });
+    evalLogSaveQueueRef.current.set(candidate.id, thisSave);
+  };
+
   const updateCandidatePhase = (candidateId: string, newPhase: SelectionPhase) => {
     const target = candidates.find((c) => c.id === candidateId);
     if (target) moveResumeFolderIfNeeded(target, newPhase);
@@ -1115,6 +1144,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (noteData.resultStatus === 'FAIL') {
       if (target) moveResumeFolderIfNeeded(target, 'REJECTED_DECLINED' as SelectionPhase);
     }
+
+    if (target) saveEvaluationLogForCandidate(target, [newNote, ...target.evaluationNotes]);
 
     setCandidates((prev) =>
       prev.map((c) => {
@@ -1334,6 +1365,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // this fully overwrites the rollup (including clearing it to undefined) since an explicit edit
   // is the user correcting the record, not just adding to it.
   const updateEvaluationNote = (candidateId: string, noteId: string, noteData: Omit<EvaluationNote, 'id' | 'createdAt'>) => {
+    const target = candidates.find((c) => c.id === candidateId);
+    if (target) {
+      const updatedNotesForDrive = target.evaluationNotes.map((n) =>
+        n.id === noteId ? { ...noteData, id: n.id, createdAt: n.createdAt } : n
+      );
+      saveEvaluationLogForCandidate(target, updatedNotesForDrive);
+    }
+
     setCandidates((prev) =>
       prev.map((c) => {
         if (c.id !== candidateId) return c;
@@ -1362,6 +1401,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteEvaluationNote = (candidateId: string, noteId: string) => {
+    const target = candidates.find((c) => c.id === candidateId);
+    if (target) {
+      saveEvaluationLogForCandidate(target, target.evaluationNotes.filter((n) => n.id !== noteId));
+    }
+
     setCandidates((prev) =>
       prev.map((c) => {
         if (c.id !== candidateId) return c;

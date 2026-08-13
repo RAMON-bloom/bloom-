@@ -137,6 +137,33 @@ export async function uploadResumeToDrive(
   return { file: data.file, folderId: data.folderId };
 }
 
+export interface SavedEvaluationLogResult {
+  file: DriveResumeFile;
+  folderId: string;
+}
+
+// Writes a candidate's full evaluationNotes array into their own Drive folder (creating it first
+// if the candidate has no resume folder yet), as a redundant per-candidate backup independent of
+// the single shared bloom_ats_backup.json blob. Always sends the complete current notes array —
+// the endpoint overwrites the file wholesale, it doesn't merge.
+export async function saveEvaluationLogToDrive(
+  accessToken: string,
+  candidate: { id: string; name: string; agencyName?: string; phase: string; resumeDriveFolderId?: string },
+  evaluationNotes: unknown[]
+): Promise<SavedEvaluationLogResult> {
+  const data = await postJson<{ success: boolean; file: DriveResumeFile; folderId: string }>('/api/drive/save-evaluation-log', {
+    accessToken,
+    folderId: RECRUITMENT_DRIVE_FOLDER_ID,
+    candidateFolderId: candidate.resumeDriveFolderId,
+    candidateId: candidate.id,
+    candidateName: candidate.name,
+    agencyName: candidate.agencyName,
+    phase: candidate.phase,
+    evaluationNotes
+  });
+  return { file: data.file, folderId: data.folderId };
+}
+
 // Permanently deletes a candidate's resume file/folder from Drive. Superseded by
 // moveResumeToDeletedFolder below for permanentlyDeleteCandidate's own use (an actual Drive
 // delete made "Driveと同期" occasionally resurrect a just-deleted candidate — see that function's

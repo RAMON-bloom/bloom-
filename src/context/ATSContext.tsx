@@ -2342,7 +2342,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // The InternalStaff record (if any) linked to the currently signed-in Google account — the
   // bridge between "who's logged in" and "who they are in 担当者マスタ". Undefined until they've
-  // self-registered (see SelfRegistrationPrompt) or an admin has added their email manually.
+  // self-registered (see SelfRegistrationGate, which blocks the app until this resolves) or an
+  // admin has added their email manually.
   const myStaffRecord = driveUserEmail
     ? staffList.find((s) => s.email?.toLowerCase() === driveUserEmail.toLowerCase())
     : undefined;

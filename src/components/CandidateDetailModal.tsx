@@ -3225,6 +3225,7 @@ export const CandidateDetailModal: React.FC = () => {
         currentAvatarUrl={candidate.avatarUrl}
         resumeFileName={candidate.resumeFileName}
         resumeDriveFileId={candidate.resumeDriveFileId}
+        resumeDocs={resumeDocs}
         driveAccessToken={driveAccessToken}
         onSavePhoto={(newAvatarUrl) => {
           updateCandidate({

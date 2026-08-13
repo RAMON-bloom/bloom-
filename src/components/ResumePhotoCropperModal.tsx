@@ -23,6 +23,13 @@ interface ResumePhotoCropperModalProps {
   currentAvatarUrl?: string;
   resumeFileName?: string;
   resumeDriveFileId?: string;
+  // Every document currently registered for this candidate (履歴書・職務経歴書 etc, in the same
+  // order as the "原本を開く" buttons) — AI auto-crop scans these one at a time, in order, until
+  // one actually has a photo in it, instead of only ever looking at the single "representative"
+  // file (resumeDriveFileId). A candidate who applied with 履歴書+職務経歴書 as two separate
+  // uploads has the photo in only one of them, and which one got recorded as "representative" is
+  // just upload order — not guaranteed to be the one with the photo.
+  resumeDocs?: { name: string; driveFileId: string }[];
   driveAccessToken?: string | null;
   onSavePhoto: (newAvatarUrl: string) => void;
 }
@@ -34,6 +41,7 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
   currentAvatarUrl,
   resumeFileName,
   resumeDriveFileId,
+  resumeDocs,
   driveAccessToken,
   onSavePhoto,
 }) => {
@@ -65,33 +73,65 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
     }
   };
 
+  // Scans every registered document in order (falling back to just resumeDriveFileId for
+  // candidates with no resumeDocs at all — legacy single-file registrations) rather than only the
+  // one "representative" file, since a candidate registered with 履歴書＋職務経歴書 as two separate
+  // uploads has the photo in only one of them and it isn't always the representative one.
   const handleAiAutoCrop = async () => {
-    if (!resumeDriveFileId || !driveAccessToken) {
+    const docsToScan = (resumeDocs && resumeDocs.length > 0
+      ? resumeDocs
+      : resumeDriveFileId
+      ? [{ name: resumeFileName || 'ファイル', driveFileId: resumeDriveFileId }]
+      : []
+    ).filter((doc) => doc.driveFileId);
+
+    if (docsToScan.length === 0 || !driveAccessToken) {
       setScanFailed(true);
-      setScanMessage('この候補者にはDrive上の履歴書原本が紐づいていないため、自動検出できません。「写真アップロード」から手動で選択してください。');
+      setScanMessage('この候補者にはDrive上の書類が紐づいていないため、自動検出できません。「写真アップロード」から手動で選択してください。');
       return;
     }
 
     setIsAiScanning(true);
     setScanFailed(false);
-    setScanMessage('履歴書ファイルをDriveから取得し、Geminiで顔写真枠を解析中...');
 
+    let lastErrorMessage: string | null = null;
     try {
-      const result = await detectResumePhotoCrop(driveAccessToken, resumeDriveFileId);
-      if (!result.found || !result.box) {
-        setScanFailed(true);
-        setScanMessage('履歴書内に証明写真枠を検出できませんでした。「写真アップロード」から手動で選択してください。');
-        return;
+      for (let i = 0; i < docsToScan.length; i++) {
+        const doc = docsToScan[i];
+        setScanMessage(
+          docsToScan.length > 1
+            ? `書類を解析中: ${doc.name || 'ファイル'} (${i + 1}/${docsToScan.length})...`
+            : `${doc.name || '履歴書'}をDriveから取得し、Geminiで顔写真枠を解析中...`
+        );
+        try {
+          const result = await detectResumePhotoCrop(driveAccessToken, doc.driveFileId);
+          if (result.found && result.box) {
+            const croppedDataUrl = await renderAndCrop(result.fileBase64, result.mimeType, result.box, result.page);
+            setSelectedImage(croppedDataUrl);
+            setZoom(100);
+            setRotation(0);
+            setScanMessage(
+              docsToScan.length > 1
+                ? `AIが「${doc.name || 'ファイル'}」から顔写真枠を自動検出・切り抜きしました`
+                : 'AIが履歴書の顔写真枠を自動検出・切り抜きしました'
+            );
+            return;
+          }
+        } catch (err: any) {
+          // Keep trying the remaining documents — a mimetype this endpoint doesn't support, or a
+          // transient fetch failure, on one file shouldn't stop the scan of the others.
+          lastErrorMessage = err.message || '不明なエラー';
+        }
       }
 
-      const croppedDataUrl = await renderAndCrop(result.fileBase64, result.mimeType, result.box, result.page);
-      setSelectedImage(croppedDataUrl);
-      setZoom(100);
-      setRotation(0);
-      setScanMessage('AIが履歴書の顔写真枠を自動検出・切り抜きしました');
-    } catch (err: any) {
       setScanFailed(true);
-      setScanMessage(`自動検出に失敗しました: ${err.message || '不明なエラー'}`);
+      setScanMessage(
+        docsToScan.length > 1
+          ? `登録されている${docsToScan.length}件の書類すべてを確認しましたが、証明写真枠を検出できませんでした。「写真アップロード」から手動で選択してください。`
+          : lastErrorMessage
+          ? `自動検出に失敗しました: ${lastErrorMessage}`
+          : '履歴書内に証明写真枠を検出できませんでした。「写真アップロード」から手動で選択してください。'
+      );
     } finally {
       setIsAiScanning(false);
     }
@@ -150,7 +190,9 @@ export const ResumePhotoCropperModal: React.FC<ResumePhotoCropperModalProps> = (
               <div>
                 <p className="font-bold text-sm">履歴書AI顔写真検出・自動切り抜き</p>
                 <p className="text-xs text-indigo-200">
-                  Driveに保存された履歴書原本（PDF/画像）をGeminiが解析し、証明写真エリアを自動検出・抽出します
+                  {resumeDocs && resumeDocs.length > 1
+                    ? `登録済みの書類（${resumeDocs.length}件）をGeminiが順に解析し、証明写真が見つかったものから自動検出・抽出します`
+                    : 'Driveに保存された履歴書原本（PDF/画像）をGeminiが解析し、証明写真エリアを自動検出・抽出します'}
                 </p>
               </div>
             </div>

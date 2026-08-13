@@ -193,6 +193,54 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
   'REJECTED_DECLINED': 0
 };
 
+// Every write to the shared Drive backup used to replace agencies/staffList/groupChatWebhooks
+// wholesale with whatever this one tab happened to have in memory — so two people editing the
+// master data around the same time (e.g. both self-registering as staff within the same
+// 5-second auto-backup window) would silently erase each other's addition, whichever tab's
+// debounced write happened to land last. mergeCollection replaces that blind overwrite with a
+// proper three-way merge (base = what this tab last confirmed was on Drive, local = this tab's
+// current state, remote = what's on Drive right now, fetched fresh immediately before writing):
+// an id unchanged from base on one side always defers to whatever the other side has (an edit or
+// a deletion), and an id genuinely new on one side (not in base at all) is always kept — so a
+// concurrent addition from another tab is never dropped just because this tab's local copy
+// predates it. Only a true same-id conflict (both sides changed it differently since base) falls
+// back to preferring local, since there's no reliable per-record timestamp to arbitrate with.
+function mergeCollection<T extends { id: string }>(base: T[], local: T[], remote: T[]): T[] {
+  const baseMap = new Map(base.map((x) => [x.id, x]));
+  const localMap = new Map(local.map((x) => [x.id, x]));
+  const remoteMap = new Map(remote.map((x) => [x.id, x]));
+  const allIds = new Set([...baseMap.keys(), ...localMap.keys(), ...remoteMap.keys()]);
+
+  const result: T[] = [];
+  for (const id of allIds) {
+    const b = baseMap.get(id);
+    const l = localMap.get(id);
+    const r = remoteMap.get(id);
+    const localChanged = JSON.stringify(l) !== JSON.stringify(b);
+    const remoteChanged = JSON.stringify(r) !== JSON.stringify(b);
+
+    if (!l && !r) continue; // gone from both sides
+    if (!l) {
+      // Missing locally: either this tab deleted it and remote agrees (stay deleted), or someone
+      // else added/edited it and this tab just hasn't caught up (keep remote's).
+      if (b && !remoteChanged) continue;
+      result.push(r as T);
+      continue;
+    }
+    if (!r) {
+      // Missing remotely: either someone else deleted it and this tab hasn't touched it (stay
+      // deleted), or this tab added/edited it and hasn't synced yet (keep local's).
+      if (b && !localChanged) continue;
+      result.push(l);
+      continue;
+    }
+    if (!localChanged) { result.push(r); continue; }
+    if (!remoteChanged) { result.push(l); continue; }
+    result.push(l); // both sides changed it differently — no timestamp to arbitrate, local wins
+  }
+  return result;
+}
+
 // This app used to fall back to built-in sample data (fake candidates like "佐々木亮平", fake
 // agencies, etc. — see git history for the old src/data/mockData.ts) whenever a browser had no
 // localStorage copy yet, so a brand-new profile's first paint showed obviously-fake data as if it
@@ -341,6 +389,39 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries };
   });
 
+  // The merge base for mergeCollection (above): each collection as of the last time this tab
+  // confirmed it matched Drive — either just pulled via restore/poll, or just pushed by this tab's
+  // own successful write. Persisted so a reload doesn't forget it and treat every locally-cached
+  // record as "new since base" (which would be harmless — mergeCollection keeps those — but would
+  // also make an actually-already-synced remote edit look like a same-id conflict instead of a
+  // clean remote-wins case). Seeded from whatever this tab loaded at mount; the first successful
+  // restore or backup after that replaces it with a real synced snapshot.
+  const SYNC_BASE_KEYS = {
+    agencies: 'ats_sync_base_agencies',
+    staffList: 'ats_sync_base_staff_list',
+    groupChatWebhooks: 'ats_sync_base_group_chat_webhooks'
+  } as const;
+  const syncBaseRef = useRef<{ agencies: Agency[]; staffList: InternalStaff[]; groupChatWebhooks: ChatWebhook[] }>({
+    agencies: (() => {
+      const saved = localStorage.getItem(SYNC_BASE_KEYS.agencies);
+      return saved ? JSON.parse(saved) : agencies;
+    })(),
+    staffList: (() => {
+      const saved = localStorage.getItem(SYNC_BASE_KEYS.staffList);
+      return saved ? JSON.parse(saved) : staffList;
+    })(),
+    groupChatWebhooks: (() => {
+      const saved = localStorage.getItem(SYNC_BASE_KEYS.groupChatWebhooks);
+      return saved ? JSON.parse(saved) : groupChatWebhooks;
+    })()
+  });
+  const updateSyncBase = (partial: Partial<typeof syncBaseRef.current>) => {
+    syncBaseRef.current = { ...syncBaseRef.current, ...partial };
+    (Object.keys(partial) as (keyof typeof SYNC_BASE_KEYS)[]).forEach((key) => {
+      localStorage.setItem(SYNC_BASE_KEYS[key], JSON.stringify(syncBaseRef.current[key]));
+    });
+  };
+
   // Auto-backs-up to Drive a few seconds after candidates, MTG logs, agencies, or staff stop
   // changing, so none of these only reach the team's shared Drive copy if someone remembers to
   // click「Driveにバックアップ」afterward. Originally scoped to meetingLogs only; agencies/staffList
@@ -434,46 +515,90 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    backupToDriveApi(token, latestBackupStateRef.current)
-      .then(() => {
-        // Captured after the write completes (so it's already at least as new as whatever
-        // timestamp the server just stamped the file with), not before — a poll landing right
-        // after this should see its own echo and skip, not treat it as someone else's edit.
-        setLastAppliedBackupAt(new Date().toISOString());
-        localStorage.removeItem(PENDING_BACKUP_KEY);
-        backupRetryCountRef.current = 0;
-        pendingLocalWriteRef.current = false;
-        if (hadBackupFailureRef.current) {
-          hadBackupFailureRef.current = false;
-          showToast('Driveへの同期が復旧し、保留していた変更を保存しました', 'success');
-        }
+    // Re-fetch Drive's current copy of the three master-data collections right before writing
+    // and three-way-merge (see mergeCollection above) instead of blindly pushing this tab's own
+    // in-memory copy over whatever's there now — otherwise two tabs editing agencies/staffList/
+    // groupChatWebhooks around the same time silently erase each other's addition, whichever
+    // tab's debounced write happens to land last. candidates/meetingLogs/inquiries are left as a
+    // plain overwrite for now (higher edit frequency and nested structures make a safe merge a
+    // bigger job — tracked as a follow-up, not done here).
+    (async () => {
+      let remoteAgencies = syncBaseRef.current.agencies;
+      let remoteStaffList = syncBaseRef.current.staffList;
+      let remoteGroupChatWebhooks = syncBaseRef.current.groupChatWebhooks;
+      try {
+        const remote = await restoreFromDriveApi(token);
+        if (remote.agencies) remoteAgencies = remote.agencies;
+        if (remote.staffList) remoteStaffList = remote.staffList;
+        if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
+      } catch {
+        // Nothing backed up yet, or the read failed — fall back to merging against this tab's own
+        // last-known base (equivalent to a plain overwrite for these three collections), matching
+        // the previous behavior for this rare case rather than blocking the write entirely.
+      }
+      const mergedAgencies = mergeCollection(syncBaseRef.current.agencies, latestBackupStateRef.current.agencies, remoteAgencies);
+      const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, latestBackupStateRef.current.staffList, remoteStaffList);
+      const mergedGroupChatWebhooks = mergeCollection(
+        syncBaseRef.current.groupChatWebhooks,
+        latestBackupStateRef.current.groupChatWebhooks,
+        remoteGroupChatWebhooks
+      );
+
+      backupToDriveApi(token, {
+        ...latestBackupStateRef.current,
+        agencies: mergedAgencies,
+        staffList: mergedStaffList,
+        groupChatWebhooks: mergedGroupChatWebhooks
       })
-      .catch((err: any) => {
-        hadBackupFailureRef.current = true;
-        const isAuthExpired = err.status === 401;
-        const now = Date.now();
-        if (now - lastBackupFailureToastAtRef.current > 60_000) {
-          lastBackupFailureToastAtRef.current = now;
-          showToast(
-            isAuthExpired
-              ? 'メモや変更内容はこの端末には保存済みです。Googleログインの有効期限が切れました。自動での再接続を試みています（うまくいかない場合は画面右上の「Drive連携」から再度ログインしてください）'
-              : `メモや変更内容はこの端末には保存済みです。Driveへの同期のみ一時的に失敗しています（自動で再試行します）: ${err.message || '不明なエラー'}`,
-            'warning'
-          );
-        }
-        // A dead/expired token (as opposed to a network blip or Drive-side error) won't fix
-        // itself just by retrying the same request — try to silently re-auth right away instead
-        // of waiting on AuthGate's own scheduled/visibility-triggered check, which could be
-        // minutes off. The very next retry attempt below picks up whatever token
-        // driveAccessTokenRef ends up holding, whether or not this finishes first.
-        if (isAuthExpired) authRefreshNow();
-        // Left true here (unlike the success branch) — the write still hasn't actually landed on
-        // Drive, so the 20s poll should keep deferring to local state for the whole retry window
-        // rather than risk clobbering an unsynced edit with Drive's stale copy partway through.
-        backupRetryCountRef.current = Math.min(backupRetryCountRef.current + 1, 5);
-        const retryDelay = Math.min(5000 * 2 ** backupRetryCountRef.current, 120_000);
-        autoBackupTimerRef.current = setTimeout(attemptBackup, retryDelay);
-      });
+        .then(() => {
+          // Captured after the write completes (so it's already at least as new as whatever
+          // timestamp the server just stamped the file with), not before — a poll landing right
+          // after this should see its own echo and skip, not treat it as someone else's edit.
+          setLastAppliedBackupAt(new Date().toISOString());
+          localStorage.removeItem(PENDING_BACKUP_KEY);
+          backupRetryCountRef.current = 0;
+          pendingLocalWriteRef.current = false;
+          updateSyncBase({ agencies: mergedAgencies, staffList: mergedStaffList, groupChatWebhooks: mergedGroupChatWebhooks });
+          // The merge may have pulled in another tab's concurrent addition/edit that this tab's
+          // own state didn't have — reflect that back locally so this tab's UI matches what Drive
+          // now actually holds instead of silently drifting from it.
+          if (JSON.stringify(mergedAgencies) !== JSON.stringify(latestBackupStateRef.current.agencies)) setAgencies(mergedAgencies);
+          if (JSON.stringify(mergedStaffList) !== JSON.stringify(latestBackupStateRef.current.staffList)) setStaffList(mergedStaffList);
+          if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(latestBackupStateRef.current.groupChatWebhooks)) {
+            setGroupChatWebhooks(mergedGroupChatWebhooks);
+          }
+          if (hadBackupFailureRef.current) {
+            hadBackupFailureRef.current = false;
+            showToast('Driveへの同期が復旧し、保留していた変更を保存しました', 'success');
+          }
+        })
+        .catch((err: any) => {
+          hadBackupFailureRef.current = true;
+          const isAuthExpired = err.status === 401;
+          const now = Date.now();
+          if (now - lastBackupFailureToastAtRef.current > 60_000) {
+            lastBackupFailureToastAtRef.current = now;
+            showToast(
+              isAuthExpired
+                ? 'メモや変更内容はこの端末には保存済みです。Googleログインの有効期限が切れました。自動での再接続を試みています（うまくいかない場合は画面右上の「Drive連携」から再度ログインしてください）'
+                : `メモや変更内容はこの端末には保存済みです。Driveへの同期のみ一時的に失敗しています（自動で再試行します）: ${err.message || '不明なエラー'}`,
+              'warning'
+            );
+          }
+          // A dead/expired token (as opposed to a network blip or Drive-side error) won't fix
+          // itself just by retrying the same request — try to silently re-auth right away instead
+          // of waiting on AuthGate's own scheduled/visibility-triggered check, which could be
+          // minutes off. The very next retry attempt below picks up whatever token
+          // driveAccessTokenRef ends up holding, whether or not this finishes first.
+          if (isAuthExpired) authRefreshNow();
+          // Left true here (unlike the success branch) — the write still hasn't actually landed on
+          // Drive, so the 20s poll should keep deferring to local state for the whole retry window
+          // rather than risk clobbering an unsynced edit with Drive's stale copy partway through.
+          backupRetryCountRef.current = Math.min(backupRetryCountRef.current + 1, 5);
+          const retryDelay = Math.min(5000 * 2 ** backupRetryCountRef.current, 120_000);
+          autoBackupTimerRef.current = setTimeout(attemptBackup, retryDelay);
+        });
+    })();
   };
 
   useEffect(() => {
@@ -512,6 +637,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
     if (data.inquiries) setInquiries(data.inquiries);
     if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
+    // Whatever just arrived from Drive is by definition in sync with Drive — record it as the new
+    // merge base so the next write's three-way merge diffs against this, not a stale earlier point.
+    updateSyncBase({
+      ...(data.agencies ? { agencies: data.agencies } : {}),
+      ...(data.staffList ? { staffList: data.staffList } : {}),
+      ...(data.groupChatWebhooks ? { groupChatWebhooks: data.groupChatWebhooks } : {})
+    });
     localStorage.removeItem(PENDING_BACKUP_KEY);
   };
 
@@ -1659,18 +1791,39 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
     try {
+      // Same three-way merge as attemptBackup — the manual button is just another writer and
+      // needs the same protection against clobbering a concurrent edit from another tab.
+      let remoteAgencies = syncBaseRef.current.agencies;
+      let remoteStaffList = syncBaseRef.current.staffList;
+      let remoteGroupChatWebhooks = syncBaseRef.current.groupChatWebhooks;
+      try {
+        const remote = await restoreFromDriveApi(driveAccessToken);
+        if (remote.agencies) remoteAgencies = remote.agencies;
+        if (remote.staffList) remoteStaffList = remote.staffList;
+        if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
+      } catch {
+        // Nothing backed up yet, or the read failed — fall back to this tab's own base.
+      }
+      const mergedAgencies = mergeCollection(syncBaseRef.current.agencies, agencies, remoteAgencies);
+      const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, staffList, remoteStaffList);
+      const mergedGroupChatWebhooks = mergeCollection(syncBaseRef.current.groupChatWebhooks, groupChatWebhooks, remoteGroupChatWebhooks);
+
       await backupToDriveApi(driveAccessToken, {
         candidates,
-        agencies,
-        staffList,
+        agencies: mergedAgencies,
+        staffList: mergedStaffList,
         meetingLogs,
-        groupChatWebhooks,
+        groupChatWebhooks: mergedGroupChatWebhooks,
         inquiries
       });
       // Same reasoning as the auto-backup effect: stamped after the write completes, so the
       // background poll recognizes this as its own echo instead of someone else's newer edit.
       setLastAppliedBackupAt(new Date().toISOString());
       localStorage.removeItem(PENDING_BACKUP_KEY);
+      updateSyncBase({ agencies: mergedAgencies, staffList: mergedStaffList, groupChatWebhooks: mergedGroupChatWebhooks });
+      if (JSON.stringify(mergedAgencies) !== JSON.stringify(agencies)) setAgencies(mergedAgencies);
+      if (JSON.stringify(mergedStaffList) !== JSON.stringify(staffList)) setStaffList(mergedStaffList);
+      if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(groupChatWebhooks)) setGroupChatWebhooks(mergedGroupChatWebhooks);
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {
       showToast(`Driveバックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');

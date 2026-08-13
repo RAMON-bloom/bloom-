@@ -13,7 +13,7 @@ export const SelfRegistrationPrompt: React.FC = () => {
   const dismissKey = driveUserEmail ? `ats_self_register_dismissed_${driveUserEmail}` : '';
   const [dismissed, setDismissed] = useState(() => (dismissKey ? sessionStorage.getItem(dismissKey) === '1' : true));
   const [name, setName] = useState('');
-  const [department, setDepartment] = useState('人事部');
+  const [department, setDepartment] = useState('');
   // 管理者が先んじて手動登録した（メールアドレス未設定の）担当者と氏名が一致するレコードが1件だけ
   // 見つかった場合、新規レコードを作らずそちらへ統合してよいか本人に確認するための一時状態。
   // 統合しないと、webhook設定や面接官アサインの名前検索が新旧どちらのレコードを拾うか

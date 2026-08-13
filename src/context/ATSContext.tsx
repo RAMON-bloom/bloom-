@@ -25,7 +25,6 @@ import {
   DriveSyncDuplicateFolder,
   DriveSyncDuplicateFolderOption
 } from '../types';
-import { INITIAL_CANDIDATES, INITIAL_AGENCIES, INITIAL_STAFF, INITIAL_MEETING_LOGS } from '../data/mockData';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
 import { useAuth } from './AuthContext';
 import {
@@ -70,6 +69,7 @@ interface FilterState {
 }
 
 interface ATSContextType {
+  isBootstrapping: boolean;
   candidates: Candidate[];
   agencies: Agency[];
   staffList: InternalStaff[];
@@ -194,25 +194,43 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
 };
 
 export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // No saved localStorage copy and nothing restored from Drive yet used to fall back to this
+  // app's old built-in sample data (fake candidates like "佐々木亮平", fake agencies, etc.) —
+  // meaning every brand-new browser/profile showed obviously-fake demo data as if it were real,
+  // however briefly, until the Drive auto-restore effect below overwrote it (and indefinitely if
+  // that restore ever failed or got interrupted by a reload mid-flight, since the demo data would
+  // itself get persisted to localStorage the moment it rendered). Real data now comes only from
+  // localStorage or Drive; a brand-new profile starts empty and isBootstrapping (below) keeps the
+  // UI from rendering that empty state until the initial Drive check has actually had a chance to
+  // populate it.
   const [candidates, setCandidates] = useState<Candidate[]>(() => {
     const saved = localStorage.getItem('ats_candidates');
-    return saved ? JSON.parse(saved) : INITIAL_CANDIDATES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [agencies, setAgencies] = useState<Agency[]>(() => {
     const saved = localStorage.getItem('ats_agencies');
-    return saved ? JSON.parse(saved) : INITIAL_AGENCIES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [staffList, setStaffList] = useState<InternalStaff[]>(() => {
     const saved = localStorage.getItem('ats_staff_list');
-    return saved ? JSON.parse(saved) : INITIAL_STAFF;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [meetingLogs, setMeetingLogs] = useState<MeetingLog[]>(() => {
     const saved = localStorage.getItem('ats_meeting_logs');
-    return saved ? JSON.parse(saved) : INITIAL_MEETING_LOGS;
+    return saved ? JSON.parse(saved) : [];
   });
+
+  // True only when this browser had no localStorage copy of candidates to show immediately, so
+  // the very first paint has nothing real to render yet and would otherwise flash an empty
+  // pipeline before the initial Drive auto-restore below has had a chance to populate it. Flipped
+  // to false once that first restore attempt settles (success, failure, or "nothing backed up
+  // yet" all count — there's nothing further to wait for either way). A returning device with a
+  // localStorage copy already has real data to show on the very first paint, so it skips this
+  // entirely and never blocks on Drive.
+  const [isBootstrapping, setIsBootstrapping] = useState(() => !localStorage.getItem('ats_candidates'));
 
   // 特定の担当者に属さない、複数人が見るGoogle Chatスペース宛のWebhook一覧。個人のgoogleChatWebhooks
   // と同じ形(ChatWebhook)だが、担当者マスタ設定の独立したセクションで管理する。
@@ -516,28 +534,35 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const hasUnconfirmedLocalWrite = localStorage.getItem(PENDING_BACKUP_KEY) === '1';
     if (!hasUnconfirmedLocalWrite) {
-      restoreFromDrive({ silent: true });
+      // Whatever the outcome (real data restored, nothing backed up yet, or an outright failure),
+      // there's nothing further for the bootstrap screen to wait on — let the UI render whatever
+      // state resulted rather than block forever on a restore that will never come.
+      restoreFromDrive({ silent: true }).finally(() => setIsBootstrapping(false));
       return;
     }
 
     (async () => {
-      let driveIsAheadOfWhatWeKnow = true; // fail safe: if we can't tell, don't risk pushing over newer work
       try {
-        const data = await restoreFromDriveApi(driveAccessToken);
-        driveIsAheadOfWhatWeKnow =
-          !!data.backedUpAt && (!lastAppliedBackupAtRef.current || data.backedUpAt > lastAppliedBackupAtRef.current);
-        if (driveIsAheadOfWhatWeKnow) {
-          applyDriveSnapshot(data);
-          return;
+        let driveIsAheadOfWhatWeKnow = true; // fail safe: if we can't tell, don't risk pushing over newer work
+        try {
+          const data = await restoreFromDriveApi(driveAccessToken);
+          driveIsAheadOfWhatWeKnow =
+            !!data.backedUpAt && (!lastAppliedBackupAtRef.current || data.backedUpAt > lastAppliedBackupAtRef.current);
+          if (driveIsAheadOfWhatWeKnow) {
+            applyDriveSnapshot(data);
+            return;
+          }
+        } catch {
+          // Nothing backed up yet at all, or the read failed — either way there's nothing "ahead" of
+          // us to preserve, so it's safe to fall through to pushing our pending local snapshot below.
+          driveIsAheadOfWhatWeKnow = false;
         }
-      } catch {
-        // Nothing backed up yet at all, or the read failed — either way there's nothing "ahead" of
-        // us to preserve, so it's safe to fall through to pushing our pending local snapshot below.
-        driveIsAheadOfWhatWeKnow = false;
-      }
-      if (!driveIsAheadOfWhatWeKnow) {
-        pendingLocalWriteRef.current = true;
-        attemptBackup();
+        if (!driveIsAheadOfWhatWeKnow) {
+          pendingLocalWriteRef.current = true;
+          attemptBackup();
+        }
+      } finally {
+        setIsBootstrapping(false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2344,6 +2369,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <ATSContext.Provider
       value={{
+        isBootstrapping,
         candidates,
         agencies,
         staffList,

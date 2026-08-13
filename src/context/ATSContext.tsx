@@ -193,44 +193,56 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
   'REJECTED_DECLINED': 0
 };
 
+// This app used to fall back to built-in sample data (fake candidates like "佐々木亮平", fake
+// agencies, etc. — see git history for the old src/data/mockData.ts) whenever a browser had no
+// localStorage copy yet, so a brand-new profile's first paint showed obviously-fake data as if it
+// were real. Removing that fallback only changes what a *future* empty localStorage falls back
+// to — any browser that had already rendered the fake data once had it auto-saved into its own
+// localStorage (see the "Save to localStorage on state changes" effects below) and would keep
+// loading that same stale fake copy on every subsequent visit forever, code fix or not. This key
+// marks, once per browser, that the one-time cleanup below has run: on first load without it, all
+// four locally-cached lists are ignored (not merged, not filtered — a real candidate could
+// legitimately land on the exact same "CAND-0001"-style id as a fake one once real usage starts,
+// so id-based filtering isn't safe) in favor of blocking on a real Drive restore, then the key is
+// set so every load after that goes back to the normal instant-local-render / background-sync
+// behavior.
+const DEMO_DATA_MIGRATION_KEY = 'ats_demo_fallback_purged_v1';
+
 export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // No saved localStorage copy and nothing restored from Drive yet used to fall back to this
-  // app's old built-in sample data (fake candidates like "佐々木亮平", fake agencies, etc.) —
-  // meaning every brand-new browser/profile showed obviously-fake demo data as if it were real,
-  // however briefly, until the Drive auto-restore effect below overwrote it (and indefinitely if
-  // that restore ever failed or got interrupted by a reload mid-flight, since the demo data would
-  // itself get persisted to localStorage the moment it rendered). Real data now comes only from
-  // localStorage or Drive; a brand-new profile starts empty and isBootstrapping (below) keeps the
-  // UI from rendering that empty state until the initial Drive check has actually had a chance to
-  // populate it.
+  const needsDemoDataMigration = !localStorage.getItem(DEMO_DATA_MIGRATION_KEY);
+
   const [candidates, setCandidates] = useState<Candidate[]>(() => {
+    if (needsDemoDataMigration) return [];
     const saved = localStorage.getItem('ats_candidates');
     return saved ? JSON.parse(saved) : [];
   });
 
   const [agencies, setAgencies] = useState<Agency[]>(() => {
+    if (needsDemoDataMigration) return [];
     const saved = localStorage.getItem('ats_agencies');
     return saved ? JSON.parse(saved) : [];
   });
 
   const [staffList, setStaffList] = useState<InternalStaff[]>(() => {
+    if (needsDemoDataMigration) return [];
     const saved = localStorage.getItem('ats_staff_list');
     return saved ? JSON.parse(saved) : [];
   });
 
   const [meetingLogs, setMeetingLogs] = useState<MeetingLog[]>(() => {
+    if (needsDemoDataMigration) return [];
     const saved = localStorage.getItem('ats_meeting_logs');
     return saved ? JSON.parse(saved) : [];
   });
 
-  // True only when this browser had no localStorage copy of candidates to show immediately, so
-  // the very first paint has nothing real to render yet and would otherwise flash an empty
-  // pipeline before the initial Drive auto-restore below has had a chance to populate it. Flipped
+  // True whenever the very first paint has nothing trustworthy to render yet — either this
+  // browser has no localStorage copy at all, or the one-time demo-data cleanup above just
+  // discarded whatever it did have — and would otherwise flash an empty (or stale fake) pipeline
+  // before the initial Drive auto-restore below has had a chance to populate it for real. Flipped
   // to false once that first restore attempt settles (success, failure, or "nothing backed up
-  // yet" all count — there's nothing further to wait for either way). A returning device with a
-  // localStorage copy already has real data to show on the very first paint, so it skips this
-  // entirely and never blocks on Drive.
-  const [isBootstrapping, setIsBootstrapping] = useState(() => !localStorage.getItem('ats_candidates'));
+  // yet" all count — there's nothing further to wait for either way). A returning, already-clean
+  // device skips this entirely and never blocks on Drive.
+  const [isBootstrapping, setIsBootstrapping] = useState(() => needsDemoDataMigration || !localStorage.getItem('ats_candidates'));
 
   // 特定の担当者に属さない、複数人が見るGoogle Chatスペース宛のWebhook一覧。個人のgoogleChatWebhooks
   // と同じ形(ChatWebhook)だが、担当者マスタ設定の独立したセクションで管理する。
@@ -532,12 +544,21 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!driveAccessToken || hasAutoRestoredRef.current) return;
     hasAutoRestoredRef.current = true;
 
-    const hasUnconfirmedLocalWrite = localStorage.getItem(PENDING_BACKUP_KEY) === '1';
+    const finishBootstrap = () => {
+      setIsBootstrapping(false);
+      if (needsDemoDataMigration) localStorage.setItem(DEMO_DATA_MIGRATION_KEY, '1');
+    };
+
+    // A PENDING_BACKUP_KEY left over from before the demo-data cleanup above can't be trusted as
+    // a real unconfirmed edit worth protecting — it may just as well describe the fake sample data
+    // itself having been "changed" — so the migration always takes the plain unconditional-pull
+    // path below rather than the pending-write reconciliation path.
+    const hasUnconfirmedLocalWrite = !needsDemoDataMigration && localStorage.getItem(PENDING_BACKUP_KEY) === '1';
     if (!hasUnconfirmedLocalWrite) {
       // Whatever the outcome (real data restored, nothing backed up yet, or an outright failure),
       // there's nothing further for the bootstrap screen to wait on — let the UI render whatever
       // state resulted rather than block forever on a restore that will never come.
-      restoreFromDrive({ silent: true }).finally(() => setIsBootstrapping(false));
+      restoreFromDrive({ silent: true }).finally(finishBootstrap);
       return;
     }
 
@@ -562,7 +583,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           attemptBackup();
         }
       } finally {
-        setIsBootstrapping(false);
+        finishBootstrap();
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

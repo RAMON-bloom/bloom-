@@ -203,8 +203,10 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
   'REJECTED_DECLINED': 0
 };
 
-// Every write to the shared Drive backup used to replace agencies/staffList/groupChatWebhooks
-// wholesale with whatever this one tab happened to have in memory — so two people editing the
+// Every write to the shared Drive backup used to replace candidates/agencies/staffList/
+// meetingLogs/groupChatWebhooks wholesale with whatever this one tab happened to have in memory
+// (or, worse, whatever a device with a stale/incomplete local copy happened to have — e.g. right
+// after a failed Drive restore on a fresh login) — so two people editing the
 // master data around the same time (e.g. both self-registering as staff within the same
 // 5-second auto-backup window) would silently erase each other's addition, whichever tab's
 // debounced write happened to land last. mergeCollection replaces that blind overwrite with a
@@ -418,11 +420,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // clean remote-wins case). Seeded from whatever this tab loaded at mount; the first successful
   // restore or backup after that replaces it with a real synced snapshot.
   const SYNC_BASE_KEYS = {
+    candidates: 'ats_sync_base_candidates',
     agencies: 'ats_sync_base_agencies',
     staffList: 'ats_sync_base_staff_list',
+    meetingLogs: 'ats_sync_base_meeting_logs',
     groupChatWebhooks: 'ats_sync_base_group_chat_webhooks'
   } as const;
-  const syncBaseRef = useRef<{ agencies: Agency[]; staffList: InternalStaff[]; groupChatWebhooks: ChatWebhook[] }>({
+  const syncBaseRef = useRef<{
+    candidates: Candidate[];
+    agencies: Agency[];
+    staffList: InternalStaff[];
+    meetingLogs: MeetingLog[];
+    groupChatWebhooks: ChatWebhook[];
+  }>({
+    candidates: (() => {
+      const saved = localStorage.getItem(SYNC_BASE_KEYS.candidates);
+      return saved ? JSON.parse(saved) : candidates;
+    })(),
     agencies: (() => {
       const saved = localStorage.getItem(SYNC_BASE_KEYS.agencies);
       return saved ? JSON.parse(saved) : agencies;
@@ -430,6 +444,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     staffList: (() => {
       const saved = localStorage.getItem(SYNC_BASE_KEYS.staffList);
       return saved ? JSON.parse(saved) : staffList;
+    })(),
+    meetingLogs: (() => {
+      const saved = localStorage.getItem(SYNC_BASE_KEYS.meetingLogs);
+      return saved ? JSON.parse(saved) : meetingLogs;
     })(),
     groupChatWebhooks: (() => {
       const saved = localStorage.getItem(SYNC_BASE_KEYS.groupChatWebhooks);
@@ -536,29 +554,41 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    // Re-fetch Drive's current copy of the three master-data collections right before writing
+    // Re-fetch Drive's current copy of the five master-data collections right before writing
     // and three-way-merge (see mergeCollection above) instead of blindly pushing this tab's own
-    // in-memory copy over whatever's there now — otherwise two tabs editing agencies/staffList/
-    // groupChatWebhooks around the same time silently erase each other's addition, whichever
-    // tab's debounced write happens to land last. candidates/meetingLogs/inquiries are left as a
-    // plain overwrite for now (higher edit frequency and nested structures make a safe merge a
-    // bigger job — tracked as a follow-up, not done here).
+    // in-memory copy over whatever's there now — otherwise two tabs (or a tab whose local copy is
+    // simply stale/incomplete, e.g. right after a failed restore on a fresh device) silently erase
+    // someone else's addition/edit, whichever write happens to land last. candidates and
+    // meetingLogs were originally left as a plain overwrite (higher edit frequency and nested
+    // structures made a safe merge a bigger job), but that's exactly what let a device with
+    // incomplete local data (e.g. Drive restore never actually succeeded at login) stamp its own
+    // near-empty copy over the shared candidates/meetingLogs on its very first auto-backup — now
+    // covered the same way as agencies/staffList/groupChatWebhooks. inquiries and
+    // aptitudeTestSettings remain plain overwrite (inquiries change rarely enough that this hasn't
+    // been a reported problem; aptitudeTestSettings is a single object, not an id-keyed collection,
+    // so mergeCollection doesn't apply to it).
     (async () => {
+      let remoteCandidates = syncBaseRef.current.candidates;
       let remoteAgencies = syncBaseRef.current.agencies;
       let remoteStaffList = syncBaseRef.current.staffList;
+      let remoteMeetingLogs = syncBaseRef.current.meetingLogs;
       let remoteGroupChatWebhooks = syncBaseRef.current.groupChatWebhooks;
       try {
         const remote = await restoreFromDriveApi(token);
+        if (remote.candidates) remoteCandidates = remote.candidates;
         if (remote.agencies) remoteAgencies = remote.agencies;
         if (remote.staffList) remoteStaffList = remote.staffList;
+        if (remote.meetingLogs) remoteMeetingLogs = remote.meetingLogs;
         if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
       } catch {
         // Nothing backed up yet, or the read failed — fall back to merging against this tab's own
-        // last-known base (equivalent to a plain overwrite for these three collections), matching
+        // last-known base (equivalent to a plain overwrite for these collections), matching
         // the previous behavior for this rare case rather than blocking the write entirely.
       }
+      const mergedCandidates = mergeCollection(syncBaseRef.current.candidates, latestBackupStateRef.current.candidates, remoteCandidates);
       const mergedAgencies = mergeCollection(syncBaseRef.current.agencies, latestBackupStateRef.current.agencies, remoteAgencies);
       const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, latestBackupStateRef.current.staffList, remoteStaffList);
+      const mergedMeetingLogs = mergeCollection(syncBaseRef.current.meetingLogs, latestBackupStateRef.current.meetingLogs, remoteMeetingLogs);
       const mergedGroupChatWebhooks = mergeCollection(
         syncBaseRef.current.groupChatWebhooks,
         latestBackupStateRef.current.groupChatWebhooks,
@@ -567,8 +597,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       backupToDriveApi(token, {
         ...latestBackupStateRef.current,
+        candidates: mergedCandidates,
         agencies: mergedAgencies,
         staffList: mergedStaffList,
+        meetingLogs: mergedMeetingLogs,
         groupChatWebhooks: mergedGroupChatWebhooks
       })
         .then(() => {
@@ -579,12 +611,20 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           localStorage.removeItem(PENDING_BACKUP_KEY);
           backupRetryCountRef.current = 0;
           pendingLocalWriteRef.current = false;
-          updateSyncBase({ agencies: mergedAgencies, staffList: mergedStaffList, groupChatWebhooks: mergedGroupChatWebhooks });
+          updateSyncBase({
+            candidates: mergedCandidates,
+            agencies: mergedAgencies,
+            staffList: mergedStaffList,
+            meetingLogs: mergedMeetingLogs,
+            groupChatWebhooks: mergedGroupChatWebhooks
+          });
           // The merge may have pulled in another tab's concurrent addition/edit that this tab's
           // own state didn't have — reflect that back locally so this tab's UI matches what Drive
           // now actually holds instead of silently drifting from it.
+          if (JSON.stringify(mergedCandidates) !== JSON.stringify(latestBackupStateRef.current.candidates)) setCandidates(mergedCandidates);
           if (JSON.stringify(mergedAgencies) !== JSON.stringify(latestBackupStateRef.current.agencies)) setAgencies(mergedAgencies);
           if (JSON.stringify(mergedStaffList) !== JSON.stringify(latestBackupStateRef.current.staffList)) setStaffList(mergedStaffList);
+          if (JSON.stringify(mergedMeetingLogs) !== JSON.stringify(latestBackupStateRef.current.meetingLogs)) setMeetingLogs(mergedMeetingLogs);
           if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(latestBackupStateRef.current.groupChatWebhooks)) {
             setGroupChatWebhooks(mergedGroupChatWebhooks);
           }
@@ -663,8 +703,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Whatever just arrived from Drive is by definition in sync with Drive — record it as the new
     // merge base so the next write's three-way merge diffs against this, not a stale earlier point.
     updateSyncBase({
+      ...(data.candidates ? { candidates: data.candidates } : {}),
       ...(data.agencies ? { agencies: data.agencies } : {}),
       ...(data.staffList ? { staffList: data.staffList } : {}),
+      ...(data.meetingLogs ? { meetingLogs: data.meetingLogs } : {}),
       ...(data.groupChatWebhooks ? { groupChatWebhooks: data.groupChatWebhooks } : {})
     });
     localStorage.removeItem(PENDING_BACKUP_KEY);
@@ -763,9 +805,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   // Guards against firing the same candidate's reminder twice within one browser session while the
-  // persisted aptitudeTestReminderNotifiedAt write (below) is still in flight — candidates aren't
-  // covered by mergeCollection, so that field round-trips through the normal (plain-overwrite)
-  // candidate sync just like any other candidate edit.
+  // persisted aptitudeTestReminderNotifiedAt write (below) is still in flight — candidates now go
+  // through mergeCollection like any other collection, but a same-candidate conflict (this field
+  // vs. some other field both changed since base) still falls back to "local wins" wholesale, so
+  // this in-memory guard still matters within a single session's own retries.
   const firedAptitudeReminderIdsRef = useRef<Set<string>>(new Set());
 
   // 適性検査の送信リマインド通知。サーバーCron・サービスアカウントが存在しない構成上、
@@ -1083,11 +1126,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Backs up a candidate's full evaluationNotes array into their own Drive folder, independent of
   // the single shared bloom_ats_backup.json blob — evaluation history shouldn't be at the mercy of
-  // that one file getting overwritten (candidates aren't covered by the merge added for agencies/
-  // staffList/groupChatWebhooks — see mergeCollection's comment — since candidates change far more
-  // often and have deeper nested structure). Queued per candidate id (same pattern as
-  // driveMoveQueueRef above) so two rapid note edits on the same candidate can't race each other
-  // into two concurrent "create the folder" calls and end up with duplicate folders.
+  // that one file getting overwritten. candidates now go through mergeCollection too (see its
+  // comment), but that merge is still record-level: if two sessions both edit the same candidate
+  // differently since base (e.g. one adds a note, another changes phase), the whole record falls
+  // back to "local wins" and the other side's edit is dropped from the shared blob — this
+  // per-candidate file is the durable copy of evaluation history that survives that case. Queued
+  // per candidate id (same pattern as driveMoveQueueRef above) so two rapid note edits on the same
+  // candidate can't race each other into two concurrent "create the folder" calls and end up with
+  // duplicate folders.
   const evalLogSaveQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const saveEvaluationLogForCandidate = (candidate: Candidate, evaluationNotes: EvaluationNote[]) => {
     if (!driveAccessToken) return;
@@ -1980,27 +2026,34 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     try {
       // Same three-way merge as attemptBackup — the manual button is just another writer and
-      // needs the same protection against clobbering a concurrent edit from another tab.
+      // needs the same protection against clobbering a concurrent edit from another tab (or a
+      // stale/incomplete local copy on this device).
+      let remoteCandidates = syncBaseRef.current.candidates;
       let remoteAgencies = syncBaseRef.current.agencies;
       let remoteStaffList = syncBaseRef.current.staffList;
+      let remoteMeetingLogs = syncBaseRef.current.meetingLogs;
       let remoteGroupChatWebhooks = syncBaseRef.current.groupChatWebhooks;
       try {
         const remote = await restoreFromDriveApi(driveAccessToken);
+        if (remote.candidates) remoteCandidates = remote.candidates;
         if (remote.agencies) remoteAgencies = remote.agencies;
         if (remote.staffList) remoteStaffList = remote.staffList;
+        if (remote.meetingLogs) remoteMeetingLogs = remote.meetingLogs;
         if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
       } catch {
         // Nothing backed up yet, or the read failed — fall back to this tab's own base.
       }
+      const mergedCandidates = mergeCollection(syncBaseRef.current.candidates, candidates, remoteCandidates);
       const mergedAgencies = mergeCollection(syncBaseRef.current.agencies, agencies, remoteAgencies);
       const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, staffList, remoteStaffList);
+      const mergedMeetingLogs = mergeCollection(syncBaseRef.current.meetingLogs, meetingLogs, remoteMeetingLogs);
       const mergedGroupChatWebhooks = mergeCollection(syncBaseRef.current.groupChatWebhooks, groupChatWebhooks, remoteGroupChatWebhooks);
 
       await backupToDriveApi(driveAccessToken, {
-        candidates,
+        candidates: mergedCandidates,
         agencies: mergedAgencies,
         staffList: mergedStaffList,
-        meetingLogs,
+        meetingLogs: mergedMeetingLogs,
         groupChatWebhooks: mergedGroupChatWebhooks,
         inquiries,
         aptitudeTestSettings
@@ -2009,9 +2062,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // background poll recognizes this as its own echo instead of someone else's newer edit.
       setLastAppliedBackupAt(new Date().toISOString());
       localStorage.removeItem(PENDING_BACKUP_KEY);
-      updateSyncBase({ agencies: mergedAgencies, staffList: mergedStaffList, groupChatWebhooks: mergedGroupChatWebhooks });
+      updateSyncBase({
+        candidates: mergedCandidates,
+        agencies: mergedAgencies,
+        staffList: mergedStaffList,
+        meetingLogs: mergedMeetingLogs,
+        groupChatWebhooks: mergedGroupChatWebhooks
+      });
+      if (JSON.stringify(mergedCandidates) !== JSON.stringify(candidates)) setCandidates(mergedCandidates);
       if (JSON.stringify(mergedAgencies) !== JSON.stringify(agencies)) setAgencies(mergedAgencies);
       if (JSON.stringify(mergedStaffList) !== JSON.stringify(staffList)) setStaffList(mergedStaffList);
+      if (JSON.stringify(mergedMeetingLogs) !== JSON.stringify(meetingLogs)) setMeetingLogs(mergedMeetingLogs);
       if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(groupChatWebhooks)) setGroupChatWebhooks(mergedGroupChatWebhooks);
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {

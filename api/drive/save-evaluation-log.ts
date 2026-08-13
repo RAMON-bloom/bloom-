@@ -18,10 +18,12 @@ const EVALUATION_LOG_FILE_NAME = '面接評価ログ.json';
 
 // Writes a candidate's full evaluationNotes array into their own Drive folder, independent of the
 // single shared bloom_ats_backup.json blob — a candidate's interview history shouldn't be at the
-// mercy of that one file getting overwritten or a browser's local edit racing another tab's (see
-// the merge work in ATSContext.tsx for candidates specifically NOT covered by that yet). Always
-// overwrites the file wholesale with the full current notes array (matching upsertTextFile), since
-// the caller always sends the complete, authoritative list, not a delta.
+// mercy of that one file getting overwritten or a browser's local edit racing another tab's.
+// candidates do go through a three-way merge in ATSContext.tsx now, but that merge is still
+// record-level (whole-candidate), so a same-candidate conflict since base still falls back to
+// "local wins" wholesale — this per-candidate file is what survives that case. Always overwrites
+// the file wholesale with the full current notes array (matching upsertTextFile), since the caller
+// always sends the complete, authoritative list, not a delta.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });

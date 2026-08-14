@@ -49,7 +49,7 @@ export async function sendGmailMessage(
   const bodyBase64 = Buffer.from(params.bodyText, 'utf-8').toString('base64');
   const rawMessage = `${headers.join('\r\n')}\r\n\r\n${bodyBase64}`;
 
-  const res = await fetch('https://www.googleapis.com/gmail/v3/users/me/messages/send', {
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,

@@ -142,6 +142,7 @@ export interface Candidate {
   aptitudeTestSentAt?: string; // 適性検査メールを送信した日時 (ISO)
   aptitudeTestCompletedAt?: string; // 候補者が適性検査を実施済みとして手動でマークした日時 (ISO)。Google Form回答の自動検知はしないため手動運用
   aptitudeTestReminderNotifiedAt?: string; // 送信リマインドのChat通知を送った日時 (ISO、重複通知防止のガード)
+  aptitudeTestDeadlineAlertNotifiedAt?: string; // 実施期限前日アラートのChat通知を送った日時 (ISO、重複通知防止のガード)
   aptitudeTestVerbalScore?: number; // 適性検査 言語スコア (0〜10点満点)
   aptitudeTestNonVerbalScore?: number; // 適性検査 非言語スコア (0〜10点満点)
   lastUpdated: string;
@@ -180,7 +181,9 @@ export type ChatNotificationKind =
   | 'DOCUMENT_SCREENING_THREAD'   // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
   | 'DEVELOPER_INQUIRY'           // アプリ内「お問い合わせ」からのメッセージ送信
   | 'EVALUATION_SUMMARY_THREAD'   // 各フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む
-  | 'APTITUDE_TEST_REMINDER';     // 適性検査の送信リマインド予定日時が到来した際
+  | 'APTITUDE_TEST_REMINDER'      // 適性検査の送信リマインド予定日時が到来した際
+  | 'APTITUDE_TEST_SENT'          // 適性検査メールを送付した際（候補者名・実施期限を通知）
+  | 'APTITUDE_TEST_DEADLINE_ALERT'; // 実施期限前日10時時点で未完了（aptitudeTestCompletedAt未設定）の際
 
 // 個人用・グループ用どちらのWebhook登録にも使う共通の形。「誰に属するか」は保持先（InternalStaff.
 // googleChatWebhooksか、組織全体のgroupChatWebhooksか）で決まる。

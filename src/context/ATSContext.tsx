@@ -45,7 +45,9 @@ import {
   notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi,
   notifyDeveloperInquiry as notifyDeveloperInquiryApi,
   notifyEvaluationSummaryThread as notifyEvaluationSummaryThreadApi,
-  notifyAptitudeTestReminder as notifyAptitudeTestReminderApi
+  notifyAptitudeTestReminder as notifyAptitudeTestReminderApi,
+  notifyAptitudeTestSent as notifyAptitudeTestSentApi,
+  notifyAptitudeTestDeadlineAlert as notifyAptitudeTestDeadlineAlertApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
@@ -855,6 +857,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // vs. some other field both changed since base) still falls back to "local wins" wholesale, so
   // this in-memory guard still matters within a single session's own retries.
   const firedAptitudeReminderIdsRef = useRef<Set<string>>(new Set());
+  // Same in-session guard, for checkAptitudeTestDeadlineAlerts below.
+  const firedAptitudeDeadlineAlertIdsRef = useRef<Set<string>>(new Set());
 
   // 適性検査の送信リマインド通知。サーバーCron・サービスアカウントが存在しない構成上、
   // ATTENTION_DIGEST/DOC_SCREENING_NUDGEと同じく「誰かがアプリを開いている間にブラウザ側で
@@ -931,6 +935,80 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // 適性検査の実施期限「前日10時」アラート。checkAptitudeRemindersと全く同じ制約・同じ流儀
+  // （サーバーCronが無いので誰かがアプリを開いている間のポーリングに便乗、候補者ごとに一度きり）。
+  // 「前日10時」はその瞬間ちょうどに発火するのではなく、その時刻を過ぎて以降に誰かが最初にアプリを
+  // 開いた（またはポーリング中だった）タイミングで発火する — サーバーCronが無い以上、これが実現
+  // できる限界。実施済み（aptitudeTestCompletedAt設定済み）の候補者は対象外。
+  const checkAptitudeTestDeadlineAlerts = () => {
+    if (!driveAccessToken) return;
+    const {
+      candidates: latestCandidates,
+      staffList: latestStaffList,
+      groupChatWebhooks: latestGroupWebhooks
+    } = latestAptitudeReminderStateRef.current;
+    const now = new Date();
+
+    const due = latestCandidates.filter((c) => {
+      if (!c.aptitudeTestDeadline || c.aptitudeTestCompletedAt || c.aptitudeTestDeadlineAlertNotifiedAt) return false;
+      if (firedAptitudeDeadlineAlertIdsRef.current.has(c.id)) return false;
+      const deadline = new Date(c.aptitudeTestDeadline);
+      if (Number.isNaN(deadline.getTime())) return false;
+      const alertThreshold = new Date(deadline);
+      alertThreshold.setDate(alertThreshold.getDate() - 1);
+      alertThreshold.setHours(10, 0, 0, 0);
+      return alertThreshold <= now;
+    });
+    if (due.length === 0) return;
+
+    due.forEach((candidate) => {
+      firedAptitudeDeadlineAlertIdsRef.current.add(candidate.id);
+
+      const notifyPromises: Promise<void>[] = [];
+      const targetStaffNames = new Set(
+        [candidate.documentScreeningAssignee, ...candidate.assignees].filter((n): n is string => !!n)
+      );
+      targetStaffNames.forEach((name) => {
+        const staff = latestStaffList.find((s) => s.name === name);
+        if (!staff) return;
+        getStaffWebhooksForKind(staff, 'APTITUDE_TEST_DEADLINE_ALERT').forEach((webhookUrl) => {
+          notifyPromises.push(
+            notifyAptitudeTestDeadlineAlertApi({
+              accessToken: driveAccessToken,
+              webhookUrl,
+              staffName: staff.name,
+              staffMentionId: staff.chatMentionId,
+              candidateName: candidate.name,
+              candidateId: candidate.id,
+              deadline: candidate.aptitudeTestDeadline
+            })
+          );
+        });
+      });
+      getGroupWebhooksForKind(latestGroupWebhooks, 'APTITUDE_TEST_DEADLINE_ALERT').forEach((webhookUrl) => {
+        notifyPromises.push(
+          notifyAptitudeTestDeadlineAlertApi({
+            accessToken: driveAccessToken,
+            webhookUrl,
+            candidateName: candidate.name,
+            candidateId: candidate.id,
+            deadline: candidate.aptitudeTestDeadline
+          })
+        );
+      });
+
+      Promise.allSettled(notifyPromises).then((results) => {
+        const failedCount = results.filter((r) => r.status === 'rejected').length;
+        if (failedCount > 0) {
+          console.error(`適性検査期限前日アラート通知: ${failedCount}件の送信に失敗しました`);
+        }
+        setCandidates((prev) =>
+          prev.map((c) => (c.id === candidate.id ? { ...c, aptitudeTestDeadlineAlertNotifiedAt: new Date().toISOString() } : c))
+        );
+      });
+    });
+  };
+
   useEffect(() => {
     if (!driveAccessToken) return;
 
@@ -938,6 +1016,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const poll = async () => {
       if (document.visibilityState !== 'visible') return;
       checkAptitudeReminders();
+      checkAptitudeTestDeadlineAlerts();
       // A local edit is still mid-flight to Drive (debounced write not yet landed) — skip this
       // tick rather than risk applying someone else's snapshot from before our edit existed. The
       // next tick, 20s later, will see it once our own write has long since completed.
@@ -1307,6 +1386,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // が既に「送信しました」の専用トーストを出すため、ここではsetCandidatesを直接使い二重トースト
   // を避ける（updateInterviewLogForPhaseと同じ流儀）。
   const markAptitudeTestSent = (candidateId: string) => {
+    const target = candidates.find((c) => c.id === candidateId);
     setCandidates((prev) =>
       prev.map((c) =>
         c.id === candidateId
@@ -1314,6 +1394,44 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : c
       )
     );
+    if (!target) return;
+
+    // 送付完了通知（APTITUDE_TEST_SENT種別を選んだWebhookのみが対象）。EVALUATION_RESULT等と同じ
+    // ブロードキャスト方式（担当者に限定しない、opt-inしたWebhook全てへ送る）。
+    const notifyCalls: Promise<void>[] = [];
+    staffList.forEach((staff) => {
+      getStaffWebhooksForKind(staff, 'APTITUDE_TEST_SENT').forEach((webhookUrl) => {
+        notifyCalls.push(
+          notifyAptitudeTestSentApi({
+            accessToken: driveAccessToken,
+            webhookUrl,
+            candidateName: target.name,
+            candidateId: target.id,
+            deadline: target.aptitudeTestDeadline
+          })
+        );
+      });
+    });
+    getGroupWebhooksForKind(groupChatWebhooks, 'APTITUDE_TEST_SENT').forEach((webhookUrl) => {
+      notifyCalls.push(
+        notifyAptitudeTestSentApi({
+          accessToken: driveAccessToken,
+          webhookUrl,
+          candidateName: target.name,
+          candidateId: target.id,
+          deadline: target.aptitudeTestDeadline
+        })
+      );
+    });
+    if (notifyCalls.length > 0) {
+      Promise.allSettled(notifyCalls).then((results) => {
+        const failedCount = results.filter((r) => r.status === 'rejected').length;
+        if (failedCount > 0) {
+          console.error(`Aptitude-test-sent Chat notify: ${failedCount}件の送信に失敗しました`);
+          showToast(`適性検査送付完了通知の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+        }
+      });
+    }
   };
 
   // 適性検査ステータスバッジ（カンバンカード・一覧・ダッシュボード・候補者詳細）のクリック切り替え

@@ -160,6 +160,28 @@ export async function notifyAptitudeTestReminder(params: {
   return postJson('/api/notify/aptitude-test-reminder', { ...params, appUrl: window.location.origin });
 }
 
+export async function notifyAptitudeTestSent(params: {
+  accessToken: string | null;
+  webhookUrl: string;
+  candidateName: string;
+  candidateId: string;
+  deadline?: string;
+}): Promise<void> {
+  return postJson('/api/notify/aptitude-test-sent', { ...params, appUrl: window.location.origin });
+}
+
+export async function notifyAptitudeTestDeadlineAlert(params: {
+  accessToken: string | null;
+  webhookUrl: string;
+  staffName?: string;
+  staffMentionId?: string;
+  candidateName: string;
+  candidateId: string;
+  deadline?: string;
+}): Promise<void> {
+  return postJson('/api/notify/aptitude-test-deadline-alert', { ...params, appUrl: window.location.origin });
+}
+
 export async function notifyDocumentScreeningThread(params: {
   accessToken: string | null;
   webhookUrl: string;

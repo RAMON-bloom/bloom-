@@ -2713,7 +2713,8 @@ export const CandidateDetailModal: React.FC = () => {
                               ...candidate,
                               aptitudeTestDeadline: deadline || undefined,
                               aptitudeTestReminderAt: deadline ? computeDefaultAptitudeReminder(deadline) : undefined,
-                              aptitudeTestReminderNotifiedAt: undefined
+                              aptitudeTestReminderNotifiedAt: undefined,
+                              aptitudeTestDeadlineAlertNotifiedAt: undefined
                             });
                           }}
                           className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
@@ -2798,6 +2799,11 @@ export const CandidateDetailModal: React.FC = () => {
                       {candidate.aptitudeTestReminderNotifiedAt && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                           リマインド通知済み ({new Date(candidate.aptitudeTestReminderNotifiedAt).toLocaleString('ja-JP')})
+                        </span>
+                      )}
+                      {candidate.aptitudeTestDeadlineAlertNotifiedAt && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                          期限前日アラート送信済み ({new Date(candidate.aptitudeTestDeadlineAlertNotifiedAt).toLocaleString('ja-JP')})
                         </span>
                       )}
                     </div>

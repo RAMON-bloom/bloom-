@@ -162,12 +162,14 @@ export const CandidateFormModal: React.FC = () => {
         textContent = await primaryFile.text();
       } else if (!primaryTooLarge) {
         primaryBase64 = await readFileAsDataUrl(primaryFile);
-        // Try reading text if plain text compatible
-        try {
-          textContent = await primaryFile.text();
-        } catch {
-          textContent = '';
-        }
+        // Deliberately NOT also reading primaryFile.text() here: for a PDF, parseResumeContent
+        // sends fileBase64 via Gemini's inlineData and ignores textContent entirely (see
+        // resumeParser.ts), so decoding the binary file as "text" would just produce large
+        // garbage (UTF-8 replacement characters for every invalid byte sequence, which can be
+        // 2-3x the original file's byte length once re-encoded). Sending that alongside
+        // fileBase64 in the same JSON body was silently pushing otherwise-compliant, sub-3MB
+        // uploads well past Vercel's hard ~4.5MB request body limit, causing intermittent 413s
+        // on exactly the large-file registrations this size check was meant to allow through.
       }
 
       if (primaryTooLarge) {

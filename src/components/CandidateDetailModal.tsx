@@ -473,7 +473,11 @@ export const CandidateDetailModal: React.FC = () => {
         textContent = await primaryFile.text();
       } else if (!primaryTooLarge) {
         primaryBase64 = await readFileAsDataUrl(primaryFile);
-        try { textContent = await primaryFile.text(); } catch { textContent = ''; }
+        // See the matching comment in CandidateFormModal.tsx: intentionally not also reading
+        // primaryFile.text() here. parseResumeContent ignores textContent when fileBase64 (PDF)
+        // is present, so decoding the binary as "text" only adds dead weight to the request body
+        // — enough, for files near the 3MB compressed-size ceiling, to push the JSON payload past
+        // Vercel's ~4.5MB hard body limit and cause an intermittent 413.
       }
 
       if (primaryTooLarge) {

@@ -1,4 +1,4 @@
-export const STANDARD_POSITIONS = ['EC', 'BP', 'AIX', 'BRE', 'BCA'] as const;
+export const STANDARD_POSITIONS = ['EC', 'BP', 'AIX', 'BRE', 'BCA', 'ミドル'] as const;
 export type StandardPosition = typeof STANDARD_POSITIONS[number];
 
 export type LcmRating = '〇' | '△' | '✕';

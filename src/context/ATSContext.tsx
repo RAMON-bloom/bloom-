@@ -16,6 +16,8 @@ import {
   ImportedInterviewLog,
   ChatWebhook,
   AptitudeTestSettings,
+  RecruitmentPosition,
+  DEFAULT_POSITIONS,
   Inquiry,
   InquiryCategory,
   InterviewFormat,
@@ -151,6 +153,13 @@ interface ATSContextType {
   // グループ用（複数人が見るスペース宛）Webhook。特定の担当者に属さない一覧をまるごと置き換える。
   groupChatWebhooks: ChatWebhook[];
   updateGroupChatWebhooks: (webhooks: ChatWebhook[]) => void;
+
+  // 選考ポジションのマスタ一覧（エージェント／採用担当マスタ設定画面で追加・削除・編集）。
+  positions: RecruitmentPosition[];
+  updatePositions: (positions: RecruitmentPosition[]) => void;
+  // positionsのlabelだけを取り出した一覧。候補者登録フォーム・詳細画面・フィルタなど
+  // 「ラベル文字列の一覧が欲しいだけ」の既存の呼び出し元向け。
+  positionOptions: string[];
 
   // 適性検査メール送信のグローバル設定（差出人表示名・返信先・件名/本文テンプレート・Form URL）。
   aptitudeTestSettings: AptitudeTestSettings;
@@ -329,6 +338,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : [];
   });
 
+  // 選考ポジションのマスタ一覧。demoデータ移行の対象外（DEFAULT_POSITIONSは実際に本番で
+  // 使われている値そのものであり、他のコレクションのような「偽のサンプルデータ」ではない）。
+  const [positions, setPositions] = useState<RecruitmentPosition[]>(() => {
+    const saved = localStorage.getItem('ats_positions');
+    return saved ? JSON.parse(saved) : DEFAULT_POSITIONS;
+  });
+
   // アプリ内「お問い合わせ」スレッド一覧。他のバックアップ対象データと同じ扱い（localStorage
   // 即時保存＋Driveへも他データと合わせてバックアップ）。
   const [inquiries, setInquiries] = useState<Inquiry[]>(() => {
@@ -431,6 +447,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [groupChatWebhooks]);
 
   useEffect(() => {
+    localStorage.setItem('ats_positions', JSON.stringify(positions));
+  }, [positions]);
+
+  useEffect(() => {
     localStorage.setItem('ats_inquiries', JSON.stringify(inquiries));
   }, [inquiries]);
 
@@ -447,9 +467,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // candidates/agencies/staffList may have moved on from whatever they were when the meetingLogs
   // change that scheduled it happened, and the Drive backup should reflect the latest, not a
   // slightly-stale snapshot from several seconds earlier.
-  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries, aptitudeTestSettings });
+  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries, aptitudeTestSettings });
   useEffect(() => {
-    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries, aptitudeTestSettings };
+    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries, aptitudeTestSettings };
   });
 
   // The merge base for mergeCollection (above): each collection as of the last time this tab
@@ -464,7 +484,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     agencies: 'ats_sync_base_agencies',
     staffList: 'ats_sync_base_staff_list',
     meetingLogs: 'ats_sync_base_meeting_logs',
-    groupChatWebhooks: 'ats_sync_base_group_chat_webhooks'
+    groupChatWebhooks: 'ats_sync_base_group_chat_webhooks',
+    positions: 'ats_sync_base_positions'
   } as const;
   const syncBaseRef = useRef<{
     candidates: Candidate[];
@@ -472,6 +493,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     staffList: InternalStaff[];
     meetingLogs: MeetingLog[];
     groupChatWebhooks: ChatWebhook[];
+    positions: RecruitmentPosition[];
   }>({
     candidates: (() => {
       const saved = localStorage.getItem(SYNC_BASE_KEYS.candidates);
@@ -492,6 +514,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     groupChatWebhooks: (() => {
       const saved = localStorage.getItem(SYNC_BASE_KEYS.groupChatWebhooks);
       return saved ? JSON.parse(saved) : groupChatWebhooks;
+    })(),
+    positions: (() => {
+      const saved = localStorage.getItem(SYNC_BASE_KEYS.positions);
+      return saved ? JSON.parse(saved) : positions;
     })()
   });
   const updateSyncBase = (partial: Partial<typeof syncBaseRef.current>) => {
@@ -613,6 +639,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let remoteStaffList = syncBaseRef.current.staffList;
       let remoteMeetingLogs = syncBaseRef.current.meetingLogs;
       let remoteGroupChatWebhooks = syncBaseRef.current.groupChatWebhooks;
+      let remotePositions = syncBaseRef.current.positions;
       try {
         const remote = await restoreFromDriveApi(token);
         if (remote.candidates) remoteCandidates = remote.candidates;
@@ -620,6 +647,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (remote.staffList) remoteStaffList = remote.staffList;
         if (remote.meetingLogs) remoteMeetingLogs = remote.meetingLogs;
         if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
+        if (remote.positions) remotePositions = remote.positions;
         // A monotonic max, not a merge — see candidateIdSeqRef's declaration — so folding in
         // whatever Drive currently has can only push this device's counter forward, never back.
         bumpCandidateIdSeq(remote.candidateIdSeq);
@@ -637,6 +665,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         latestBackupStateRef.current.groupChatWebhooks,
         remoteGroupChatWebhooks
       );
+      const mergedPositions = mergeCollection(syncBaseRef.current.positions, latestBackupStateRef.current.positions, remotePositions);
 
       backupToDriveApi(token, {
         ...latestBackupStateRef.current,
@@ -645,6 +674,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         staffList: mergedStaffList,
         meetingLogs: mergedMeetingLogs,
         groupChatWebhooks: mergedGroupChatWebhooks,
+        positions: mergedPositions,
         candidateIdSeq: candidateIdSeqRef.current
       })
         .then(() => {
@@ -660,7 +690,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             agencies: mergedAgencies,
             staffList: mergedStaffList,
             meetingLogs: mergedMeetingLogs,
-            groupChatWebhooks: mergedGroupChatWebhooks
+            groupChatWebhooks: mergedGroupChatWebhooks,
+            positions: mergedPositions
           });
           // The merge may have pulled in another tab's concurrent addition/edit that this tab's
           // own state didn't have — reflect that back locally so this tab's UI matches what Drive
@@ -671,6 +702,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (JSON.stringify(mergedMeetingLogs) !== JSON.stringify(latestBackupStateRef.current.meetingLogs)) setMeetingLogs(mergedMeetingLogs);
           if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(latestBackupStateRef.current.groupChatWebhooks)) {
             setGroupChatWebhooks(mergedGroupChatWebhooks);
+          }
+          if (JSON.stringify(mergedPositions) !== JSON.stringify(latestBackupStateRef.current.positions)) {
+            setPositions(mergedPositions);
           }
           if (hadBackupFailureRef.current) {
             hadBackupFailureRef.current = false;
@@ -722,7 +756,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     };
-  }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, inquiries, driveAccessToken]);
+  }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries, driveAccessToken]);
 
   // Shared by restoreFromDrive, the mount-time check below, and the 20s poll — applies a Drive
   // snapshot to local state and records it as this device's new "known synced" point.
@@ -732,6 +766,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     staffList?: InternalStaff[];
     meetingLogs?: MeetingLog[];
     groupChatWebhooks?: ChatWebhook[];
+    positions?: RecruitmentPosition[];
     inquiries?: Inquiry[];
     aptitudeTestSettings?: AptitudeTestSettings;
     candidateIdSeq?: number;
@@ -742,6 +777,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.staffList) setStaffList(data.staffList);
     if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
     if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
+    if (data.positions) setPositions(data.positions);
     if (data.inquiries) setInquiries(data.inquiries);
     if (data.aptitudeTestSettings) setAptitudeTestSettings(data.aptitudeTestSettings);
     // Monotonic max, not a plain apply — see candidateIdSeqRef's declaration.
@@ -754,7 +790,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...(data.agencies ? { agencies: data.agencies } : {}),
       ...(data.staffList ? { staffList: data.staffList } : {}),
       ...(data.meetingLogs ? { meetingLogs: data.meetingLogs } : {}),
-      ...(data.groupChatWebhooks ? { groupChatWebhooks: data.groupChatWebhooks } : {})
+      ...(data.groupChatWebhooks ? { groupChatWebhooks: data.groupChatWebhooks } : {}),
+      ...(data.positions ? { positions: data.positions } : {})
     });
     localStorage.removeItem(PENDING_BACKUP_KEY);
   };
@@ -2212,6 +2249,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('グループ通知用Webhookを更新しました', 'success');
   };
 
+  // 選考ポジションのマスタ一覧をまるごと置き換える。groupChatWebhooksと同じく、設定画面の
+  // フォームで組み立てた配列全体を1回のみ保存する形（個々のadd/remove操作をcontext側に持たせない）。
+  const updatePositions = (updated: RecruitmentPosition[]) => {
+    setPositions(updated);
+    showToast('選考ポジション設定を更新しました', 'success');
+  };
+
   const updateAptitudeTestSettings = (settings: AptitudeTestSettings) => {
     setAptitudeTestSettings(settings);
     showToast('適性検査メール設定を更新しました', 'success');
@@ -2252,6 +2296,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let remoteStaffList = syncBaseRef.current.staffList;
       let remoteMeetingLogs = syncBaseRef.current.meetingLogs;
       let remoteGroupChatWebhooks = syncBaseRef.current.groupChatWebhooks;
+      let remotePositions = syncBaseRef.current.positions;
       try {
         const remote = await restoreFromDriveApi(driveAccessToken);
         if (remote.candidates) remoteCandidates = remote.candidates;
@@ -2259,6 +2304,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (remote.staffList) remoteStaffList = remote.staffList;
         if (remote.meetingLogs) remoteMeetingLogs = remote.meetingLogs;
         if (remote.groupChatWebhooks) remoteGroupChatWebhooks = remote.groupChatWebhooks;
+        if (remote.positions) remotePositions = remote.positions;
         bumpCandidateIdSeq(remote.candidateIdSeq);
       } catch {
         // Nothing backed up yet, or the read failed — fall back to this tab's own base.
@@ -2268,6 +2314,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, staffList, remoteStaffList);
       const mergedMeetingLogs = mergeCollection(syncBaseRef.current.meetingLogs, meetingLogs, remoteMeetingLogs);
       const mergedGroupChatWebhooks = mergeCollection(syncBaseRef.current.groupChatWebhooks, groupChatWebhooks, remoteGroupChatWebhooks);
+      const mergedPositions = mergeCollection(syncBaseRef.current.positions, positions, remotePositions);
 
       await backupToDriveApi(driveAccessToken, {
         candidates: mergedCandidates,
@@ -2275,6 +2322,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         staffList: mergedStaffList,
         meetingLogs: mergedMeetingLogs,
         groupChatWebhooks: mergedGroupChatWebhooks,
+        positions: mergedPositions,
         inquiries,
         aptitudeTestSettings,
         candidateIdSeq: candidateIdSeqRef.current
@@ -2288,13 +2336,15 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         agencies: mergedAgencies,
         staffList: mergedStaffList,
         meetingLogs: mergedMeetingLogs,
-        groupChatWebhooks: mergedGroupChatWebhooks
+        groupChatWebhooks: mergedGroupChatWebhooks,
+        positions: mergedPositions
       });
       if (JSON.stringify(mergedCandidates) !== JSON.stringify(candidates)) setCandidates(mergedCandidates);
       if (JSON.stringify(mergedAgencies) !== JSON.stringify(agencies)) setAgencies(mergedAgencies);
       if (JSON.stringify(mergedStaffList) !== JSON.stringify(staffList)) setStaffList(mergedStaffList);
       if (JSON.stringify(mergedMeetingLogs) !== JSON.stringify(meetingLogs)) setMeetingLogs(mergedMeetingLogs);
       if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(groupChatWebhooks)) setGroupChatWebhooks(mergedGroupChatWebhooks);
+      if (JSON.stringify(mergedPositions) !== JSON.stringify(positions)) setPositions(mergedPositions);
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {
       showToast(`Driveバックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');
@@ -3061,6 +3111,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateStaff,
         groupChatWebhooks,
         updateGroupChatWebhooks,
+        positions,
+        updatePositions,
+        positionOptions: positions.map((p) => p.label),
         aptitudeTestSettings,
         updateAptitudeTestSettings,
         inquiries,

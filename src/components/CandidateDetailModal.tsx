@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, STANDARD_POSITIONS, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog, InterviewFormat } from '../types';
+import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog, InterviewFormat } from '../types';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
 import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder, listFolderFiles } from '../lib/driveApi';
@@ -128,7 +128,8 @@ export const CandidateDetailModal: React.FC = () => {
     connectDrive,
     updateInterviewLogForPhase,
     markAptitudeTestSent,
-    aptitudeTestSettings
+    aptitudeTestSettings,
+    positionOptions
   } = useATS();
 
   const [activeSubTab, setActiveSubTab] = useState<'evaluation' | 'resume' | 'onboarding'>('evaluation');
@@ -996,12 +997,12 @@ export const CandidateDetailModal: React.FC = () => {
                     }}
                     className="bg-white text-indigo-900 font-bold text-xs rounded px-1.5 py-0.5 border border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-2xs"
                   >
-                    {STANDARD_POSITIONS.map((pos) => (
+                    {positionOptions.map((pos) => (
                       <option key={pos} value={pos}>
                         {pos}
                       </option>
                     ))}
-                    {!STANDARD_POSITIONS.includes(candidate.jobTitle as any) && (
+                    {!positionOptions.includes(candidate.jobTitle) && (
                       <option value={candidate.jobTitle}>{candidate.jobTitle}</option>
                     )}
                   </select>

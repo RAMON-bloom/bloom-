@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Agency, InternalStaff, AgencyContact, ChatWebhook, ChatNotificationKind, AptitudeTestSettings } from '../types';
+import { Agency, InternalStaff, AgencyContact, ChatWebhook, ChatNotificationKind, AptitudeTestSettings, RecruitmentPosition } from '../types';
 import { getAllStaffWebhookUrls, CHAT_NOTIFICATION_KINDS } from '../lib/staffUtils';
 import { DEFAULT_APTITUDE_TEST_SUBJECT_TEMPLATE, DEFAULT_APTITUDE_TEST_BODY_TEMPLATE } from '../lib/aptitudeTestTemplate';
 import {
@@ -45,6 +45,8 @@ export const AgencyMasterView: React.FC = () => {
     updateStaff,
     groupChatWebhooks,
     updateGroupChatWebhooks,
+    positions,
+    updatePositions,
     aptitudeTestSettings,
     updateAptitudeTestSettings
   } = useATS();
@@ -91,6 +93,19 @@ export const AgencyMasterView: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupChatWebhooks]);
+
+  // 選考ポジションのマスタ一覧編集用ドラフト。groupWebhookDraftと同じ考え方（保存ボタンを押すまで
+  // contextに反映しない）。
+  const [positionDraft, setPositionDraft] = useState<RecruitmentPosition[]>(positions);
+  const [isPositionDirty, setIsPositionDirty] = useState(false);
+  const [isPositionCollapsed, setIsPositionCollapsed] = useState(true);
+
+  useEffect(() => {
+    if (!isPositionDirty) {
+      setPositionDraft(positions);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions]);
 
   // 適性検査メール設定の編集用ドラフト。groupWebhookDraftと同じ考え方（保存ボタンを押すまで
   // contextに反映しない）だが、id付き配列ではなく単一オブジェクトなのでdraftも単一オブジェクト。
@@ -384,6 +399,40 @@ export const AgencyMasterView: React.FC = () => {
   const handleCancelGroupWebhookEdits = () => {
     setGroupWebhookDraft(groupChatWebhooks);
     setIsGroupWebhookDirty(false);
+  };
+
+  // 選考ポジション編集ハンドラ（グループ用Webhookの同名ハンドラと同じ考え方）。idは追加時に
+  // 発番したまま固定 — ラベルを編集(リネーム)しても、既にそのポジション名で登録済みの候補者の
+  // jobTitle文字列までは追随して書き換わらない(候補者一覧側は文字列そのものを保持している)。
+  const handleAddPositionRow = () => {
+    setPositionDraft((prev) => [...prev, { id: `pos-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, label: '' }]);
+    setIsPositionDirty(true);
+  };
+
+  const handleUpdatePositionRow = (id: string, label: string) => {
+    setPositionDraft((prev) => prev.map((p) => (p.id === id ? { ...p, label } : p)));
+    setIsPositionDirty(true);
+  };
+
+  const handleRemovePositionRow = (id: string) => {
+    setPositionDraft((prev) => prev.filter((p) => p.id !== id));
+    setIsPositionDirty(true);
+  };
+
+  const handleSavePositions = () => {
+    // 空欄・前後空白のみは除外。ラベルが重複している場合も、実害は「同じ選考ポジションボタンが
+    // 2つ並ぶ」程度で候補者データを壊すものではないため、ブロックはせずそのまま保存する。
+    const validPositions = positionDraft
+      .map((p) => ({ ...p, label: p.label.trim() }))
+      .filter((p) => p.label.length > 0);
+    updatePositions(validPositions);
+    setPositionDraft(validPositions);
+    setIsPositionDirty(false);
+  };
+
+  const handleCancelPositionEdits = () => {
+    setPositionDraft(positions);
+    setIsPositionDirty(false);
   };
 
   // Staff Submit
@@ -747,6 +796,112 @@ export const AgencyMasterView: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+
+          {/* 選考ポジションのマスタ設定。候補者登録フォーム・詳細画面・フィルタ全ての選考ポジション
+              ボタンの元になる一覧で、Drive共有バックアップ経由で全員に同期される。 */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs overflow-hidden">
+            <div
+              onClick={() => setIsPositionCollapsed((prev) => !prev)}
+              className="p-4 flex items-center justify-between flex-wrap gap-2 cursor-pointer hover:bg-slate-50/80 transition-colors"
+            >
+              <div>
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                  <Briefcase className="w-4 h-4 text-indigo-600" />
+                  <span>選考ポジション設定</span>
+                  {positions.length > 0 && (
+                    <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                      {positions.length}件
+                    </span>
+                  )}
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  候補者登録フォーム・詳細画面・フィルタで選べる選考ポジションの一覧です。追加・削除・名称変更した内容はDrive経由で全員に反映されます。
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                {userRole === 'ADMIN' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPositionCollapsed(false);
+                      handleAddPositionRow();
+                    }}
+                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>ポジションを追加</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsPositionCollapsed((prev) => !prev)}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 transition-all cursor-pointer"
+                  title={isPositionCollapsed ? '展開する' : '折りたたむ'}
+                >
+                  {isPositionCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {!isPositionCollapsed && (
+              <div className="px-4 pb-4 space-y-2">
+                {positionDraft.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">未登録</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {positionDraft.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center gap-1 border border-slate-200 rounded-lg bg-slate-50/60 pl-2.5 pr-1 py-1"
+                      >
+                        <input
+                          type="text"
+                          placeholder="例: ミドル"
+                          value={p.label}
+                          onChange={(e) => handleUpdatePositionRow(p.id, e.target.value)}
+                          disabled={userRole !== 'ADMIN'}
+                          className="bg-transparent text-slate-900 text-xs font-bold w-20 focus:outline-none disabled:text-slate-500"
+                        />
+                        {userRole === 'ADMIN' && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePositionRow(p.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors shrink-0"
+                            title="このポジションを削除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-500">
+                  削除しても、既にそのポジションで登録済みの候補者データからは消えません（一覧に表示されなくなるだけで、候補者詳細画面では引き続き選択済みの値として表示されます）。
+                </p>
+
+                {userRole === 'ADMIN' && isPositionDirty && (
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleCancelPositionEdits}
+                      className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSavePositions}
+                      className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>保存する</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* グループ用（複数人が見るスペース宛）Webhook設定。特定の担当者には属さない */}

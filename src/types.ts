@@ -1,5 +1,21 @@
-export const STANDARD_POSITIONS = ['EC', 'BP', 'AIX', 'BRE', 'BCA', 'ミドル'] as const;
-export type StandardPosition = typeof STANDARD_POSITIONS[number];
+// 選考ポジションのマスタ一覧。以前は固定配列(STANDARD_POSITIONS)だったが、採用担当が
+// エージェント／採用担当マスタ設定画面から追加・削除・編集できるよう、id付きの配列として
+// ATSContextの他の共有マスタデータ（agencies/staffList等）と同じ形でDrive経由で同期する。
+export interface RecruitmentPosition {
+  id: string;
+  label: string;
+}
+
+// 初回ログイン・localStorage未保存の端末での初期値。実際の一覧はATSContextのpositions
+// (Drive共有バックアップ経由で同期)を参照すること。
+export const DEFAULT_POSITIONS: RecruitmentPosition[] = [
+  { id: 'pos-ec', label: 'EC' },
+  { id: 'pos-bp', label: 'BP' },
+  { id: 'pos-aix', label: 'AIX' },
+  { id: 'pos-bre', label: 'BRE' },
+  { id: 'pos-bca', label: 'BCA' },
+  { id: 'pos-middle', label: 'ミドル' }
+];
 
 export type LcmRating = '〇' | '△' | '✕';
 export type BcaDesiredDepartment = 'F+' | 'AC' | 'BOTH';

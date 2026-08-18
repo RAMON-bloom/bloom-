@@ -1,14 +1,13 @@
 import React from 'react';
 import { useATS } from '../context/ATSContext';
 import { Filter, X, Briefcase, CheckSquare, Check, User, Users, Building2, Calendar, Clock, Layers } from 'lucide-react';
-import { STANDARD_POSITIONS } from '../types';
 
 interface FilterBarProps {
   showPhaseFilter?: boolean;
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false }) => {
-  const { filters, setFilters, agencies, staffList, candidates } = useATS();
+  const { filters, setFilters, agencies, staffList, candidates, positionOptions } = useATS();
 
   // Only staff actually linked to at least one agency make sense as a "社内担当者" filter option
   // here (same rule 採用MTG's recruiter picker uses) — falls back to the full staff list if no
@@ -278,8 +277,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
 
           <div className="h-4 w-px bg-slate-200 mx-0.5 hidden sm:block" />
 
-          {/* Individual Standard Positions: EC, BP, AIX, BRE */}
-          {STANDARD_POSITIONS.map((pos) => {
+          {/* Individual Standard Positions: EC, BP, AIX, BRE, etc. */}
+          {positionOptions.map((pos) => {
             const isSelected = filters.positions.includes(pos);
             return (
               <button

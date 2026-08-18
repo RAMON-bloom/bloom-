@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useATS } from '../context/ATSContext';
-import { Candidate, SelectionPhase, ScheduleStatus, STANDARD_POSITIONS } from '../types';
+import { Candidate, SelectionPhase, ScheduleStatus } from '../types';
 import { X, UserPlus, FileText, UploadCloud, Loader2, Sparkles, CheckCircle2, File, HardDrive, AlertTriangle } from 'lucide-react';
 import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
@@ -19,7 +19,7 @@ const PHASE_LABELS: Record<SelectionPhase, string> = {
 };
 
 export const CandidateFormModal: React.FC = () => {
-  const { isAddModalOpen, setIsAddModalOpen, addCandidate, candidates, agencies, staffList, showToast, driveAccessToken } = useATS();
+  const { isAddModalOpen, setIsAddModalOpen, addCandidate, candidates, agencies, staffList, positionOptions, showToast, driveAccessToken } = useATS();
 
   const getInitialFormData = useCallback(() => ({
     name: '',
@@ -748,7 +748,7 @@ export const CandidateFormModal: React.FC = () => {
             <div>
               <label className="block text-slate-700 font-medium mb-1">選考ポジション *</label>
               <div className="flex flex-wrap gap-1 mb-1.5">
-                {STANDARD_POSITIONS.map((pos) => (
+                {positionOptions.map((pos) => (
                   <button
                     key={pos}
                     type="button"

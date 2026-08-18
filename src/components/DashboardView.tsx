@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
-import { SelectionPhase, STANDARD_POSITIONS } from '../types';
+import { SelectionPhase } from '../types';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
-  const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId } = useATS();
+  const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId, positionOptions } = useATS();
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [selectedPositions, setSelectedPositions] = useState<string[]>([]);
   const [trendMetric, setTrendMetric] = useState<'referrals' | 'acceptances' | 'both'>('referrals');
@@ -190,7 +190,7 @@ export const DashboardView: React.FC = () => {
           </select>
         </div>
 
-        {/* Position filter — own local selection, same STANDARD_POSITIONS toggle pattern as the
+        {/* Position filter — own local selection, same positionOptions toggle pattern as the
             sidebar FilterBar, but scoped to this dashboard only. */}
         <div className="w-full pt-3 border-t border-slate-200/80 flex flex-wrap items-center gap-1.5">
           <span className="text-slate-600 font-medium flex items-center gap-1 shrink-0 text-xs">
@@ -208,7 +208,7 @@ export const DashboardView: React.FC = () => {
           >
             全ポジション
           </button>
-          {STANDARD_POSITIONS.map((pos) => {
+          {positionOptions.map((pos) => {
             const isSelected = selectedPositions.includes(pos);
             return (
               <button

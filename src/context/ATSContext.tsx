@@ -1642,21 +1642,36 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           interviewFormatLabel: interviewFormatLabelForThread
         };
 
-        const threadNotifyCalls: Promise<void>[] = [];
+        const threadWebhookUrls: string[] = [];
         recipients.forEach((staff) => {
-          getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
-            threadNotifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayloadBase, webhookUrl }));
-          });
+          getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => threadWebhookUrls.push(webhookUrl));
         });
-        getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
-          threadNotifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayloadBase, webhookUrl }));
-        });
-        if (threadNotifyCalls.length > 0) {
+        getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => threadWebhookUrls.push(webhookUrl));
+
+        if (threadWebhookUrls.length > 0) {
+          const threadNotifyCalls = threadWebhookUrls.map((webhookUrl) =>
+            notifyDocumentScreeningThreadApi({
+              ...threadPayloadBase,
+              webhookUrl,
+              threadName: target.chatThreadNames?.[webhookUrl]
+            }).then((res) => ({ webhookUrl, threadName: res.threadName }))
+          );
           Promise.allSettled(threadNotifyCalls).then((results) => {
             const failedCount = results.filter((r) => r.status === 'rejected').length;
             if (failedCount > 0) {
               console.error(`Document-screening-thread Chat notify: ${failedCount}件の送信に失敗しました`);
               showToast(`選考スレッド作成の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+            }
+            // 実スレッドIDを保存しておくと、次回以降の評価サマリ通知がthreadKeyの経年劣化に頼らず
+            // 確実に同じスレッドへ返信できる（sendGoogleChatMessageのコメント参照）。
+            const resolved: Record<string, string> = {};
+            results.forEach((r) => {
+              if (r.status === 'fulfilled' && r.value.threadName) resolved[r.value.webhookUrl] = r.value.threadName;
+            });
+            if (Object.keys(resolved).length > 0) {
+              setCandidates((prev) =>
+                prev.map((c) => (c.id === target.id ? { ...c, chatThreadNames: { ...c.chatThreadNames, ...resolved } } : c))
+              );
             }
           });
         }
@@ -1695,7 +1710,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           mentionId: staffList.find((s) => s.name === name)?.chatMentionId
         }));
 
-        const summaryNotifyCalls: Promise<void>[] = [];
+        const summaryWebhookUrls: string[] = [];
         const summaryPayload = {
           candidateName: target.name,
           candidateId: target.id,
@@ -1720,19 +1735,33 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           mentionedStaff
         };
         recipients.forEach((staff) => {
-          getStaffWebhooksForKind(staff, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => {
-            summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ accessToken: driveAccessToken, webhookUrl, ...summaryPayload }));
-          });
+          getStaffWebhooksForKind(staff, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => summaryWebhookUrls.push(webhookUrl));
         });
-        getGroupWebhooksForKind(groupChatWebhooks, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => {
-          summaryNotifyCalls.push(notifyEvaluationSummaryThreadApi({ accessToken: driveAccessToken, webhookUrl, ...summaryPayload }));
-        });
-        if (summaryNotifyCalls.length > 0) {
+        getGroupWebhooksForKind(groupChatWebhooks, 'EVALUATION_SUMMARY_THREAD').forEach((webhookUrl) => summaryWebhookUrls.push(webhookUrl));
+
+        if (summaryWebhookUrls.length > 0) {
+          const summaryNotifyCalls = summaryWebhookUrls.map((webhookUrl) =>
+            notifyEvaluationSummaryThreadApi({
+              accessToken: driveAccessToken,
+              webhookUrl,
+              ...summaryPayload,
+              threadName: target.chatThreadNames?.[webhookUrl]
+            }).then((res) => ({ webhookUrl, threadName: res.threadName }))
+          );
           Promise.allSettled(summaryNotifyCalls).then((results) => {
             const failedCount = results.filter((r) => r.status === 'rejected').length;
             if (failedCount > 0) {
               console.error(`Evaluation-summary-thread Chat notify: ${failedCount}件の送信に失敗しました`);
               showToast(`評価サマリのスレッド書き込みに${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+            }
+            const resolved: Record<string, string> = {};
+            results.forEach((r) => {
+              if (r.status === 'fulfilled' && r.value.threadName) resolved[r.value.webhookUrl] = r.value.threadName;
+            });
+            if (Object.keys(resolved).length > 0) {
+              setCandidates((prev) =>
+                prev.map((c) => (c.id === target.id ? { ...c, chatThreadNames: { ...c.chatThreadNames, ...resolved } } : c))
+              );
             }
           });
         }
@@ -1777,17 +1806,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       interviewFormatLabel: currentFormat ? INTERVIEW_FORMAT_LABEL_MAP[currentFormat] : undefined
     };
 
-    const notifyCalls: Promise<void>[] = [];
+    const notifyWebhookUrls: string[] = [];
     staffList.forEach((staff) => {
-      getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
-        notifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayload, webhookUrl }));
-      });
+      getStaffWebhooksForKind(staff, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => notifyWebhookUrls.push(webhookUrl));
     });
-    getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => {
-      notifyCalls.push(notifyDocumentScreeningThreadApi({ ...threadPayload, webhookUrl }));
-    });
-    if (notifyCalls.length === 0) return;
+    getGroupWebhooksForKind(groupChatWebhooks, 'DOCUMENT_SCREENING_THREAD').forEach((webhookUrl) => notifyWebhookUrls.push(webhookUrl));
+    if (notifyWebhookUrls.length === 0) return;
 
+    const notifyCalls = notifyWebhookUrls.map((webhookUrl) =>
+      notifyDocumentScreeningThreadApi({ ...threadPayload, webhookUrl }).then((res) => ({ webhookUrl, threadName: res.threadName }))
+    );
     const results = await Promise.allSettled(notifyCalls);
     const failedCount = results.filter((r) => r.status === 'rejected').length;
     if (failedCount > 0) {
@@ -1795,6 +1823,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast(`新スレッド作成の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
     } else {
       showToast('新しいスレッドを作成しました', 'success');
+    }
+    const resolved: Record<string, string> = {};
+    results.forEach((r) => {
+      if (r.status === 'fulfilled' && r.value.threadName) resolved[r.value.webhookUrl] = r.value.threadName;
+    });
+    if (Object.keys(resolved).length > 0) {
+      setCandidates((prev) => prev.map((c) => (c.id === newId ? { ...c, chatThreadNames: { ...c.chatThreadNames, ...resolved } } : c)));
     }
   };
 

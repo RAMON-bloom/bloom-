@@ -10,7 +10,7 @@
 // would be confusing at best and could land out of order in a thread — better to fail after a few
 // seconds and let the existing "◯件失敗しました" toast surface it than to silently resurrect a
 // stale notification later.
-async function postJson(path: string, body: Record<string, unknown>): Promise<void> {
+async function postJson(path: string, body: Record<string, unknown>): Promise<any> {
   const MAX_ATTEMPTS = 3;
   const RETRY_DELAYS_MS = [1000, 2000];
 
@@ -38,7 +38,7 @@ async function postJson(path: string, body: Record<string, unknown>): Promise<vo
       throw new Error(`サーバーエラーが発生しました (HTTP ${res.status})`);
     }
 
-    if (res.ok && !data.error) return;
+    if (res.ok && !data.error) return data;
 
     if (res.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
       await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
@@ -122,7 +122,11 @@ export async function notifyEvaluationSummaryThread(params: {
   nextInterviewerNames?: string[];
   interviewFormatLabel?: string;
   mentionedStaff?: { name: string; mentionId?: string }[];
-}): Promise<void> {
+  // Already-known real Chat thread resource name for this candidate+webhook (Candidate.
+  // chatThreadNames[webhookUrl]), if this isn't the first message into it. See
+  // sendGoogleChatMessage's doc comment for why this matters more than threadKey alone.
+  threadName?: string;
+}): Promise<{ threadName?: string }> {
   return postJson('/api/notify/evaluation-summary-thread', params);
 }
 
@@ -192,6 +196,10 @@ export async function notifyDocumentScreeningThread(params: {
   nextPhaseLabel?: string;
   nextInterviewerNames?: string[];
   interviewFormatLabel?: string;
-}): Promise<void> {
+  // Already-known real Chat thread resource name for this candidate+webhook (Candidate.
+  // chatThreadNames[webhookUrl]), for the rare case this fires again for the same candidate
+  // (e.g. a re-save) after a thread already exists.
+  threadName?: string;
+}): Promise<{ threadName?: string }> {
   return postJson('/api/notify/document-screening-thread', { ...params, appUrl: window.location.origin });
 }

@@ -145,6 +145,11 @@ export interface Candidate {
   cNote?: string; // C評価 補足メモ
   mNote?: string; // M評価 補足メモ
   rejectionReason?: string; // 見送り/選考辞退の理由メモ（任意）
+  // Webhook URL -> Google Chatが実際に解決したスレッドのresource name（例: "spaces/AAAA/threads/BBBB"）。
+  // document-screening-thread/evaluation-summary-thread通知の応答から捕捉し、次回以降の同じ候補者
+  // 宛て通知はthreadKeyではなくこの実IDで返信することで、時間経過によるthreadKey突合失敗（Chat側の
+  // 既知の制限）を回避する。Webhookごと（＝Chatスペースごと）にスレッド実体が別れるためURL単位で保持。
+  chatThreadNames?: Record<string, string>;
   salaryExpectation?: string;
   joiningDate?: string; // 入社予定日 YYYY-MM-DD
   preJoinDinnerStatus?: PreJoinDinnerStatus; // 入社前会食状況

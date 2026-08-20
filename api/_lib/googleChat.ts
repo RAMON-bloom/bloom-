@@ -17,7 +17,36 @@
 // third-party or internal URLs.
 const ALLOWED_WEBHOOK_HOST = 'chat.googleapis.com';
 
-export async function sendGoogleChatMessage(webhookUrl: string, text: string, threadKey?: string): Promise<void> {
+export interface SendChatMessageResult {
+  // The real Chat thread resource name (e.g. "spaces/AAAA/threads/BBBB") Google resolved this
+  // message to, when Chat's response includes one. Callers that need to keep replying into the
+  // same thread long-term should save this and pass it back as `threadName` on the next call
+  // instead of relying on `threadKey` again — see the threadName param doc below for why.
+  threadName?: string;
+}
+
+// `threadKey` groups messages into a thread by a client-chosen string: the first message with a
+// given key starts a new thread, and Chat is *supposed* to match any later message reusing that
+// key into the same thread — but that key-based lookup is a legacy Incoming Webhook feature that
+// Chat can silently fail to resolve once enough time has passed since the thread was created
+// (undocumented; observed as messages sent weeks after thread creation reusing the same
+// threadKey landing in a brand-new thread instead of the original, with no error — that's what
+// messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD does when it can't find a match: it
+// falls back instead of failing loudly).
+//
+// `threadName` sidesteps that: it's the actual thread resource name Chat returned from an earlier
+// message send (see SendChatMessageResult above), and replying by that real id is reliable
+// regardless of how much time has passed. Callers that want durable thread continuity (e.g. every
+// phase's evaluation landing in one candidate thread) should: send the first message with just
+// threadKey, persist the threadName the response resolves to, and pass that threadName on every
+// later call for the same thread — threadKey becomes irrelevant once a threadName is known, so
+// this function prefers threadName over threadKey whenever both are given.
+export async function sendGoogleChatMessage(
+  webhookUrl: string,
+  text: string,
+  threadKey?: string,
+  threadName?: string
+): Promise<SendChatMessageResult> {
   let parsed: URL;
   try {
     parsed = new URL(webhookUrl);
@@ -29,7 +58,13 @@ export async function sendGoogleChatMessage(webhookUrl: string, text: string, th
   }
 
   let targetUrl = webhookUrl;
-  if (threadKey) {
+  let body: Record<string, unknown> = { text };
+  if (threadName) {
+    body = { text, thread: { name: threadName } };
+  } else if (threadKey) {
+    body = { text, thread: { threadKey } };
+  }
+  if (threadName || threadKey) {
     const url = new URL(webhookUrl);
     url.searchParams.set('messageReplyOption', 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD');
     targetUrl = url.toString();
@@ -38,13 +73,16 @@ export async function sendGoogleChatMessage(webhookUrl: string, text: string, th
   const response = await fetch(targetUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=UTF-8' },
-    body: JSON.stringify(threadKey ? { text, thread: { threadKey } } : { text })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`Google Chat Webhookへの送信に失敗しました (HTTP ${response.status}): ${body.slice(0, 300)}`);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Google Chat Webhookへの送信に失敗しました (HTTP ${response.status}): ${errText.slice(0, 300)}`);
   }
+
+  const data = await response.json().catch(() => null);
+  return { threadName: data?.thread?.name };
 }
 
 // Builds the "@name" bit used at the start of personal notifications. When the staff member has

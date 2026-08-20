@@ -5,6 +5,10 @@ import { isBloomFirmAccessToken } from '../_lib/auth.js';
 // staff Chat webhook that has the DOCUMENT_SCREENING_THREAD kind enabled. Starts a new
 // Google Chat thread (keyed by candidateId, so it stays stable if this ever fires more than once —
 // e.g. a re-save — and is ready to be reused as a home for that candidate's later updates).
+// Returns the real thread resource name Chat resolved this to, so the caller can persist it
+// (Candidate.chatThreadNames) and pass it back as threadName on later notify calls for this same
+// candidate+webhook — see sendGoogleChatMessage's doc comment for why threadKey alone isn't
+// reliable long-term.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -21,7 +25,8 @@ export default async function handler(req: any, res: any) {
       positionLabel,
       nextPhaseLabel,
       nextInterviewerNames,
-      interviewFormatLabel
+      interviewFormatLabel,
+      threadName
     } = req.body || {};
 
     if (!accessToken) {
@@ -49,9 +54,9 @@ export default async function handler(req: any, res: any) {
     ];
     const text = lines.join('\n');
 
-    await sendGoogleChatMessage(webhookUrl, text, `cand-${candidateId}`);
+    const result = await sendGoogleChatMessage(webhookUrl, text, `cand-${candidateId}`, threadName);
 
-    return res.json({ success: true });
+    return res.json({ success: true, threadName: result.threadName });
   } catch (err: any) {
     console.error('Document-screening-thread notify error:', err);
     return res.status(500).json({ error: '通知の送信中にエラーが発生しました: ' + (err.message || '不明なエラー') });

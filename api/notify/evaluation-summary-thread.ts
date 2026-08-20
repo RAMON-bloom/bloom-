@@ -9,6 +9,10 @@ const LCM_LABELS: Record<string, string> = { L: 'L評価(ルックス)', C: 'C�
 // SAME Google Chat thread that document-screening-thread started for this candidate — threadKey
 // is fixed to the candidate id, exactly like document-screening-thread — so every phase's
 // pass/fail, its LCM評価 summary, and the next-interviewer assignment all land in one place.
+// The caller should pass threadName (Candidate.chatThreadNames[webhookUrl], if already known)
+// alongside threadKey — see sendGoogleChatMessage's doc comment for why relying on threadKey alone
+// stops reliably threading a candidate whose evaluations span many weeks (書類選考→1次面接 lands
+// fine, but by 2次面接/3次面接 Chat can silently start a brand-new thread instead).
 // mentionedStaff (picked in the eval save form, separate from next-interviewer) adds a trailing
 // "共有:" line mentioning each of them — a real @mention when they've registered their
 // chatMentionId, a plain bold-text fallback otherwise (see formatMention).
@@ -41,7 +45,8 @@ export default async function handler(req: any, res: any) {
       nextPhaseLabel,
       nextInterviewerNames,
       interviewFormatLabel,
-      mentionedStaff
+      mentionedStaff,
+      threadName
     } = req.body || {};
 
     if (!accessToken) {
@@ -95,9 +100,9 @@ export default async function handler(req: any, res: any) {
       if (mentions.length > 0) lines.push(`共有: ${mentions.join(' ')}`);
     }
 
-    await sendGoogleChatMessage(webhookUrl, lines.join('\n'), `cand-${candidateId}`);
+    const result = await sendGoogleChatMessage(webhookUrl, lines.join('\n'), `cand-${candidateId}`, threadName);
 
-    return res.json({ success: true });
+    return res.json({ success: true, threadName: result.threadName });
   } catch (err: any) {
     console.error('Evaluation-summary-thread notify error:', err);
     return res.status(500).json({ error: '通知の送信中にエラーが発生しました: ' + (err.message || '不明なエラー') });

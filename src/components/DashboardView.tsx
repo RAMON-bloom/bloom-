@@ -43,6 +43,12 @@ import {
 export const DashboardView: React.FC = () => {
   const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId, positionOptions } = useATS();
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  // 月単位では区切れない任意の期間（例: 8/5〜8/20）を分析したい場合の代替モード。オンの間は
+  // selectedMonthの月選択を無視し、appliedDate(YYYY-MM-DD文字列比較)で絞り込む。開始日・終了日は
+  // 片方だけの指定も可（片方が空ならその側は無制限）。
+  const [useCustomRange, setUseCustomRange] = useState(false);
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [selectedPositions, setSelectedPositions] = useState<string[]>([]);
   const [trendMetric, setTrendMetric] = useState<'referrals' | 'acceptances' | 'both'>('referrals');
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
@@ -52,7 +58,12 @@ export const DashboardView: React.FC = () => {
   // sidebar's global filters (this view analyzes across agencies/staff/phase regardless of what
   // the Kanban/list screens happen to be filtered to).
   const displayCandidates = candidates.filter((c) => {
-    if (selectedMonth !== 'ALL' && c.appliedMonth !== selectedMonth) return false;
+    if (useCustomRange) {
+      if (customStartDate && c.appliedDate < customStartDate) return false;
+      if (customEndDate && c.appliedDate > customEndDate) return false;
+    } else if (selectedMonth !== 'ALL' && c.appliedMonth !== selectedMonth) {
+      return false;
+    }
     if (selectedPositions.length > 0 && !selectedPositions.includes(c.jobTitle)) return false;
     return true;
   });
@@ -175,21 +186,51 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs flex-wrap">
           <span className="text-slate-600 font-medium">分析対象期間:</span>
-          <select
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="bg-slate-50 text-slate-800 border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer shadow-2xs"
+          {!useCustomRange && (
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-slate-50 text-slate-800 border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer shadow-2xs"
+            >
+              <option value="ALL">全期間（累積）</option>
+              {[...availableMonths].reverse().map((m) => {
+                const [y, mo] = m.split('-');
+                return (
+                  <option key={m} value={m}>{y}年{Number(mo)}月</option>
+                );
+              })}
+            </select>
+          )}
+          {useCustomRange && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="bg-slate-50 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 font-semibold shadow-2xs"
+              />
+              <span className="text-slate-400">〜</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="bg-slate-50 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 font-semibold shadow-2xs"
+              />
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setUseCustomRange((prev) => !prev)}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+              useCustomRange
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
           >
-            <option value="ALL">全期間（累積）</option>
-            {[...availableMonths].reverse().map((m) => {
-              const [y, mo] = m.split('-');
-              return (
-                <option key={m} value={m}>{y}年{Number(mo)}月</option>
-              );
-            })}
-          </select>
+            期間指定（応募日で任意の範囲）
+          </button>
         </div>
 
         {/* Position filter — own local selection, same positionOptions toggle pattern as the

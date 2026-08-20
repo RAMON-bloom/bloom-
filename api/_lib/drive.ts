@@ -57,13 +57,26 @@ export async function listFilesInFolder(
     clauses.push(`name contains '${opts.nameContains.replace(/'/g, "\\'")}'`);
   }
   const q = encodeURIComponent(clauses.join(' and '));
-  const fields = encodeURIComponent('files(id,name,mimeType,modifiedTime,webViewLink)');
-  const res = await driveFetch(
-    accessToken,
-    `${DRIVE_API}/files?q=${q}&fields=${fields}&orderBy=modifiedTime desc&pageSize=50&includeItemsFromAllDrives=true&corpora=allDrives`
-  );
-  const data = await res.json();
-  return data.files || [];
+  const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)');
+
+  // A folder can outgrow one page (e.g. 01_書類選考 accumulating 50+ candidate subfolders over
+  // months of use) — without paging through every nextPageToken, a file dropped straight into
+  // Drive could silently never appear in scan-resumes.ts's results just because 50+ other items
+  // in that same folder happened to have a more recent modifiedTime.
+  const allFiles: DriveFile[] = [];
+  let pageToken: string | undefined;
+  do {
+    const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+    const res = await driveFetch(
+      accessToken,
+      `${DRIVE_API}/files?q=${q}&fields=${fields}&orderBy=modifiedTime desc&pageSize=1000&includeItemsFromAllDrives=true&corpora=allDrives${pageParam}`
+    );
+    const data = await res.json();
+    allFiles.push(...(data.files || []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return allFiles;
 }
 
 export async function findFolderByName(

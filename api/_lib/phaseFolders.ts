@@ -18,7 +18,11 @@ export const PHASE_FOLDER_NAMES: Record<string, string> = {
   FINAL_INTERVIEW: '05_最終面接',
   OFFER_ISSUED: '06_内定',
   OFFER_ACCEPTED: '07_内定承諾',
-  REJECTED_DECLINED: '08_不採用・辞退'
+  // 2026-08-20: 旧'REJECTED_DECLINED'(08_不採用・辞退)をsrc/types.tsのSelectionPhase分割に合わせて
+  // 見送り/選考辞退の2つに分割。本番Driveの旧「08_不採用・辞退」フォルダに残る過去データは対象外
+  // (別途手動で仕分け・移行する運用、ユーザー確認済み)。
+  REJECTED: '08_見送り',
+  DECLINED: '09_選考辞退'
 };
 
 export function resolvePhaseFolderName(phase?: string): string {

@@ -402,9 +402,14 @@ export const KanbanView: React.FC = () => {
                               {renderGradeBadge('面接', candidate.interviewRating || (latestRating ? (latestRating >= 5 ? 'A+' : latestRating >= 4 ? 'A-' : latestRating >= 3 ? 'B+' : 'C') : null))}
                             </div>
 
-                            <div className="flex items-center gap-1 text-[10px] text-slate-500 truncate max-w-[80px]">
+                            <div
+                              className="flex items-center gap-1 text-[10px] text-slate-500 truncate max-w-[120px]"
+                              title={candidate.assignees.length > 0 ? candidate.assignees.join('、') : undefined}
+                            >
                               <User className="w-3 h-3 text-slate-400 shrink-0" />
-                              <span className="truncate font-medium">{candidate.assignees[0] || '未割当'}</span>
+                              <span className="truncate font-medium">
+                                {candidate.assignees.length > 0 ? candidate.assignees.join('、') : '未割当'}
+                              </span>
                             </div>
                           </div>
 

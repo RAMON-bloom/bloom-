@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
-import { SelectionPhase } from '../types';
+import { SelectionPhase, ScheduleStatus } from '../types';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
@@ -37,11 +37,12 @@ import {
   BarChart2,
   LineChart as LineChartIcon,
   Check,
-  ChevronRight
+  ChevronRight,
+  Download
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
-  const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId, positionOptions } = useATS();
+  const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId, positionOptions, showToast } = useATS();
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   // 月単位では区切れない任意の期間（例: 8/5〜8/20）を分析したい場合の代替モード。オンの間は
   // selectedMonthの月選択を無視し、appliedDate(YYYY-MM-DD文字列比較)で絞り込む。開始日・終了日は
@@ -163,6 +164,44 @@ export const DashboardView: React.FC = () => {
   // reassigned by rank) so a given agency's color doesn't shift as filters change.
   const agencyChartColors = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
 
+  // 画面に出ている「分析対象期間・選考ポジション」の絞り込み結果(displayCandidates)をそのまま
+  // CSVに書き出す。ヘッダーの「CSVエクスポート」(ATSContext.exportCSV)はサイドバーの全体フィルター
+  // 由来で全く別の絞り込み対象なので、あちらを再利用せずこのビュー専用に書き出す。
+  const scheduleStatusLabels: Record<ScheduleStatus, string> = {
+    UNARRANGED: '未手配',
+    PROPOSING_DATES: '候補日提示中',
+    SCHEDULE_CONFIRMED: '日程確定',
+    WAITING_RESULT: '結果待ち'
+  };
+
+  const periodLabelForFilename = useCustomRange
+    ? `${customStartDate || '開始日未指定'}_${customEndDate || '終了日未指定'}`
+    : selectedMonth === 'ALL' ? '全期間' : selectedMonth;
+
+  const exportDashboardCSV = () => {
+    const headers = ['候補者ID', '名前', '選考ポジション', '応募日', '担当エージェント', '社内担当者', '選考フェーズ', '次回調整状況'];
+    const rows = displayCandidates.map((c) => [
+      c.id,
+      c.name,
+      c.jobTitle,
+      c.appliedDate,
+      c.agencyName,
+      c.assignees.join('; '),
+      phaseLabels[c.phase],
+      scheduleStatusLabels[c.scheduleStatus]
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,﻿' + [headers, ...rows].map((e) => e.map((x) => `"${x}"`).join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `bloom_dashboard_${periodLabelForFilename}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`分析対象期間の絞り込み結果（${displayCandidates.length}名）をCSVでダウンロードしました`, 'success');
+  };
+
   return (
     <div className="space-y-6 pb-12">
       
@@ -230,6 +269,16 @@ export const DashboardView: React.FC = () => {
             }`}
           >
             期間指定（応募日で任意の範囲）
+          </button>
+          <button
+            type="button"
+            onClick={exportDashboardCSV}
+            disabled={displayCandidates.length === 0}
+            title="現在の分析対象期間・選考ポジションの絞り込み結果をCSVで出力"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Download className="w-3.5 h-3.5" />
+            CSVエクスポート（{displayCandidates.length}名）
           </button>
         </div>
 

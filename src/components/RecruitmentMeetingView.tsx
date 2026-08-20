@@ -149,18 +149,27 @@ export const RecruitmentMeetingView: React.FC = () => {
   // existing snapshot rather than recomputing the whole thing, which would silently shift the
   // already-frozen rates to today's live numbers. Without this, opening any past MTG's report for a
   // recruiter who has no pipeline snapshot yet always shows today's live candidate phases instead of
-  // what was true back then. Deliberately keyed only on the meeting id + selected recruiter (not
-  // candidates/agencies), so it freezes once per view instead of re-freezing to "now" again on every
-  // background poll refresh.
+  // what was true back then.
+  //
+  // For any meeting OTHER than the newest one, that snapshot then freezes forever — a past meeting's
+  // "who was in progress" list shouldn't drift as candidates' phases/assignees keep changing after
+  // the fact. But the NEWEST meeting is the one people actively work from day to day between
+  // meetings (e.g. reassigning a candidate to a different recruiter mid-week), so its pipeline list
+  // is kept live instead: this effect re-checks it against current candidates every time candidates
+  // change, and only writes back when the recomputed list actually differs (skip-if-unchanged, so a
+  // background poll that didn't touch anything relevant to this recruiter doesn't spam
+  // updateMeetingLog every 20s).
   useEffect(() => {
     if (!activeMeeting) return;
     const recruiterName = (recruiterStaffList.find((s) => s.name === selectedRecruiter) || recruiterStaffList[0])?.name;
     if (!recruiterName) return;
 
+    const isLatestMeeting = activeMeeting.id === sortedMeetingLogs[0]?.id;
+
     const existingReports = activeMeeting.recruiterReports || [];
     const reportIndex = existingReports.findIndex((r) => r.recruiterName === recruiterName);
     const existingSnapshot = reportIndex >= 0 ? existingReports[reportIndex].yieldSnapshot : undefined;
-    if (existingSnapshot?.pipelineCandidates) return;
+    if (existingSnapshot?.pipelineCandidates && !isLatestMeeting) return;
 
     let updatedReport: RecruiterReport;
     if (reportIndex < 0) {
@@ -171,9 +180,11 @@ export const RecruitmentMeetingView: React.FC = () => {
         yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
       };
     } else {
+      const freshPipeline = computeRecruiterPipelineSnapshot(recruiterName, candidates);
+      if (isLatestMeeting && JSON.stringify(freshPipeline) === JSON.stringify(existingSnapshot.pipelineCandidates)) return;
       updatedReport = {
         ...existingReports[reportIndex],
-        yieldSnapshot: { ...existingSnapshot, pipelineCandidates: computeRecruiterPipelineSnapshot(recruiterName, candidates) }
+        yieldSnapshot: { ...existingSnapshot, pipelineCandidates: freshPipeline }
       };
     }
 
@@ -183,7 +194,7 @@ export const RecruitmentMeetingView: React.FC = () => {
 
     updateMeetingLog({ ...activeMeeting, recruiterReports: newReportsList }, { silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeMeeting?.id, selectedRecruiter]);
+  }, [activeMeeting?.id, selectedRecruiter, candidates]);
 
   const handleSaveNotes = (label?: string) => {
     if (!activeMeeting) return;
@@ -785,9 +796,12 @@ export const RecruitmentMeetingView: React.FC = () => {
             {recruiterStaffList.map((st) => {
               const isSelected = (currentRecruiterStaff?.name || selectedRecruiter) === st.name;
               const stSnapshot = activeMeeting.recruiterReports?.find(r => r.recruiterName === st.name)?.yieldSnapshot;
-              const candCount = stSnapshot?.pipelineCandidates
+              const liveCandCount = candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)).length;
+              // Same live-vs-frozen split as the main pipeline effect above: the newest meeting always
+              // shows today's real count, older meetings keep showing what was true when frozen.
+              const candCount = stSnapshot?.pipelineCandidates && activeMeeting.id !== sortedMeetingLogs[0]?.id
                 ? stSnapshot.pipelineCandidates.length
-                : candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)).length;
+                : liveCandCount;
 
               return (
                 <button

@@ -75,9 +75,18 @@ export const RecruitmentMeetingView: React.FC = () => {
     yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, meetingDateISO.slice(0, 7))
   });
 
-  // Selected Meeting Date/Log
+  // Newest MTG first in the picker, regardless of the order logs were created/synced in.
+  const sortedMeetingLogs = [...meetingLogs].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  // Selected Meeting Date/Log. Defaults to the newest MTG by date (not meetingLogs[0], whose
+  // array order isn't guaranteed to match date order once Drive sync/merge has touched it).
+  // This is a plain useState rather than one seeded once at module scope, so every time this
+  // view remounts (it's conditionally rendered per activeTab in App.tsx, so switching tabs away
+  // and back unmounts/remounts it) the default re-resolves to whatever is newest at that moment.
   const [selectedMeetingId, setSelectedMeetingId] = useState<string>(
-    meetingLogs[0]?.id || ''
+    sortedMeetingLogs[0]?.id || ''
   );
 
   // Active Recruiter Selection
@@ -119,11 +128,6 @@ export const RecruitmentMeetingView: React.FC = () => {
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
 
   const activeMeeting = meetingLogs.find(m => m.id === selectedMeetingId) || meetingLogs[0];
-
-  // Newest MTG first in the picker, regardless of the order logs were created in.
-  const sortedMeetingLogs = [...meetingLogs].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
 
   // Scrolls back to the top of the page on every switch, so picking a different card from
   // lower in a long list doesn't leave the (now-updated) header off-screen and unnoticed.

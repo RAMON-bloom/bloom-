@@ -6,6 +6,7 @@ import { InterviewScheduleCalendar } from './InterviewScheduleCalendar';
 import { renderGradeBadge } from './CandidateDetailModal';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
+import { RejectionReasonModal } from './RejectionReasonModal';
 import { 
   FileText, 
   UserCheck, 
@@ -80,11 +81,18 @@ const COLUMNS: { phase: SelectionPhase; label: string; icon: React.FC<{ classNam
     headerBg: 'bg-emerald-50 border-emerald-200 text-emerald-900'
   },
   {
-    phase: 'REJECTED_DECLINED',
-    label: '辞退 / 不採用',
+    phase: 'REJECTED',
+    label: '見送り',
     icon: XCircle,
     color: 'text-rose-600',
     headerBg: 'bg-rose-50 border-rose-200 text-rose-900'
+  },
+  {
+    phase: 'DECLINED',
+    label: '選考辞退',
+    icon: XCircle,
+    color: 'text-orange-600',
+    headerBg: 'bg-orange-50 border-orange-200 text-orange-900'
   }
 ];
 
@@ -114,6 +122,7 @@ export const KanbanView: React.FC = () => {
   const [draggedCandidateId, setDraggedCandidateId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<SelectionPhase | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string } | null>(null);
+  const [pendingRejection, setPendingRejection] = useState<{ candidateId: string; phase: 'REJECTED' | 'DECLINED' } | null>(null);
 
   const handleDragStart = (e: React.DragEvent, candidateId: string) => {
     e.dataTransfer.setData('text/plain', candidateId);
@@ -134,7 +143,11 @@ export const KanbanView: React.FC = () => {
     setDragOverColumn(null);
     const candidateId = e.dataTransfer.getData('text/plain') || draggedCandidateId;
     if (candidateId) {
-      updateCandidatePhase(candidateId, targetPhase);
+      if (targetPhase === 'REJECTED' || targetPhase === 'DECLINED') {
+        setPendingRejection({ candidateId, phase: targetPhase });
+      } else {
+        updateCandidatePhase(candidateId, targetPhase);
+      }
       setDraggedCandidateId(null);
     }
   };
@@ -448,6 +461,16 @@ export const KanbanView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <RejectionReasonModal
+        open={pendingRejection !== null}
+        targetLabel={pendingRejection?.phase === 'DECLINED' ? '選考辞退' : '見送り'}
+        onConfirm={(reason) => {
+          if (pendingRejection) updateCandidatePhase(pendingRejection.candidateId, pendingRejection.phase, reason);
+          setPendingRejection(null);
+        }}
+        onCancel={() => setPendingRejection(null)}
+      />
     </div>
   );
 };

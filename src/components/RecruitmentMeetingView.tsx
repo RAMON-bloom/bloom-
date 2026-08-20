@@ -528,7 +528,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     : candidates.filter(
         c => !c.isArchived &&
         c.assignees.includes(currentRecruiterStaff?.name || selectedRecruiter) &&
-        !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)
+        !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)
       );
 
   // Agencies associated with selected recruiter
@@ -783,7 +783,7 @@ export const RecruitmentMeetingView: React.FC = () => {
               const stSnapshot = activeMeeting.recruiterReports?.find(r => r.recruiterName === st.name)?.yieldSnapshot;
               const candCount = stSnapshot?.pipelineCandidates
                 ? stSnapshot.pipelineCandidates.length
-                : candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length;
+                : candidates.filter(c => !c.isArchived && c.assignees.includes(st.name) && !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)).length;
 
               return (
                 <button

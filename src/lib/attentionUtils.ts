@@ -4,8 +4,8 @@ import { Candidate, SelectionPhase, StalledCandidateInfo, OverdueDocScreeningInf
 export const STALLED_DOC_SCREENING_DAYS = 3;
 export const STALLED_OTHER_PHASE_DAYS = 7;
 
-// 内定承諾・辞退/不採用は選考が終わった状態なので、進捗停滞の検知対象から外す。
-const TERMINAL_PHASES: SelectionPhase[] = ['OFFER_ACCEPTED', 'REJECTED_DECLINED'];
+// 内定承諾・見送り・選考辞退は選考が終わった状態なので、進捗停滞の検知対象から外す。
+const TERMINAL_PHASES: SelectionPhase[] = ['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'];
 
 export function daysSince(dateStr: string, today: Date = new Date()): number {
   const then = new Date(dateStr + 'T00:00:00');

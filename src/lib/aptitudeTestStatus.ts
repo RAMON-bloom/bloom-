@@ -55,7 +55,7 @@ export function isAptitudeTestOverdue(candidate: Candidate): boolean {
 // 適性検査は「1次面接合格〜2次面接実施の間」に行う運用のため、それより前のフェーズの候補者
 // カード類には出さない（該当者だけが多数の候補者一覧の中で埋もれないようにするため）。
 // ただし既に何かデータが入っている候補者は、フェーズが変わっても表示し続ける（入力済み情報を
-// 不意に隠さないための安全策）。REJECTED_DECLINED（辞退/不採用）はPHASE_SEQUENCEの並びに
+// 不意に隠さないための安全策）。REJECTED/DECLINED（見送り/選考辞退）はPHASE_SEQUENCEの並びに
 // 含まれずどこで離脱したか一意に決まらないため、安全側に倒して表示する。
 const APTITUDE_TEST_VISIBLE_FROM_INDEX = PHASE_SEQUENCE.indexOf('SECOND_INTERVIEW');
 
@@ -69,6 +69,6 @@ export function isAptitudeTestRelevantPhase(candidate: Candidate): boolean {
   ) {
     return true;
   }
-  if (candidate.phase === 'REJECTED_DECLINED') return true;
+  if (candidate.phase === 'REJECTED' || candidate.phase === 'DECLINED') return true;
   return PHASE_SEQUENCE.indexOf(candidate.phase) >= APTITUDE_TEST_VISIBLE_FROM_INDEX;
 }

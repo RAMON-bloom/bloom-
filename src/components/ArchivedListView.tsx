@@ -25,7 +25,8 @@ const PHASE_LABELS: Record<SelectionPhase, { label: string; color: string }> = {
   FINAL_INTERVIEW: { label: '最終面接', color: 'bg-slate-100 text-slate-700 border-slate-200' },
   OFFER_ISSUED: { label: '内定通知済', color: 'bg-amber-50 text-amber-800 border-amber-200' },
   OFFER_ACCEPTED: { label: '内定承諾', color: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
-  REJECTED_DECLINED: { label: '不採用 / 辞退', color: 'bg-rose-50 text-rose-800 border-rose-200' }
+  REJECTED: { label: '見送り', color: 'bg-rose-50 text-rose-800 border-rose-200' },
+  DECLINED: { label: '選考辞退', color: 'bg-orange-50 text-orange-800 border-orange-200' }
 };
 
 export const ArchivedListView: React.FC = () => {

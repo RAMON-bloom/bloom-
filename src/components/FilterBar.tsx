@@ -213,7 +213,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({ showPhaseFilter = false })
               <option value="FINAL_INTERVIEW">最終面接</option>
               <option value="OFFER_ISSUED">内定</option>
               <option value="OFFER_ACCEPTED">承諾</option>
-              <option value="REJECTED_DECLINED">辞退 / 不採用</option>
+              <option value="REJECTED">見送り</option>
+              <option value="DECLINED">選考辞退</option>
             </select>
           </div>
         )}

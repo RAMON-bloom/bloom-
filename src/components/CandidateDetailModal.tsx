@@ -3,6 +3,7 @@ import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog, InterviewFormat } from '../types';
 import { isFirstInterviewOrAbove } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
+import { RejectionReasonModal } from './RejectionReasonModal';
 import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder, listFolderFiles } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
@@ -66,7 +67,8 @@ const PHASE_LABELS: Record<SelectionPhase, string> = {
   FINAL_INTERVIEW: '最終面接',
   OFFER_ISSUED: '内定通知',
   OFFER_ACCEPTED: '内定承諾',
-  REJECTED_DECLINED: '辞退 / 不採用'
+  REJECTED: '見送り',
+  DECLINED: '選考辞退'
 };
 
 export const renderGradeBadge = (
@@ -150,6 +152,7 @@ export const CandidateDetailModal: React.FC = () => {
   const [isPhotoCropperOpen, setIsPhotoCropperOpen] = useState(false);
   const [isReissueConfirmOpen, setIsReissueConfirmOpen] = useState(false);
   const [isReissuing, setIsReissuing] = useState(false);
+  const [pendingRejectionPhase, setPendingRejectionPhase] = useState<'REJECTED' | 'DECLINED' | null>(null);
 
   // Section Collapse State for Card Sections
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
@@ -1491,7 +1494,14 @@ export const CandidateDetailModal: React.FC = () => {
                       {userRole !== 'INTERVIEWER' ? (
                         <select
                           value={candidate.phase}
-                          onChange={(e) => updateCandidatePhase(candidate.id, e.target.value as SelectionPhase)}
+                          onChange={(e) => {
+                            const next = e.target.value as SelectionPhase;
+                            if (next === 'REJECTED' || next === 'DECLINED') {
+                              setPendingRejectionPhase(next);
+                            } else {
+                              updateCandidatePhase(candidate.id, next);
+                            }
+                          }}
                           className="bg-transparent text-indigo-900 font-extrabold text-xs focus:outline-none cursor-pointer"
                         >
                           <option value="DOCUMENT_SCREENING">1. 書類選考</option>
@@ -1501,7 +1511,8 @@ export const CandidateDetailModal: React.FC = () => {
                           <option value="FINAL_INTERVIEW">5. 最終面接</option>
                           <option value="OFFER_ISSUED">6. 内定通知</option>
                           <option value="OFFER_ACCEPTED">7. 内定承諾</option>
-                          <option value="REJECTED_DECLINED">8. 辞退 / 不採用</option>
+                          <option value="REJECTED">8. 見送り</option>
+                          <option value="DECLINED">9. 選考辞退</option>
                         </select>
                       ) : (
                         <span className="text-xs font-bold text-indigo-900">{PHASE_LABELS[candidate.phase]}</span>
@@ -1545,9 +1556,9 @@ export const CandidateDetailModal: React.FC = () => {
 
                   // 表示が長くなり閲覧しづらくならないよう、デフォルトでは現在進行中のフェーズまで
                   // だけを表示する。それより先のフェーズを前もって調整したい場合は「次回選考の調整」
-                  // ボタンで1件ずつ表示を広げる(辞退/不採用は現時点でどこまで進んだか一意に決まらない
+                  // ボタンで1件ずつ表示を広げる(見送り/選考辞退は現時点でどこまで進んだか一意に決まらない
                   // ため、念のため全件表示にフォールバックする)。
-                  const currentPhaseSeqIndex = candidate.phase === 'REJECTED_DECLINED'
+                  const currentPhaseSeqIndex = (candidate.phase === 'REJECTED' || candidate.phase === 'DECLINED')
                     ? Infinity
                     : PHASE_SEQUENCE.indexOf(candidate.phase);
                   const firstHiddenIdx = LADDER_STAGES.findIndex(
@@ -3299,6 +3310,16 @@ export const CandidateDetailModal: React.FC = () => {
           </div>
         </div>
       )}
+
+      <RejectionReasonModal
+        open={pendingRejectionPhase !== null}
+        targetLabel={pendingRejectionPhase === 'DECLINED' ? '選考辞退' : '見送り'}
+        onConfirm={(reason) => {
+          if (pendingRejectionPhase) updateCandidatePhase(candidate.id, pendingRejectionPhase, reason);
+          setPendingRejectionPhase(null);
+        }}
+        onCancel={() => setPendingRejectionPhase(null)}
+      />
     </div>
   );
 };

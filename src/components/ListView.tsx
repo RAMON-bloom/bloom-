@@ -7,6 +7,7 @@ import { InterviewScheduleCalendar } from './InterviewScheduleCalendar';
 import { renderGradeBadge } from './CandidateDetailModal';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
+import { RejectionReasonModal } from './RejectionReasonModal';
 import { 
   Eye, 
   Trash2, 
@@ -144,7 +145,8 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
   FINAL_INTERVIEW: 5,
   OFFER_ISSUED: 6,
   OFFER_ACCEPTED: 7,
-  REJECTED_DECLINED: 8,
+  REJECTED: 8,
+  DECLINED: 9,
 };
 
 const GRADE_ORDER: Record<string, number> = {
@@ -176,9 +178,10 @@ export const ListView: React.FC = () => {
   const [sortField, setSortField] = useState<ListViewSortField>('phase');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string } | null>(null);
-  // 辞退/不採用の候補者は一覧が長くなり選考中の候補者を探しづらくするため、デフォルトでは
-  // 非表示にする。フェーズ絞り込みで「辞退/不採用」を明示的に選んだ場合はこの非表示を適用しない
-  // （選んだのに何も表示されないと混乱するため）。
+  const [pendingRejection, setPendingRejection] = useState<{ candidateId: string; phase: 'REJECTED' | 'DECLINED' } | null>(null);
+  // 見送り/選考辞退の候補者は一覧が長くなり選考中の候補者を探しづらくするため、デフォルトでは
+  // 非表示にする。フェーズ絞り込みで「見送り」「選考辞退」のいずれかを明示的に選んだ場合はこの
+  // 非表示を適用しない（選んだのに何も表示されないと混乱するため）。
   const [showRejectedDeclined, setShowRejectedDeclined] = useState(false);
 
   const handleSort = (field: ListViewSortField) => {
@@ -233,7 +236,8 @@ export const ListView: React.FC = () => {
     FINAL_INTERVIEW: 0,
     OFFER_ISSUED: 0,
     OFFER_ACCEPTED: 0,
-    REJECTED_DECLINED: 0,
+    REJECTED: 0,
+    DECLINED: 0,
   };
 
   baseFilteredCandidates.forEach((c) => {
@@ -380,9 +384,9 @@ export const ListView: React.FC = () => {
       icon: <Calendar className="w-3.5 h-3.5 text-amber-700" />,
     },
     {
-      key: 'REJECTED_DECLINED',
-      label: '辞退/不採用',
-      count: phaseCounts.REJECTED_DECLINED,
+      key: 'REJECTED',
+      label: '見送り',
+      count: phaseCounts.REJECTED,
       bg: 'bg-rose-50/50 hover:bg-rose-100/50',
       borderColor: 'border-rose-200',
       activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
@@ -390,16 +394,28 @@ export const ListView: React.FC = () => {
       badgeBg: 'bg-rose-100 text-rose-800',
       icon: <XCircle className="w-3.5 h-3.5 text-rose-600" />,
     },
+    {
+      key: 'DECLINED',
+      label: '選考辞退',
+      count: phaseCounts.DECLINED,
+      bg: 'bg-orange-50/50 hover:bg-orange-100/50',
+      borderColor: 'border-orange-200',
+      activeBorderColor: 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-50/60',
+      textColor: 'text-orange-900',
+      badgeBg: 'bg-orange-100 text-orange-800',
+      icon: <XCircle className="w-3.5 h-3.5 text-orange-600" />,
+    },
   ];
 
-  // 辞退/不採用を明示的にフェーズ絞り込みしている場合は非表示にしない
-  const hiddenRejectedDeclinedCount = showRejectedDeclined || filters.phase === 'REJECTED_DECLINED'
+  // 見送り/選考辞退を明示的にフェーズ絞り込みしている場合は非表示にしない
+  const isRejectionPhaseFilterActive = filters.phase === 'REJECTED' || filters.phase === 'DECLINED';
+  const hiddenRejectedDeclinedCount = showRejectedDeclined || isRejectionPhaseFilterActive
     ? 0
-    : filteredCandidates.filter((c) => c.phase === 'REJECTED_DECLINED').length;
+    : filteredCandidates.filter((c) => c.phase === 'REJECTED' || c.phase === 'DECLINED').length;
 
-  const visibleCandidates = showRejectedDeclined || filters.phase === 'REJECTED_DECLINED'
+  const visibleCandidates = showRejectedDeclined || isRejectionPhaseFilterActive
     ? filteredCandidates
-    : filteredCandidates.filter((c) => c.phase !== 'REJECTED_DECLINED');
+    : filteredCandidates.filter((c) => c.phase !== 'REJECTED' && c.phase !== 'DECLINED');
 
   const sortedCandidates = [...visibleCandidates].sort((a, b) => {
     let result = 0;
@@ -439,7 +455,8 @@ export const ListView: React.FC = () => {
       FINAL_INTERVIEW: { label: '最終面接', bg: 'bg-slate-100 border-slate-200', text: 'text-slate-700' },
       OFFER_ISSUED: { label: '内定通知', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700' },
       OFFER_ACCEPTED: { label: '内定承諾', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
-      REJECTED_DECLINED: { label: '辞退 / 不採用', bg: 'bg-rose-50 border-rose-200', text: 'text-rose-700' }
+      REJECTED: { label: '見送り', bg: 'bg-rose-50 border-rose-200', text: 'text-rose-700' },
+      DECLINED: { label: '選考辞退', bg: 'bg-orange-50 border-orange-200', text: 'text-orange-700' }
     };
 
     const cfg = config[phase];
@@ -575,7 +592,7 @@ export const ListView: React.FC = () => {
         <div className="p-3 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2 text-slate-700 font-medium">
             <span>該当候補者: <strong className="text-slate-900 font-mono text-sm">{sortedCandidates.length}</strong> 名</span>
-            {filters.phase !== 'REJECTED_DECLINED' && (hiddenRejectedDeclinedCount > 0 || showRejectedDeclined) && (
+            {!isRejectionPhaseFilterActive && (hiddenRejectedDeclinedCount > 0 || showRejectedDeclined) && (
               <button
                 type="button"
                 onClick={() => setShowRejectedDeclined((prev) => !prev)}
@@ -587,8 +604,8 @@ export const ListView: React.FC = () => {
               >
                 <XCircle className="w-3 h-3" />
                 {showRejectedDeclined
-                  ? '辞退/不採用を非表示にする'
-                  : `辞退/不採用を表示する (${hiddenRejectedDeclinedCount}名)`}
+                  ? '見送り/選考辞退を非表示にする'
+                  : `見送り/選考辞退を表示する (${hiddenRejectedDeclinedCount}名)`}
               </button>
             )}
           </div>
@@ -785,7 +802,14 @@ export const ListView: React.FC = () => {
                         {userRole !== 'INTERVIEWER' ? (
                           <select
                             value={c.phase}
-                            onChange={(e) => updateCandidatePhase(c.id, e.target.value as SelectionPhase)}
+                            onChange={(e) => {
+                              const next = e.target.value as SelectionPhase;
+                              if (next === 'REJECTED' || next === 'DECLINED') {
+                                setPendingRejection({ candidateId: c.id, phase: next });
+                              } else {
+                                updateCandidatePhase(c.id, next);
+                              }
+                            }}
                             className="bg-slate-50 border border-slate-200 text-slate-800 rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer font-medium"
                           >
                             <option value="DOCUMENT_SCREENING">書類選考</option>
@@ -795,7 +819,8 @@ export const ListView: React.FC = () => {
                             <option value="FINAL_INTERVIEW">最終面接</option>
                             <option value="OFFER_ISSUED">内定</option>
                             <option value="OFFER_ACCEPTED">承諾</option>
-                            <option value="REJECTED_DECLINED">辞退/不採用</option>
+                            <option value="REJECTED">見送り</option>
+                            <option value="DECLINED">選考辞退</option>
                           </select>
                         ) : (
                           getPhaseBadge(c.phase)
@@ -1012,6 +1037,16 @@ export const ListView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <RejectionReasonModal
+        open={pendingRejection !== null}
+        targetLabel={pendingRejection?.phase === 'DECLINED' ? '選考辞退' : '見送り'}
+        onConfirm={(reason) => {
+          if (pendingRejection) updateCandidatePhase(pendingRejection.candidateId, pendingRejection.phase, reason);
+          setPendingRejection(null);
+        }}
+        onCancel={() => setPendingRejection(null)}
+      />
     </div>
   );
 };

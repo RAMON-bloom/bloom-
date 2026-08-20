@@ -8,7 +8,7 @@ export function computeRecruiterPipeline(recruiterName: string, candidates: Cand
     (c) =>
       !c.isArchived &&
       c.assignees.includes(recruiterName) &&
-      !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)
+      !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)
   );
 }
 

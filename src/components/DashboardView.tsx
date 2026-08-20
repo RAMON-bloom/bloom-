@@ -59,7 +59,7 @@ export const DashboardView: React.FC = () => {
 
   // Total KPIs
   const totalApps = displayCandidates.length;
-  const activeCandidates = displayCandidates.filter((c) => !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length;
+  const activeCandidates = displayCandidates.filter((c) => !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)).length;
   const offerCount = displayCandidates.filter((c) => ['OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)).length;
   const acceptCount = displayCandidates.filter((c) => c.phase === 'OFFER_ACCEPTED').length;
   const offerAcceptRate = offerCount > 0 ? Math.round((acceptCount / offerCount) * 100) : 0;
@@ -83,7 +83,8 @@ export const DashboardView: React.FC = () => {
     FINAL_INTERVIEW: '最終面接',
     OFFER_ISSUED: '内定',
     OFFER_ACCEPTED: '承諾',
-    REJECTED_DECLINED: '辞退/不採用'
+    REJECTED: '見送り',
+    DECLINED: '選考辞退'
   };
 
   const phaseColors: Record<SelectionPhase, string> = {
@@ -94,7 +95,8 @@ export const DashboardView: React.FC = () => {
     FINAL_INTERVIEW: '#4f46e5',     // indigo-600
     OFFER_ISSUED: '#f59e0b',        // amber (genuine pending-decision state)
     OFFER_ACCEPTED: '#10b981',      // emerald (genuine success state)
-    REJECTED_DECLINED: '#f43f5e'    // rose (genuine negative state)
+    REJECTED: '#f43f5e',            // rose (自社都合の見送り)
+    DECLINED: '#ea580c'             // orange (候補者都合の選考辞退)
   };
 
   const phaseDistributionData = Object.keys(phaseLabels).map((phaseKey) => {
@@ -325,13 +327,13 @@ export const DashboardView: React.FC = () => {
             </p>
           </div>
           <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full self-start sm:self-auto shrink-0">
-            アクティブ選考中: {displayCandidates.filter(c => !c.isArchived && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length}名
+            アクティブ選考中: {displayCandidates.filter(c => !c.isArchived && !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)).length}名
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {displayCandidates
-            .filter(c => !c.isArchived && !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase))
+            .filter(c => !c.isArchived && !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase))
             .slice(0, 6)
             .map((c) => (
               <div

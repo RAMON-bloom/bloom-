@@ -28,7 +28,8 @@ export type SelectionPhase =
   | 'FINAL_INTERVIEW'     // 最終面接
   | 'OFFER_ISSUED'        // 内定
   | 'OFFER_ACCEPTED'      // 承諾
-  | 'REJECTED_DECLINED';  // 辞退 / 不採用
+  | 'REJECTED'            // 見送り（自社都合の不採用）
+  | 'DECLINED';           // 選考辞退（候補者都合の辞退）
 
 export type ScheduleStatus =
   | 'UNARRANGED'       // 未手配
@@ -143,7 +144,7 @@ export interface Candidate {
   lNote?: string; // L評価 補足メモ
   cNote?: string; // C評価 補足メモ
   mNote?: string; // M評価 補足メモ
-  rejectionReason?: string;
+  rejectionReason?: string; // 見送り/選考辞退の理由メモ（任意）
   salaryExpectation?: string;
   joiningDate?: string; // 入社予定日 YYYY-MM-DD
   preJoinDinnerStatus?: PreJoinDinnerStatus; // 入社前会食状況

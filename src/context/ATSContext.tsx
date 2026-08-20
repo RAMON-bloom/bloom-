@@ -53,7 +53,7 @@ import {
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
-import { getNextPhase } from '../lib/phaseUtils';
+import { getNextPhase, migrateLegacyPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
 import { AptitudeTestStatus, applyAptitudeTestStatus, APTITUDE_TEST_STATUS_META } from '../lib/aptitudeTestStatus';
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
@@ -98,7 +98,7 @@ interface ATSContextType {
   importHistoricalMeetingLogs: () => number;
   
   // Actions
-  updateCandidatePhase: (candidateId: string, newPhase: SelectionPhase) => void;
+  updateCandidatePhase: (candidateId: string, newPhase: SelectionPhase, reason?: string) => void;
   updateCandidateSchedule: (
     candidateId: string,
     scheduleStatus: ScheduleStatus,
@@ -212,7 +212,8 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
   'FINAL_INTERVIEW': 5,
   'OFFER_ISSUED': 6,
   'OFFER_ACCEPTED': 7,
-  'REJECTED_DECLINED': 0
+  'REJECTED': 0,
+  'DECLINED': 0
 };
 
 // Shared by addEvaluationNote and reissueCandidateId — both build Chat notification text and need
@@ -226,7 +227,8 @@ const PHASE_LABEL_MAP: Record<SelectionPhase, string> = {
   FINAL_INTERVIEW: '最終面接',
   OFFER_ISSUED: '内定通知',
   OFFER_ACCEPTED: '内定承諾',
-  REJECTED_DECLINED: '辞退 / 不採用'
+  REJECTED: '見送り',
+  DECLINED: '選考辞退'
 };
 const INTERVIEW_FORMAT_LABEL_MAP: Record<InterviewFormat, string> = { IN_PERSON: '対面', ONLINE: 'オンライン' };
 
@@ -301,7 +303,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [candidates, setCandidates] = useState<Candidate[]>(() => {
     if (needsDemoDataMigration) return [];
     const saved = localStorage.getItem('ats_candidates');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? (JSON.parse(saved) as Candidate[]).map(migrateLegacyPhase) : [];
   });
 
   const [agencies, setAgencies] = useState<Agency[]>(() => {
@@ -772,7 +774,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     candidateIdSeq?: number;
     backedUpAt?: string;
   }) => {
-    if (data.candidates) setCandidates(data.candidates);
+    if (data.candidates) setCandidates(data.candidates.map(migrateLegacyPhase));
     if (data.agencies) setAgencies(data.agencies);
     if (data.staffList) setStaffList(data.staffList);
     if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
@@ -1316,9 +1318,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     evalLogSaveQueueRef.current.set(candidate.id, thisSave);
   };
 
-  const updateCandidatePhase = (candidateId: string, newPhase: SelectionPhase) => {
+  const updateCandidatePhase = (candidateId: string, newPhase: SelectionPhase, reason?: string) => {
     const target = candidates.find((c) => c.id === candidateId);
     if (target) moveResumeFolderIfNeeded(target, newPhase);
+
+    const isTerminalRejection = newPhase === 'REJECTED' || newPhase === 'DECLINED';
 
     setCandidates((prev) =>
       prev.map((c) => {
@@ -1331,12 +1335,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             FINAL_INTERVIEW: '最終面接',
             OFFER_ISSUED: '内定通知',
             OFFER_ACCEPTED: '内定承諾',
-            REJECTED_DECLINED: '不採用・辞退'
+            REJECTED: '見送り',
+            DECLINED: '選考辞退'
           };
           showToast(`${c.name} さんのフェーズを「${phaseNames[newPhase]}」に変更しました`, 'success');
           return {
             ...c,
             phase: newPhase,
+            rejectionReason: isTerminalRejection ? (reason?.trim() || undefined) : undefined,
             lastUpdated: new Date().toISOString().split('T')[0]
           };
         }
@@ -1527,7 +1533,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = candidates.find((c) => c.id === candidateId);
 
     if (noteData.resultStatus === 'FAIL') {
-      if (target) moveResumeFolderIfNeeded(target, 'REJECTED_DECLINED' as SelectionPhase);
+      if (target) moveResumeFolderIfNeeded(target, 'REJECTED' as SelectionPhase);
     }
 
     if (target) saveEvaluationLogForCandidate(target, [newNote, ...target.evaluationNotes]);
@@ -1547,7 +1553,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...(noteData.lNote !== undefined ? { lNote: noteData.lNote } : {}),
             ...(noteData.cNote !== undefined ? { cNote: noteData.cNote } : {}),
             ...(noteData.mNote !== undefined ? { mNote: noteData.mNote } : {}),
-            ...(noteData.resultStatus === 'FAIL' ? { phase: 'REJECTED_DECLINED' as SelectionPhase } : {}),
+            ...(noteData.resultStatus === 'FAIL' ? { phase: 'REJECTED' as SelectionPhase, rejectionReason: noteData.failReason || undefined } : {}),
             lastUpdated: new Date().toISOString().split('T')[0]
           };
         }
@@ -3028,7 +3034,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       FINAL_INTERVIEW: '最終面接',
       OFFER_ISSUED: '内定',
       OFFER_ACCEPTED: '承諾',
-      REJECTED_DECLINED: '辞退/不採用'
+      REJECTED: '見送り',
+      DECLINED: '選考辞退'
     };
 
     const scheduleMap: Record<ScheduleStatus, string> = {

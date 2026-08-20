@@ -11,7 +11,8 @@ const PHASE_LABELS: Record<SelectionPhase, string> = {
   FINAL_INTERVIEW: '最終面接',
   OFFER_ISSUED: '内定通知',
   OFFER_ACCEPTED: '内定承諾',
-  REJECTED_DECLINED: '辞退 / 不採用'
+  REJECTED: '見送り',
+  DECLINED: '選考辞退'
 };
 
 // Which folder to keep by default when a candidate's resume turns out to be duplicated across

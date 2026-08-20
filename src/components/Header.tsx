@@ -271,7 +271,7 @@ export const Header: React.FC = () => {
           {/* Quick counts indicator */}
           <div className="hidden lg:flex items-center gap-4 text-xs text-slate-500 py-2 border-l border-slate-200 pl-4">
             <div>全候補者: <span className="font-semibold text-slate-800">{candidates.length}名</span></div>
-            <div>選考中: <span className="font-semibold text-slate-800">{candidates.filter(c => !['OFFER_ACCEPTED', 'REJECTED_DECLINED'].includes(c.phase)).length}名</span></div>
+            <div>選考中: <span className="font-semibold text-slate-800">{candidates.filter(c => !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)).length}名</span></div>
           </div>
         </div>
       </div>

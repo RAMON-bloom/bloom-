@@ -29,7 +29,8 @@ const PHASE_LABELS: Record<SelectionPhase, { label: string; bg: string; text: st
   FINAL_INTERVIEW: { label: '最終面接', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
   OFFER_ISSUED: { label: '内定提示', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   OFFER_ACCEPTED: { label: '承諾済', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  REJECTED_DECLINED: { label: '辞退/不採用', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' }
+  REJECTED: { label: '見送り', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
+  DECLINED: { label: '選考辞退', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' }
 };
 
 interface CalendarEvent {
@@ -72,7 +73,7 @@ export const OnboardingView: React.FC = () => {
   };
 
   // Filter onboarding candidates (joining date set or OFFER_ACCEPTED / OFFER_ISSUED; excludes
-  // REJECTED_DECLINED even if joiningDate was set before they declined)
+  // REJECTED/DECLINED even if joiningDate was set before they declined)
   const allJoiningCandidates = useMemo(() => {
     return candidates.filter(isJoiningScheduled);
   }, [candidates]);

@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
-  const { candidates, agencies, filters, setFilters, setSelectedCandidateId, positionOptions, showToast } = useATS();
+  const { candidates, agencies, filters, setFilters, setSelectedCandidateId, positionOptions, showToast, sendApplicationsDigest } = useATS();
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   // 月単位では区切れない任意の期間（例: 8/5〜8/20）を分析したい場合の代替モード。オンの間は
   // selectedMonthの月選択を無視し、appliedDate(YYYY-MM-DD文字列比較)で絞り込む。開始日・終了日は
@@ -185,6 +185,44 @@ export const DashboardView: React.FC = () => {
     ? `${customStartDate || '開始日未指定'}_${customEndDate || '終了日未指定'}`
     : selectedMonth === 'ALL' ? '全期間' : selectedMonth;
 
+  // Chatへの手動送信ボタン向けの、人が読む用の期間ラベル（periodLabelForFilenameはCSVファイル名
+  // 向けの機械的な表記のため、別に用意する）。
+  const periodLabelForChat = useCustomRange
+    ? `${customStartDate || '指定なし'}〜${customEndDate || '指定なし'}`
+    : selectedMonth === 'ALL' ? '全期間（累積）' : `${selectedMonth.replace('-', '年')}月`;
+
+  const [isSendingDailyDigest, setIsSendingDailyDigest] = useState(false);
+  const [isSendingPeriodDigest, setIsSendingPeriodDigest] = useState(false);
+
+  const sendDailyDigest = async () => {
+    setIsSendingDailyDigest(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const todaysCandidates = candidates.filter((c) => c.appliedDate === today);
+      const todaysYieldMetrics = computeYieldMetrics(agencies, todaysCandidates);
+      await sendApplicationsDigest({
+        kind: 'DAILY_APPLICATIONS_DIGEST',
+        periodLabel: `本日（${today}）`,
+        agencyStats: todaysYieldMetrics
+      });
+    } finally {
+      setIsSendingDailyDigest(false);
+    }
+  };
+
+  const sendPeriodDigest = async () => {
+    setIsSendingPeriodDigest(true);
+    try {
+      await sendApplicationsDigest({
+        kind: 'PERIOD_APPLICATIONS_DIGEST',
+        periodLabel: periodLabelForChat,
+        agencyStats: displayYieldMetrics
+      });
+    } finally {
+      setIsSendingPeriodDigest(false);
+    }
+  };
+
   const exportDashboardCSV = () => {
     const headers = ['候補者ID', '名前', '選考ポジション', '応募日', '担当エージェント', '社内担当者', '選考フェーズ', '次回調整状況'];
     const rows = displayCandidates.map((c) => [
@@ -312,6 +350,26 @@ export const DashboardView: React.FC = () => {
           >
             <Download className="w-3.5 h-3.5" />
             CSVエクスポート（{displayCandidates.length}名）
+          </button>
+          <button
+            type="button"
+            onClick={sendDailyDigest}
+            disabled={isSendingDailyDigest}
+            title="本日の応募数・エージェント別進捗をChatに手動送信（担当者マスタ・エージェント設定で「本日の応募状況」を有効にしたWebhook宛）"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            {isSendingDailyDigest ? '送信中…' : '本日の応募状況を送信'}
+          </button>
+          <button
+            type="button"
+            onClick={sendPeriodDigest}
+            disabled={isSendingPeriodDigest || displayCandidates.length === 0}
+            title="現在の分析対象期間・選考ポジションの応募数・エージェント別状況をChatに手動送信（担当者マスタ・エージェント設定で「指定期間の応募状況」を有効にしたWebhook宛）"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            {isSendingPeriodDigest ? '送信中…' : '指定期間の応募状況を送信'}
           </button>
         </div>
 

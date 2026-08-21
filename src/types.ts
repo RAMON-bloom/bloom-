@@ -205,7 +205,9 @@ export type ChatNotificationKind =
   | 'EVALUATION_SUMMARY_THREAD'   // 各フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む
   | 'APTITUDE_TEST_REMINDER'      // 適性検査の送信リマインド予定日時が到来した際
   | 'APTITUDE_TEST_SENT'          // 適性検査メールを送付した際（候補者名・実施期限を通知）
-  | 'APTITUDE_TEST_DEADLINE_ALERT'; // 実施期限前日10時時点で未完了（aptitudeTestCompletedAt未設定）の際
+  | 'APTITUDE_TEST_DEADLINE_ALERT'  // 実施期限前日10時時点で未完了（aptitudeTestCompletedAt未設定）の際
+  | 'DAILY_APPLICATIONS_DIGEST'     // ダッシュボードの「本日の応募状況を送信」ボタンからの手動送信
+  | 'PERIOD_APPLICATIONS_DIGEST';   // ダッシュボードの「指定期間の応募状況を送信」ボタンからの手動送信
 
 // 個人用・グループ用どちらのWebhook登録にも使う共通の形。「誰に属するか」は保持先（InternalStaff.
 // googleChatWebhooksか、組織全体のgroupChatWebhooksか）で決まる。

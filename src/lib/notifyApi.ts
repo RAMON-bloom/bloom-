@@ -186,6 +186,25 @@ export async function notifyAptitudeTestDeadlineAlert(params: {
   return postJson('/api/notify/aptitude-test-deadline-alert', { ...params, appUrl: window.location.origin });
 }
 
+export function notifyApplicationsDigest(params: {
+  accessToken: string | null;
+  webhookUrl: string;
+  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
+  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
+  periodLabel: string;
+  totalCount: number;
+  agencyStats: {
+    agencyName: string;
+    total: number;
+    documentPassCount: number;
+    firstInterviewPassCount: number;
+    offerCount: number;
+    acceptCount: number;
+  }[];
+}): Promise<void> {
+  return postJson('/api/notify/applications-digest', { ...params, appUrl: window.location.origin });
+}
+
 export async function notifyDocumentScreeningThread(params: {
   accessToken: string | null;
   webhookUrl: string;

@@ -49,7 +49,8 @@ import {
   notifyEvaluationSummaryThread as notifyEvaluationSummaryThreadApi,
   notifyAptitudeTestReminder as notifyAptitudeTestReminderApi,
   notifyAptitudeTestSent as notifyAptitudeTestSentApi,
-  notifyAptitudeTestDeadlineAlert as notifyAptitudeTestDeadlineAlertApi
+  notifyAptitudeTestDeadlineAlert as notifyAptitudeTestDeadlineAlertApi,
+  notifyApplicationsDigest as notifyApplicationsDigestApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
@@ -169,6 +170,16 @@ interface ATSContextType {
   // アプリ内「お問い合わせ」。開発者とのチャット形式のスレッド一覧。
   inquiries: Inquiry[];
   addInquiryMessage: (category: InquiryCategory, text: string, inquiryId?: string) => string;
+
+  // 分析ダッシュボードの「本日/指定期間の応募状況を送信」ボタンから呼ばれる。渡されたagencyStats
+  // (呼び出し元がcomputeYieldMetricsで対象期間分を計算したもの)を、kindに対応するWebhook全件
+  // (担当者個人用＋グループ用)へ送信する。ATTENTION_DIGEST等の自動送信と同じ宛先解決・失敗時
+  // トースト表示のパターンを踏襲するが、こちらは常にユーザーのボタン操作で明示的に発火する。
+  sendApplicationsDigest: (params: {
+    kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
+    periodLabel: string;
+    agencyStats: YieldMetrics[];
+  }) => Promise<void>;
 
   // Utils & Yields
   yieldMetrics: YieldMetrics[];
@@ -2959,6 +2970,68 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return targetId;
   };
 
+  // ダッシュボードの「本日/指定期間の応募状況を送信」ボタンから呼ばれる、常にユーザー操作で明示的に
+  // 発火する手動送信。宛先解決(担当者個人用＋グループ用Webhook)・失敗時トーストは他のChat通知と
+  // 同じ流儀。kindごとに購読しているWebhookが1件もなければ、送信を試みずその旨をトーストで伝える
+  // （担当者マスタでのWebhook未設定に気づきやすくするため、無言で何もしないことは避ける）。
+  const sendApplicationsDigest = async (params: {
+    kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
+    periodLabel: string;
+    agencyStats: YieldMetrics[];
+  }): Promise<void> => {
+    const { kind, periodLabel, agencyStats } = params;
+    const totalCount = agencyStats.reduce((acc, m) => acc + m.totalApplications, 0);
+    const digestAgencyStats = agencyStats.map((m) => ({
+      agencyName: m.agencyName,
+      total: m.totalApplications,
+      documentPassCount: m.documentPassCount,
+      firstInterviewPassCount: m.firstInterviewPassCount,
+      offerCount: m.offerCount,
+      acceptCount: m.acceptCount
+    }));
+
+    const notifyCalls: Promise<void>[] = [];
+    staffList.forEach((staff) => {
+      getStaffWebhooksForKind(staff, kind).forEach((webhookUrl) => {
+        notifyCalls.push(
+          notifyApplicationsDigestApi({
+            accessToken: driveAccessToken,
+            webhookUrl,
+            staffName: staff.name,
+            staffMentionId: staff.chatMentionId,
+            periodLabel,
+            totalCount,
+            agencyStats: digestAgencyStats
+          })
+        );
+      });
+    });
+    getGroupWebhooksForKind(groupChatWebhooks, kind).forEach((webhookUrl) => {
+      notifyCalls.push(
+        notifyApplicationsDigestApi({
+          accessToken: driveAccessToken,
+          webhookUrl,
+          periodLabel,
+          totalCount,
+          agencyStats: digestAgencyStats
+        })
+      );
+    });
+
+    if (notifyCalls.length === 0) {
+      showToast('送信先のWebhookが設定されていません（担当者マスタ・エージェント／採用担当設定をご確認ください）', 'warning');
+      return;
+    }
+
+    const results = await Promise.allSettled(notifyCalls);
+    const failedCount = results.filter((r) => r.status === 'rejected').length;
+    if (failedCount > 0) {
+      showToast(`応募状況の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
+    } else {
+      showToast(`応募状況をChatに送信しました（${notifyCalls.length}件）`, 'success');
+    }
+  };
+
   // 抜け防止: 進捗が止まっている候補者 / 書類選考の対応が止まっている候補者。毎レンダー
   // candidatesから再計算する軽量な派生値（filteredCandidates等と同じ扱い）。しきい値は
   // attentionUtils.tsで定義。
@@ -3071,6 +3144,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateAptitudeTestSettings,
         inquiries,
         addInquiryMessage,
+        sendApplicationsDigest,
         yieldMetrics,
         filteredCandidates,
         archivedCandidates,

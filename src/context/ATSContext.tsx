@@ -765,7 +765,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     backupRetryCountRef.current = 0;
     pendingLocalWriteRef.current = true;
     localStorage.setItem(PENDING_BACKUP_KEY, '1');
-    autoBackupTimerRef.current = setTimeout(attemptBackup, 5000);
+    // 採用MTG中に議事録メモを打鍵するたびにこのeffectがリセットされるため、以前の5秒だと打鍵の
+    // 合間が短いとバックアップがなかなか発火せず、他の参加者への反映が遅れがちだった。2秒に
+    // 短縮し、入力が一段落してからDriveへ届くまでの体感を縮める（連続入力中に毎回発火するわけ
+    // ではない点は変わらない — あくまで最後の変更から2秒後の1回だけ）。
+    autoBackupTimerRef.current = setTimeout(attemptBackup, 2000);
 
     return () => {
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
@@ -885,14 +889,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [driveAccessToken]);
 
   // Keeps everyone's open tab reasonably in sync without a real push channel (this app has no
-  // WebSocket/server-push backend — see api/drive/backup.ts's single shared JSON file): every 20s,
+  // WebSocket/server-push backend — see api/drive/backup.ts's single shared JSON file): every 10s,
   // and immediately whenever the tab regains focus, quietly re-checks Drive and applies it only if
   // it's actually newer than what this tab last wrote or applied. A no-op most of the time (nobody
   // else changed anything since the last check), and cheap even when it isn't — one Drive read, no
   // toast, same "invisible when it works" convention as the auto-backup effect above. Skipped
   // entirely while the tab is hidden so a pile of background browser tabs isn't polling Drive for
-  // no one to see.
-  const DRIVE_POLL_INTERVAL_MS = 20000;
+  // no one to see. Halved from the original 20s specifically so 採用MTG participants see each
+  // other's typed notes land within roughly the same meeting, not a poll cycle later — combined
+  // with the 2s auto-backup debounce above, worst case end-to-end is now ~12s instead of ~25s.
+  const DRIVE_POLL_INTERVAL_MS = 10000;
 
   // Always-fresh snapshot for checkAptitudeReminders (below), read from inside the poll timer's
   // closure rather than captured at effect-setup time — same reasoning as latestAttentionStateRef

@@ -199,7 +199,7 @@ export const RecruitmentMeetingView: React.FC = () => {
   const handleSaveNotes = (label?: string) => {
     if (!activeMeeting) return;
     setIsSaving(true);
-    updateMeetingLog(activeMeeting);
+    updateMeetingLog(activeMeeting, { silent: true });
     setTimeout(() => {
       setIsSaving(false);
       const now = new Date();
@@ -238,7 +238,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     updateMeetingLog({
       ...activeMeeting,
       actionItems: [...activeMeeting.actionItems, newItem]
-    });
+    }, { silent: true });
 
     setNewActionItemText('');
     showToast(`アクションアイテムを追加しました`, 'success');
@@ -431,7 +431,7 @@ export const RecruitmentMeetingView: React.FC = () => {
         recruiterReports: updatedReports,
         sourceDriveFileId: file.id,
         sourceDriveFileName: file.name
-      });
+      }, { silent: true });
 
       showToast(`カレンダーの予定「${match.eventSummary}」から議事録を取り込み、AI要約しました`, 'success');
     } catch (err: any) {
@@ -466,10 +466,14 @@ export const RecruitmentMeetingView: React.FC = () => {
       newReportsList.push(updatedReport);
     }
 
+    // キー入力のたびに呼ばれるため、他の通知種別と違い保存トースト無し(silent)。「保存しました」
+    // が1文字ごとに出続けるとむしろ入力の妨げになる。updateMeetingLog自体はここでも即座に
+    // setMeetingLogsを呼んでおり、ローカル状態への反映・自動バックアップの予約は他の変更と同じ
+    // タイミングで行われる。
     updateMeetingLog({
       ...activeMeeting,
       recruiterReports: newReportsList
-    });
+    }, { silent: true });
   };
 
   // Add Initiative Item to Recruiter Report
@@ -493,7 +497,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     updateMeetingLog({
       ...activeMeeting,
       recruiterReports: newReportsList
-    });
+    }, { silent: true });
 
     setNewInitiativeInput('');
     showToast('取り組み項目を追加しました', 'success');
@@ -515,7 +519,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     updateMeetingLog({
       ...activeMeeting,
       recruiterReports: newReportsList
-    });
+    }, { silent: true });
     showToast('取り組み項目を削除しました', 'info');
   };
 
@@ -1143,7 +1147,7 @@ export const RecruitmentMeetingView: React.FC = () => {
 
                 <textarea
                   value={activeMeeting.overallSummary || ''}
-                  onChange={(e) => updateMeetingLog({ ...activeMeeting, overallSummary: e.target.value })}
+                  onChange={(e) => updateMeetingLog({ ...activeMeeting, overallSummary: e.target.value }, { silent: true })}
                   rows={5}
                   className="w-full p-3 bg-slate-50/50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed transition-colors"
                   placeholder="定例MTG全体の決定事項、会社方針の変更点や共有事項を入力..."

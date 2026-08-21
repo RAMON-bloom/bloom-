@@ -412,7 +412,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     }
 
     if (!match.found || !match.fileId) {
-      showToast('この日付に一致する「採用社内MTG」の予定、またはGemini議事録の添付が見つかりませんでした。', 'warning');
+      showToast('この日付に一致する「採用MTG」の予定、またはGemini議事録の添付が見つかりませんでした。', 'warning');
       setIsSearchingCalendar(false);
       return;
     }
@@ -482,7 +482,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     }
 
     if (!match.found || !match.fileId) {
-      showToast('この日付付近に、議事録Docへのリンクを含む「採用社内MTG」関連のメールが見つかりませんでした。', 'warning');
+      showToast('この日付付近に、議事録Docへのリンクを含む「採用MTG」関連のメールが見つかりませんでした。', 'warning');
       setIsSearchingGmail(false);
       return;
     }
@@ -821,7 +821,7 @@ export const RecruitmentMeetingView: React.FC = () => {
             onClick={handleImportFromCalendar}
             disabled={isSearchingCalendar}
             className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-            title="この実施日のカレンダー予定（採用社内MTG）に添付されたGemini議事録を自動で探して取り込みます"
+            title="この実施日のカレンダー予定（採用MTG）に添付されたGemini議事録を自動で探して取り込みます"
           >
             <Calendar className={`w-4 h-4 text-indigo-600 ${isSearchingCalendar ? 'animate-pulse' : ''}`} />
             <span className="hidden sm:inline">{isSearchingCalendar ? '検索中' : 'カレンダーから議事録取込'}</span>
@@ -832,7 +832,7 @@ export const RecruitmentMeetingView: React.FC = () => {
             onClick={handleImportFromGmail}
             disabled={isSearchingGmail}
             className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-            title="この実施日前後にGoogle Meetの議事録Docへのリンクを含む「採用社内MTG」関連のメールがGmailに届いていないか自動で探して取り込みます（要: 一度ログアウトしてGmail連携権限つきで再ログイン）"
+            title="この実施日前後にGoogle Meetの議事録Docへのリンクを含む「採用MTG」関連のメールがGmailに届いていないか自動で探して取り込みます（要: 一度ログアウトしてGmail連携権限つきで再ログイン）"
           >
             <Mail className={`w-4 h-4 text-indigo-600 ${isSearchingGmail ? 'animate-pulse' : ''}`} />
             <span className="hidden sm:inline">{isSearchingGmail ? '検索中' : 'Gmailから議事録取込'}</span>

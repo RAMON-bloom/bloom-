@@ -14,7 +14,7 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: '検索対象の日付がありません。' });
     }
 
-    const match = await findMeetingNotesEmail(accessToken, date, titleKeyword || '採用社内MTG');
+    const match = await findMeetingNotesEmail(accessToken, date, titleKeyword || '採用MTG');
     if (!match) {
       return res.json({ success: true, found: false });
     }

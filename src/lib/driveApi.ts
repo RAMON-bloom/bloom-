@@ -75,14 +75,14 @@ export interface CalendarMeetingNotesMatch {
   fileName?: string;
 }
 
-// Looks up the calendar event for the recurring "採用社内MTG" series closest to `dateStr` and
+// Looks up the calendar event for the recurring "採用MTG" series closest to `dateStr` and
 // returns its auto-generated "Gemini によるメモ" attachment, if any. That doc is the per-occurrence
 // meeting notes Google Meet's note-taker creates and attaches straight to the calendar event — it
 // never lands in the app's own shared Drive folder, so it can't be found by browsing that folder.
 export async function findCalendarMeetingNotes(
   accessToken: string,
   dateStr: string,
-  titleKeyword = '採用社内MTG'
+  titleKeyword = '採用MTG'
 ): Promise<CalendarMeetingNotesMatch> {
   return postJson('/api/calendar/find-meeting-notes', { accessToken, date: dateStr, titleKeyword });
 }
@@ -94,7 +94,7 @@ export async function findCalendarMeetingNotes(
 export async function findGmailMeetingNotes(
   accessToken: string,
   dateStr: string,
-  titleKeyword = '採用社内MTG'
+  titleKeyword = '採用MTG'
 ): Promise<CalendarMeetingNotesMatch> {
   return postJson('/api/gmail/find-meeting-notes', { accessToken, date: dateStr, titleKeyword });
 }

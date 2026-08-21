@@ -19,14 +19,15 @@ interface StoredSession {
 const SESSION_KEY = 'atsGoogleSession';
 const LAST_EMAIL_KEY = 'atsLastSignedInEmail';
 const ALLOWED_DOMAIN = 'bloom-firm.com';
-// calendar.readonly and gmail.send are both best-effort (not scope-gated like Drive below): they
-// only power the "採用MTG" calendar-linked import and the「適性検査メールを送信」button
-// respectively, and denying/skipping either shouldn't block sign-in or any of the Drive-dependent
-// features the rest of the app actually needs to function. Note: an already-signed-in user's
-// stored token won't pick up gmail.send until they sign out and back in (silent/background token
-// refresh can't grant a scope that hasn't been interactively consented to) — see CandidateDetailModal's
-// 403/401 handling on the send button for the fallback message shown when that happens.
-const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send';
+// calendar.readonly, gmail.send and gmail.readonly are all best-effort (not scope-gated like Drive
+// below): they only power the "採用MTG" calendar/Gmail-linked import and the「適性検査メールを送信」
+// button respectively, and denying/skipping any of them shouldn't block sign-in or any of the
+// Drive-dependent features the rest of the app actually needs to function. Note: an already-signed-in
+// user's stored token won't pick up a newly-added scope until they sign out and back in (silent/
+// background token refresh can't grant a scope that hasn't been interactively consented to) — see
+// CandidateDetailModal's 403/401 handling on the send button, and RecruitmentMeetingView's Gmail
+// import button, for the fallback messages shown when that happens.
+const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly';
 
 declare global {
   interface Window {

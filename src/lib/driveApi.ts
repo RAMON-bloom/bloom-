@@ -87,6 +87,18 @@ export async function findCalendarMeetingNotes(
   return postJson('/api/calendar/find-meeting-notes', { accessToken, date: dateStr, titleKeyword });
 }
 
+// Same shape/契約 as findCalendarMeetingNotes above, but for meetings whose notes only arrived by
+// email — searches Gmail for the Google Meet transcript/notes sharing notification closest to
+// `dateStr` and returns its linked Drive document, without ever needing the calendar event itself
+// (useful once an old event has rotated out of Calendar, or its attachment was never picked up).
+export async function findGmailMeetingNotes(
+  accessToken: string,
+  dateStr: string,
+  titleKeyword = '採用社内MTG'
+): Promise<CalendarMeetingNotesMatch> {
+  return postJson('/api/gmail/find-meeting-notes', { accessToken, date: dateStr, titleKeyword });
+}
+
 export async function backupToDrive(accessToken: string, data: object): Promise<void> {
   await postJson('/api/drive/backup', {
     accessToken,

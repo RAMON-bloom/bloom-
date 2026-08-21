@@ -22,11 +22,12 @@ import {
   BarChart3,
   Trash2,
   ChevronUp,
-  X
+  X,
+  Mail
 } from 'lucide-react';
 import { useATS } from '../context/ATSContext';
 import { RecruiterReport, MeetingActionItem } from '../types';
-import { summarizeDriveMeetingLog, findCalendarMeetingNotes } from '../lib/driveApi';
+import { summarizeDriveMeetingLog, findCalendarMeetingNotes, findGmailMeetingNotes } from '../lib/driveApi';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
 import { computeRecruiterYieldSnapshot, computeRecruiterPipelineSnapshot } from '../lib/yieldMetrics';
 
@@ -118,6 +119,7 @@ export const RecruitmentMeetingView: React.FC = () => {
   const [newActionItemAssignee, setNewActionItemAssignee] = useState(staffList[0]?.name || '');
 
   const [isSearchingCalendar, setIsSearchingCalendar] = useState(false);
+  const [isSearchingGmail, setIsSearchingGmail] = useState(false);
 
   // Agency Stats Toggle for Meeting View
   const [agencyStatsPeriod, setAgencyStatsPeriod] = useState<'MONTH' | 'ALL'>('MONTH');
@@ -447,6 +449,76 @@ export const RecruitmentMeetingView: React.FC = () => {
     }
   };
 
+  // カレンダーの予定にGemini議事録の添付が見つからない/古い予定が既にカレンダーから消えている
+  // ケース向けの代替ルート。Google Meetのメモ・文字起こし機能はDocを作成すると同時にその共有通知
+  // メールを送るため、その本文中のDocsリンクからfileIdを取り出し、以降はカレンダー取込と全く同じ
+  // summarizeDriveMeetingLogに渡す（取り込み先の処理は共通）。
+  const handleImportFromGmail = async () => {
+    if (!driveAccessToken) {
+      showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
+      await connectDrive();
+      return;
+    }
+
+    setIsSearchingGmail(true);
+
+    // カレンダー取込と同じ理由でGmail検索とDrive本文取得を別々にtry/catchする。Gmail検索側の
+    // 403/401はgmail.readonlyスコープが未取得（旧ログインのまま）の場合がほとんどで再ログインが
+    // 有効。Drive本文取得だけ403になる場合はカレンダー取込と同様、その会議の参加者にしか共有
+    // されていないファイル単位の権限の問題。
+    let match;
+    try {
+      match = await findGmailMeetingNotes(driveAccessToken, activeMeeting.date);
+    } catch (err: any) {
+      const message = err.message || '不明なエラー';
+      showToast(
+        message.includes('403') || message.includes('401')
+          ? 'Gmailへのアクセス権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
+          : `Gmailの検索に失敗しました: ${message}`,
+        'warning'
+      );
+      setIsSearchingGmail(false);
+      return;
+    }
+
+    if (!match.found || !match.fileId) {
+      showToast('この日付付近に、議事録Docへのリンクを含む「採用社内MTG」関連のメールが見つかりませんでした。', 'warning');
+      setIsSearchingGmail(false);
+      return;
+    }
+
+    try {
+      const file = { id: match.fileId, name: match.fileName || 'Gmail議事録', mimeType: 'application/vnd.google-apps.document' };
+      const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
+
+      const updatedReports = (activeMeeting.recruiterReports || []).map((r) => ({
+        ...r,
+        progressLog: `【Gmail抽出ログ】議事録「${file.name}」より ${r.recruiterName} 担当分の協議内容ログを取り込み完了`
+      }));
+
+      updateMeetingLog({
+        ...activeMeeting,
+        rawTranscript: rawContent,
+        fetchedOverallLog: summary.summaryMarkdown,
+        recruiterReports: updatedReports,
+        sourceDriveFileId: file.id,
+        sourceDriveFileName: file.name
+      }, { silent: true });
+
+      showToast(`Gmailのメール「${match.eventSummary}」から議事録を取り込み、AI要約しました`, 'success');
+    } catch (err: any) {
+      const message = err.message || '不明なエラー';
+      showToast(
+        message.includes('403') || message.includes('401')
+          ? `このメールが指す議事録ファイル（「${match.eventSummary}」）を開く権限がありません。Google Meetの自動議事録はその回の参加者にのみ共有されるため、参加していない場合は取り込めません（ログアウト・再ログインでは解決しません）。実際に参加した方に一度取り込んでいただければ、その要約は保存され、以降は参加していない方も含め誰でも閲覧できるようになります。`
+          : `議事録の取得・要約に失敗しました: ${message}`,
+        'warning'
+      );
+    } finally {
+      setIsSearchingGmail(false);
+    }
+  };
+
   // Live Update Helper for Recruiter Report Text Fields
   const handleUpdateRecruiterField = (
     recruiterName: string, 
@@ -753,6 +825,17 @@ export const RecruitmentMeetingView: React.FC = () => {
           >
             <Calendar className={`w-4 h-4 text-indigo-600 ${isSearchingCalendar ? 'animate-pulse' : ''}`} />
             <span className="hidden sm:inline">{isSearchingCalendar ? '検索中' : 'カレンダーから議事録取込'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleImportFromGmail}
+            disabled={isSearchingGmail}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+            title="この実施日前後にGoogle Meetの議事録Docへのリンクを含む「採用社内MTG」関連のメールがGmailに届いていないか自動で探して取り込みます（要: 一度ログアウトしてGmail連携権限つきで再ログイン）"
+          >
+            <Mail className={`w-4 h-4 text-indigo-600 ${isSearchingGmail ? 'animate-pulse' : ''}`} />
+            <span className="hidden sm:inline">{isSearchingGmail ? '検索中' : 'Gmailから議事録取込'}</span>
           </button>
 
           <button

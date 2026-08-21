@@ -3,6 +3,7 @@ import { useATS } from '../context/ATSContext';
 import { SelectionPhase, ScheduleStatus } from '../types';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
+import { computeYieldMetrics } from '../lib/yieldMetrics';
 import { 
   BarChart, 
   Bar, 
@@ -42,7 +43,7 @@ import {
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
-  const { candidates, yieldMetrics, agencies, filters, setFilters, setSelectedCandidateId, positionOptions, showToast } = useATS();
+  const { candidates, agencies, filters, setFilters, setSelectedCandidateId, positionOptions, showToast } = useATS();
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   // 月単位では区切れない任意の期間（例: 8/5〜8/20）を分析したい場合の代替モード。オンの間は
   // selectedMonthの月選択を無視し、appliedDate(YYYY-MM-DD文字列比較)で絞り込む。開始日・終了日は
@@ -69,6 +70,12 @@ export const DashboardView: React.FC = () => {
     return true;
   });
 
+  // エージェント別歩留まりは、上の期間・ポジション絞り込み(displayCandidates)と同じ対象で
+  // 計算し直す。ATSContext側のyieldMetricsは常に全期間・全ポジションの実績なので、期間指定
+  // モードに切り替えても「最高歩留まり会社」カードとマトリクス表がそれだけ絞り込みを無視した
+  // 全期間の数字のまま変わらないように見えていた。
+  const displayYieldMetrics = computeYieldMetrics(agencies, displayCandidates);
+
   // Total KPIs
   const totalApps = displayCandidates.length;
   const activeCandidates = displayCandidates.filter((c) => !['OFFER_ACCEPTED', 'REJECTED', 'DECLINED'].includes(c.phase)).length;
@@ -82,7 +89,7 @@ export const DashboardView: React.FC = () => {
   );
 
   // Find Top Quality Agency (highest overall yield or offer count)
-  const topAgency = [...yieldMetrics]
+  const topAgency = [...displayYieldMetrics]
     .filter((m) => m.totalApplications >= 2)
     .sort((a, b) => b.overallYieldRate - a.overallYieldRate)[0];
 
@@ -191,7 +198,33 @@ export const DashboardView: React.FC = () => {
       scheduleStatusLabels[c.scheduleStatus]
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,﻿' + [headers, ...rows].map((e) => e.map((x) => `"${x}"`).join(',')).join('\n');
+    // 候補者一覧のあとに、画面のマトリクス表と同じ絞り込み(displayYieldMetrics)でエージェント別
+    // サマリを付加する。応募数だけだと表内の他の数字と比較しづらいので、通過数・歩留まり率も
+    // 画面表示と同じ列構成でそのまま出力する。
+    const agencySummaryHeaders = ['エージェント名', '対応する採用担当', '応募数', '書類通過数', '1次面接通過数', '内定数', '内定承諾数', '総合歩留まり率(%)'];
+    const agencySummaryRows = displayYieldMetrics
+      .filter((m) => m.totalApplications > 0)
+      .map((m) => {
+        const agency = agencies.find((ag) => ag.name === m.agencyName);
+        return [
+          m.agencyName,
+          (agency?.assignedStaffNames || []).join('; ') || '未設定',
+          m.totalApplications,
+          m.documentPassCount,
+          m.firstInterviewPassCount,
+          m.offerCount,
+          m.acceptCount,
+          m.overallYieldRate
+        ];
+      });
+
+    const csvContent = 'data:text/csv;charset=utf-8,﻿' + [
+      headers,
+      ...rows,
+      [],
+      agencySummaryHeaders,
+      ...agencySummaryRows
+    ].map((e) => e.map((x) => `"${x}"`).join(',')).join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
@@ -564,7 +597,7 @@ export const DashboardView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {yieldMetrics.map((m) => {
+              {displayYieldMetrics.map((m) => {
                 const isHighQuality = m.overallYieldRate >= 20 || m.acceptCount >= 1;
                 return (
                   <tr key={m.agencyName} className="hover:bg-slate-50/80 transition-colors">
@@ -699,11 +732,11 @@ export const DashboardView: React.FC = () => {
 
               {/* Total Summary Row */}
               {(() => {
-                const totalAppsCount = yieldMetrics.reduce((acc, m) => acc + m.totalApplications, 0);
-                const totalDocPassCount = yieldMetrics.reduce((acc, m) => acc + m.documentPassCount, 0);
-                const totalFirstPassCount = yieldMetrics.reduce((acc, m) => acc + m.firstInterviewPassCount, 0);
-                const totalOfferCount = yieldMetrics.reduce((acc, m) => acc + m.offerCount, 0);
-                const totalAcceptCount = yieldMetrics.reduce((acc, m) => acc + m.acceptCount, 0);
+                const totalAppsCount = displayYieldMetrics.reduce((acc, m) => acc + m.totalApplications, 0);
+                const totalDocPassCount = displayYieldMetrics.reduce((acc, m) => acc + m.documentPassCount, 0);
+                const totalFirstPassCount = displayYieldMetrics.reduce((acc, m) => acc + m.firstInterviewPassCount, 0);
+                const totalOfferCount = displayYieldMetrics.reduce((acc, m) => acc + m.offerCount, 0);
+                const totalAcceptCount = displayYieldMetrics.reduce((acc, m) => acc + m.acceptCount, 0);
 
                 const avgDocRate = totalAppsCount > 0 ? Math.round((totalDocPassCount / totalAppsCount) * 100) : 0;
                 const avgFirstRate = totalDocPassCount > 0 ? Math.round((totalFirstPassCount / totalDocPassCount) * 100) : 0;

@@ -1,4 +1,103 @@
-import { Agency, Candidate, RecruiterYieldSnapshot, AgencyYieldSnapshot, PipelineCandidateSnapshot } from '../types';
+import { Agency, Candidate, RecruiterYieldSnapshot, AgencyYieldSnapshot, PipelineCandidateSnapshot, YieldMetrics, SelectionPhase } from '../types';
+
+const PHASE_ORDER: Record<SelectionPhase, number> = {
+  'DOCUMENT_SCREENING': 1,
+  'CASUAL_INTERVIEW': 2,
+  'FIRST_INTERVIEW': 3,
+  'SECOND_INTERVIEW': 4,
+  'FINAL_INTERVIEW': 5,
+  'OFFER_ISSUED': 6,
+  'OFFER_ACCEPTED': 7,
+  'REJECTED': 0,
+  'DECLINED': 0
+};
+
+// Per-agency pass-rate breakdown over whichever candidate set the caller passes in — e.g. the
+// dashboard passes its currently period/position-filtered candidates so "エージェント別歩留まり"
+// reflects the same scope as the rest of the dashboard, while ATSContext's own `yieldMetrics`
+// passes the full candidate list for an always-current, all-time view.
+export function computeYieldMetrics(agencies: Agency[], candidates: Candidate[]): YieldMetrics[] {
+  return agencies.map((agency) => {
+    const agencyCandidates = candidates.filter((c) => c.agencyId === agency.id);
+    const total = agencyCandidates.length;
+
+    if (total === 0) {
+      return {
+        agencyName: agency.name,
+        totalApplications: 0,
+        documentPassCount: 0,
+        firstInterviewPassCount: 0,
+        secondInterviewPassCount: 0,
+        finalInterviewPassCount: 0,
+        offerCount: 0,
+        acceptCount: 0,
+        documentPassRate: 0,
+        firstInterviewPassRate: 0,
+        finalInterviewPassRate: 0,
+        offerRate: 0,
+        acceptRate: 0,
+        overallYieldRate: 0
+      };
+    }
+
+    let docPass = 0;
+    let firstPass = 0;
+    let secondPass = 0;
+    let finalPass = 0;
+    let offerCount = 0;
+    let acceptCount = 0;
+
+    agencyCandidates.forEach((c) => {
+      const maxPhaseReached = Math.max(
+        PHASE_ORDER[c.phase],
+        ...c.evaluationNotes.map((n) => PHASE_ORDER[n.phase] || 0)
+      );
+
+      if (maxPhaseReached >= 2 || c.evaluationNotes.some((n) => n.phase === 'DOCUMENT_SCREENING' && n.resultStatus === 'PASS')) {
+        docPass++;
+      }
+      if (maxPhaseReached >= 3 || c.evaluationNotes.some((n) => n.phase === 'FIRST_INTERVIEW' && n.resultStatus === 'PASS')) {
+        firstPass++;
+      }
+      if (maxPhaseReached >= 4 || c.evaluationNotes.some((n) => n.phase === 'SECOND_INTERVIEW' && n.resultStatus === 'PASS')) {
+        secondPass++;
+      }
+      if (maxPhaseReached >= 5 || c.evaluationNotes.some((n) => n.phase === 'FINAL_INTERVIEW' && n.resultStatus === 'PASS')) {
+        finalPass++;
+      }
+      if (c.phase === 'OFFER_ISSUED' || c.phase === 'OFFER_ACCEPTED' || maxPhaseReached >= 5) {
+        offerCount++;
+      }
+      if (c.phase === 'OFFER_ACCEPTED') {
+        acceptCount++;
+      }
+    });
+
+    const docPassRate = total > 0 ? Math.round((docPass / total) * 100) : 0;
+    const firstPassRate = docPass > 0 ? Math.round((firstPass / docPass) * 100) : 0;
+    const finalPassRate = secondPass > 0 ? Math.round((finalPass / secondPass) * 100) : 0;
+    const offerRate = firstPass > 0 ? Math.round((offerCount / firstPass) * 100) : 0;
+    const acceptRate = offerCount > 0 ? Math.round((acceptCount / offerCount) * 100) : 0;
+    const overallYield = total > 0 ? Math.round((acceptCount / total) * 100) : 0;
+
+    return {
+      agencyName: agency.name,
+      totalApplications: total,
+      documentPassCount: docPass,
+      firstInterviewPassCount: firstPass,
+      secondInterviewPassCount: secondPass,
+      finalInterviewPassCount: finalPass,
+      offerCount,
+      acceptCount,
+      documentPassRate: docPassRate,
+      firstInterviewPassRate: firstPassRate,
+      finalInterviewPassRate: finalPassRate,
+      offerRate,
+      acceptRate,
+      overallYieldRate: overallYield
+    };
+  });
+}
 
 // Mirrors RecruitmentMeetingView's assignedCandidates filter exactly (not archived, still with this
 // recruiter, not yet in a terminal phase) — kept in one place so the frozen snapshot and any live

@@ -57,6 +57,7 @@ import { getNextPhase, migrateLegacyPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
 import { AptitudeTestStatus, applyAptitudeTestStatus, APTITUDE_TEST_STATUS_META } from '../lib/aptitudeTestStatus';
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
+import { computeYieldMetrics } from '../lib/yieldMetrics';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -2964,99 +2965,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const stalledCandidates = getStalledCandidates(candidates);
   const overdueDocScreening = getOverdueDocScreening(candidates);
 
-  // Yield Metrics Computation per Agency
-  const yieldMetrics: YieldMetrics[] = agencies.map((agency) => {
-    const agencyCandidates = candidates.filter((c) => c.agencyId === agency.id);
-    const total = agencyCandidates.length;
-
-    if (total === 0) {
-      return {
-        agencyName: agency.name,
-        totalApplications: 0,
-        documentPassCount: 0,
-        firstInterviewPassCount: 0,
-        secondInterviewPassCount: 0,
-        finalInterviewPassCount: 0,
-        offerCount: 0,
-        acceptCount: 0,
-        documentPassRate: 0,
-        firstInterviewPassRate: 0,
-        finalInterviewPassRate: 0,
-        offerRate: 0,
-        acceptRate: 0,
-        overallYieldRate: 0
-      };
-    }
-
-    // Helper: evaluate how far candidate advanced
-    let docPass = 0;
-    let firstPass = 0;
-    let secondPass = 0;
-    let finalPass = 0;
-    let offerCount = 0;
-    let acceptCount = 0;
-
-    agencyCandidates.forEach((c) => {
-      const maxPhaseReached = Math.max(
-        PHASE_ORDER[c.phase],
-        ...c.evaluationNotes.map((n) => PHASE_ORDER[n.phase] || 0)
-      );
-
-      // Passed document screening if phase order >= 2 (FIRST_INTERVIEW) or pass recorded
-      if (maxPhaseReached >= 2 || c.evaluationNotes.some((n) => n.phase === 'DOCUMENT_SCREENING' && n.resultStatus === 'PASS')) {
-        docPass++;
-      }
-
-      // Passed 1st interview if maxPhaseReached >= 3
-      if (maxPhaseReached >= 3 || c.evaluationNotes.some((n) => n.phase === 'FIRST_INTERVIEW' && n.resultStatus === 'PASS')) {
-        firstPass++;
-      }
-
-      // Passed 2nd interview if maxPhaseReached >= 4 (SECOND_INTERVIEW)
-      if (maxPhaseReached >= 4 || c.evaluationNotes.some((n) => n.phase === 'SECOND_INTERVIEW' && n.resultStatus === 'PASS')) {
-        secondPass++;
-      }
-
-      // Passed final interview if maxPhaseReached >= 5 (FINAL_INTERVIEW)
-      if (maxPhaseReached >= 5 || c.evaluationNotes.some((n) => n.phase === 'FINAL_INTERVIEW' && n.resultStatus === 'PASS')) {
-        finalPass++;
-      }
-
-      // Reached Offer or Accepted
-      if (c.phase === 'OFFER_ISSUED' || c.phase === 'OFFER_ACCEPTED' || maxPhaseReached >= 5) {
-        offerCount++;
-      }
-
-      // Accepted
-      if (c.phase === 'OFFER_ACCEPTED') {
-        acceptCount++;
-      }
-    });
-
-    const docPassRate = total > 0 ? Math.round((docPass / total) * 100) : 0;
-    const firstPassRate = docPass > 0 ? Math.round((firstPass / docPass) * 100) : 0;
-    const finalPassRate = secondPass > 0 ? Math.round((finalPass / secondPass) * 100) : 0;
-    const offerRate = firstPass > 0 ? Math.round((offerCount / firstPass) * 100) : 0;
-    const acceptRate = offerCount > 0 ? Math.round((acceptCount / offerCount) * 100) : 0;
-    const overallYield = total > 0 ? Math.round((acceptCount / total) * 100) : 0;
-
-    return {
-      agencyName: agency.name,
-      totalApplications: total,
-      documentPassCount: docPass,
-      firstInterviewPassCount: firstPass,
-      secondInterviewPassCount: secondPass,
-      finalInterviewPassCount: finalPass,
-      offerCount,
-      acceptCount,
-      documentPassRate: docPassRate,
-      firstInterviewPassRate: firstPassRate,
-      finalInterviewPassRate: finalPassRate,
-      offerRate,
-      acceptRate,
-      overallYieldRate: overallYield
-    };
-  });
+  // Yield Metrics Computation per Agency (all-time, unfiltered — DashboardView computes its own
+  // period/position-scoped version from the same shared function when it needs to match its filters).
+  const yieldMetrics: YieldMetrics[] = computeYieldMetrics(agencies, candidates);
 
   const exportCSV = () => {
     const headers = ['候補者ID', '名前', '職種', '応募日', '担当エージェント', '社内担当者', '選考フェーズ', '次回調整状況', '次回面接日時', '希望年収'];

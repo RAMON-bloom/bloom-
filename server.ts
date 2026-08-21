@@ -20,6 +20,7 @@ import driveImportResume from './api/drive/import-resume';
 import driveDetectPhotoCrop from './api/drive/detect-photo-crop';
 import driveDeleteResume from './api/drive/delete-resume';
 import driveMoveToDeleted from './api/drive/move-to-deleted';
+import driveSaveEvaluationLog from './api/drive/save-evaluation-log';
 import calendarFindMeetingNotes from './api/calendar/find-meeting-notes';
 import notifyCandidateRegistered from './api/notify/candidate-registered';
 import notifyAttention from './api/notify/attention';
@@ -54,6 +55,7 @@ async function startServer() {
   app.post('/api/drive/detect-photo-crop', driveDetectPhotoCrop);
   app.post('/api/drive/delete-resume', driveDeleteResume);
   app.post('/api/drive/move-to-deleted', driveMoveToDeleted);
+  app.post('/api/drive/save-evaluation-log', driveSaveEvaluationLog);
   app.post('/api/calendar/find-meeting-notes', calendarFindMeetingNotes);
   app.post('/api/notify/candidate-registered', notifyCandidateRegistered);
   app.post('/api/notify/attention', notifyAttention);

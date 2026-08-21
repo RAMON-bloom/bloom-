@@ -189,6 +189,12 @@ export const CandidateDetailModal: React.FC = () => {
   const [newComment, setNewComment] = useState<string>('');
   const [evalAuthor, setEvalAuthor] = useState<string>(staffList[0]?.name || '山田 太郎');
   const [evalResultStatus, setEvalResultStatus] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
+  // 判定結果ボタン(合格/不採用)を実際にクリックしたかどうか。evalResultStatusは初期値'PASS'を
+  // 持つため、それ自体では「ユーザーが判定を入力した」かの判定に使えない。ボタンをクリックせず
+  // 他の入力欄も空のまま保存すると、下のバリデーションで弾かれて何も保存されない（対象フェーズが
+  // 進まない）のに、判定結果ボタンは常に「合格」が選択済みに見えるため、ユーザーからは保存が
+  // 効かない不具合に見えていた。判定ボタンのクリック自体を有効な入力として扱う。
+  const [hasSetResult, setHasSetResult] = useState(false);
   const [newNextInterviewer, setNewNextInterviewer] = useState<string>('');
   const [newNextInterviewFormat, setNewNextInterviewFormat] = useState<InterviewFormat | ''>('');
   // 書類選考合格時のみ使う、次回選考をカジュアル面談にするか1次面接にするかの選択
@@ -344,6 +350,7 @@ export const CandidateDetailModal: React.FC = () => {
         setManuallyRevealedStages(0);
         setLogImportTargetPhase(null);
         setMentionMembers([]);
+        setHasSetResult(false);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -676,7 +683,7 @@ export const CandidateDetailModal: React.FC = () => {
     const cNoteText = newCNote.trim();
     const mNoteText = newMNote.trim();
 
-    if (!goodPointsText && !concernsText && !otherNotesText && !commentText && !lNoteText && !cNoteText && !mNoteText && !newLRating && !newCRating && !newMRating && !newInterviewRating) {
+    if (!goodPointsText && !concernsText && !otherNotesText && !commentText && !lNoteText && !cNoteText && !mNoteText && !newLRating && !newCRating && !newMRating && !newInterviewRating && !hasSetResult) {
       showToast('評価ポイント・懸念点・その他メモ、または評価項目を入力してください', 'warning');
       return;
     }
@@ -728,6 +735,7 @@ export const CandidateDetailModal: React.FC = () => {
       setNewLNote('');
       setNewCNote('');
       setNewMNote('');
+      setHasSetResult(false);
       setCollapsedSections((prev) => ({ ...prev, evalForm: true }));
 
       if (evalTargetPhase === candidate.phase) {
@@ -1988,7 +1996,10 @@ export const CandidateDetailModal: React.FC = () => {
                       <div className="grid grid-cols-2 gap-3">
                         <button
                           type="button"
-                          onClick={() => setEvalResultStatus('PASS')}
+                          onClick={() => {
+                            setEvalResultStatus('PASS');
+                            setHasSetResult(true);
+                          }}
                           className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
                             evalResultStatus === 'PASS'
                               ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
@@ -2001,7 +2012,10 @@ export const CandidateDetailModal: React.FC = () => {
 
                         <button
                           type="button"
-                          onClick={() => setEvalResultStatus('FAIL')}
+                          onClick={() => {
+                            setEvalResultStatus('FAIL');
+                            setHasSetResult(true);
+                          }}
                           className={`flex items-center justify-center gap-2 py-4 rounded-xl font-extrabold text-base transition-all cursor-pointer border-2 ${
                             evalResultStatus === 'FAIL'
                               ? 'bg-rose-600 text-white border-rose-600 shadow-md'

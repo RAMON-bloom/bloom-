@@ -52,7 +52,7 @@ import {
   notifyAptitudeTestDeadlineAlert as notifyAptitudeTestDeadlineAlertApi,
   notifyApplicationsDigest as notifyApplicationsDigestApi
 } from '../lib/notifyApi';
-import { getStalledCandidates, getOverdueDocScreening } from '../lib/attentionUtils';
+import { getStalledCandidates, getOverdueDocScreening, daysSince, STALLED_DOC_SCREENING_DAYS } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { getNextPhase, migrateLegacyPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
@@ -429,6 +429,24 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(CANDIDATE_ID_SEQ_KEY, String(value));
   };
 
+  // Last date (YYYY-MM-DD) the once-a-day attention digest (見送り/対応漏れ抜け防止のChat通知)
+  // was sent, shared across the whole team via the Drive backup — same monotonic-max pattern as
+  // candidateIdSeq above (string comparison works because the format sorts lexicographically the
+  // same as chronologically). This used to live only in this browser's localStorage, which meant
+  // every device that opened the app on a given day independently decided "not sent yet today" and
+  // fired its own full batch — so a 5-person team all opening the app the same morning caused the
+  // same digest + per-candidate nudges to hit the shared Chat space 5 times. Reading/writing this
+  // through the shared backup instead means whichever device sends first marks it for everyone.
+  const ATTENTION_DIGEST_DATE_KEY = 'ats_attention_notify_last_run';
+  const attentionDigestDateRef = useRef<string>(
+    typeof window !== 'undefined' ? localStorage.getItem(ATTENTION_DIGEST_DATE_KEY) || '' : ''
+  );
+  const bumpAttentionDigestDate = (value?: string) => {
+    if (!value || value <= attentionDigestDateRef.current) return;
+    attentionDigestDateRef.current = value;
+    localStorage.setItem(ATTENTION_DIGEST_DATE_KEY, value);
+  };
+
   const [filters, setFilters] = useState<FilterState>({
     searchQuery: '',
     agencyId: 'ALL',
@@ -665,6 +683,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // A monotonic max, not a merge — see candidateIdSeqRef's declaration — so folding in
         // whatever Drive currently has can only push this device's counter forward, never back.
         bumpCandidateIdSeq(remote.candidateIdSeq);
+        // Same reasoning — see attentionDigestDateRef's declaration.
+        bumpAttentionDigestDate(remote.attentionDigestLastSentDate);
       } catch {
         // Nothing backed up yet, or the read failed — fall back to merging against this tab's own
         // last-known base (equivalent to a plain overwrite for these collections), matching
@@ -689,7 +709,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         meetingLogs: mergedMeetingLogs,
         groupChatWebhooks: mergedGroupChatWebhooks,
         positions: mergedPositions,
-        candidateIdSeq: candidateIdSeqRef.current
+        candidateIdSeq: candidateIdSeqRef.current,
+        attentionDigestLastSentDate: attentionDigestDateRef.current
       })
         .then(() => {
           // Captured after the write completes (so it's already at least as new as whatever
@@ -788,6 +809,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     inquiries?: Inquiry[];
     aptitudeTestSettings?: AptitudeTestSettings;
     candidateIdSeq?: number;
+    attentionDigestLastSentDate?: string;
     backedUpAt?: string;
   }) => {
     if (data.candidates) setCandidates(data.candidates.map(migrateLegacyPhase));
@@ -800,6 +822,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.aptitudeTestSettings) setAptitudeTestSettings(data.aptitudeTestSettings);
     // Monotonic max, not a plain apply — see candidateIdSeqRef's declaration.
     if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
+    // Monotonic max, not a plain apply — see attentionDigestDateRef's declaration.
+    bumpAttentionDigestDate(data.attentionDigestLastSentDate);
     if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
     // Whatever just arrived from Drive is by definition in sync with Drive — record it as the new
     // merge base so the next write's three-way merge diffs against this, not a stale earlier point.
@@ -1126,17 +1150,19 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 抜け防止のGoogle Chat通知（進捗停滞ダイジェスト・書類選考対応漏れの個別督促）を、ログイン後
   // 1日1回だけこのブラウザから送信する。サーバーcron・サービスアカウントが存在しない構成上、
-  // 実際にアプリを開いている誰かのブラウザから送るしかない — 同じ日に複数人が別々のブラウザで
-  // ログインすれば、それぞれ独立して1回ずつ発火する（チーム全体で1日1回に統一されるわけではない、
-  // 既知の制約）。送信先はWebhook URLで決まるため、発火した本人が採用アシスタントである必要はない。
-  const ATTENTION_NOTIFY_THROTTLE_KEY = 'ats_attention_notify_last_run';
+  // 実際にアプリを開いている誰かのブラウザから送るしかない。「今日はもう送信済みか」は
+  // attentionDigestDateRef（共有Driveバックアップ経由でチーム全体に同期される、その宣言のコメント
+  // 参照）で判定するため、同じ日に複数人が別々のブラウザでログインしても、最初に送った1台だけが
+  // 送信し、以降にログインした他の全員はスキップする（以前はブラウザローカルのlocalStorageだけで
+  // 判定していたため、開いた人数分だけ同じダイジェスト・督促が重複送信されていた）。送信先は
+  // Webhook URLで決まるため、発火した本人が採用アシスタントである必要はない。
   const hasCheckedAttentionRef = useRef(false);
   useEffect(() => {
     if (!driveAccessToken || hasCheckedAttentionRef.current) return;
     hasCheckedAttentionRef.current = true;
 
     const today = new Date().toISOString().split('T')[0];
-    if (localStorage.getItem(ATTENTION_NOTIFY_THROTTLE_KEY) === today) return;
+    if (attentionDigestDateRef.current === today) return;
 
     // Intentionally no cleanup/clearTimeout here — hasCheckedAttentionRef already guarantees this
     // only schedules once per mount, and in dev-only React StrictMode a cleanup would cancel this
@@ -1144,13 +1170,29 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // second real invocation from ever rescheduling it, so the notify would never fire in dev.
     // Same reasoning/pattern as hasAutoRestoredRef above (no cleanup there either). Production
     // builds don't double-invoke effects, so this never actually leaks a stray timer there.
-    setTimeout(() => {
+    setTimeout(async () => {
+      // One more fresh check against Drive right before sending, on top of the 8s wait for the
+      // initial mount-time auto-restore — narrows (doesn't eliminate; there's no server-side lock)
+      // the window where two devices both load within moments of each other and neither has seen
+      // the other's write yet.
+      try {
+        const remote = await restoreFromDriveApi(driveAccessTokenRef.current || driveAccessToken);
+        bumpAttentionDigestDate(remote.attentionDigestLastSentDate);
+      } catch {
+        // Best-effort — fall through with whatever's already known locally.
+      }
+      if (attentionDigestDateRef.current === today) return;
+
+      // Claim today before doing anything else (not after sending) so a slow send can't leave a
+      // second device's own check above still seeing "not sent yet" and racing in behind it.
+      bumpAttentionDigestDate(today);
+      attemptBackup();
+
       const { candidates: latestCandidates, staffList: latestStaffList, groupChatWebhooks: latestGroupWebhooks } = latestAttentionStateRef.current;
       const stalled = getStalledCandidates(latestCandidates);
       const overdue = getOverdueDocScreening(latestCandidates);
 
       if (stalled.length === 0 && overdue.length === 0) {
-        localStorage.setItem(ATTENTION_NOTIFY_THROTTLE_KEY, today);
         return;
       }
 
@@ -1185,7 +1227,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       });
 
-      overdue.forEach(({ candidate, assigneeName, daysSinceUpdate }) => {
+      // 同じ候補者を毎日連続で督促し続けないよう、前回この候補者を督促した日から
+      // STALLED_DOC_SCREENING_DAYS(3日)経っていない場合はスキップする（初回は3日経過で発火、
+      // 未対応が続く場合は3日おきに再送信、というエスカレーション頻度にする）。
+      const nudgeable = overdue.filter(
+        ({ candidate }) =>
+          !candidate.docScreeningNudgeLastSentDate ||
+          daysSince(candidate.docScreeningNudgeLastSentDate) >= STALLED_DOC_SCREENING_DAYS
+      );
+
+      nudgeable.forEach(({ candidate, assigneeName, daysSinceUpdate }) => {
         const assignee = latestStaffList.find((s) => s.name === assigneeName);
         if (assignee) {
           getStaffWebhooksForKind(assignee, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
@@ -1215,6 +1266,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       });
 
+      if (nudgeable.length > 0) {
+        const nudgedIds = new Set(nudgeable.map(({ candidate }) => candidate.id));
+        setCandidates((prev) =>
+          prev.map((c) => (nudgedIds.has(c.id) ? { ...c, docScreeningNudgeLastSentDate: today } : c))
+        );
+      }
+
       Promise.allSettled(notifyPromises).then((results) => {
         const failedCount = results.filter((r) => r.status === 'rejected').length;
         if (failedCount > 0) {
@@ -1222,8 +1280,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           showToast(`抜け防止通知の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
         }
       });
-
-      localStorage.setItem(ATTENTION_NOTIFY_THROTTLE_KEY, today);
     }, 8000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
@@ -2384,7 +2440,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         positions: mergedPositions,
         inquiries,
         aptitudeTestSettings,
-        candidateIdSeq: candidateIdSeqRef.current
+        candidateIdSeq: candidateIdSeqRef.current,
+        attentionDigestLastSentDate: attentionDigestDateRef.current
       });
       // Same reasoning as the auto-backup effect: stamped after the write completes, so the
       // background poll recognizes this as its own echo instead of someone else's newer edit.

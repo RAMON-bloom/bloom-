@@ -165,6 +165,7 @@ export interface Candidate {
   aptitudeTestCompletedAt?: string; // 候補者が適性検査を実施済みとして手動でマークした日時 (ISO)。Google Form回答の自動検知はしないため手動運用
   aptitudeTestReminderNotifiedAt?: string; // 送信リマインドのChat通知を送った日時 (ISO、重複通知防止のガード)
   aptitudeTestDeadlineAlertNotifiedAt?: string; // 実施期限前日アラートのChat通知を送った日時 (ISO、重複通知防止のガード)
+  docScreeningNudgeLastSentDate?: string; // 書類選考対応漏れの個別督促(DOC_SCREENING_NUDGE)を最後に送った日 (YYYY-MM-DD)。毎日連続で督促し続けないためのクールダウン判定に使う
   aptitudeTestVerbalScore?: number; // 適性検査 言語スコア (0〜10点満点)
   aptitudeTestNonVerbalScore?: number; // 適性検査 非言語スコア (0〜10点満点)
   lastUpdated: string;

@@ -19,10 +19,16 @@ interface AgencyDigestStat {
   rejectedByPhase: RejectionPhaseCounts;
 }
 
+interface StaffAgencyGroup {
+  staffLabel: string; // 採用担当者名、または「その他（担当者未設定）」
+  isOther: boolean;
+  agencyStats: AgencyDigestStat[];
+}
+
 interface PositionDigestGroup {
   positionLabel: string;
   total: number;
-  agencyStats: AgencyDigestStat[];
+  staffGroups: StaffAgencyGroup[];
 }
 
 // rejectedByPhaseの各キーを、見送り内訳の表示ラベルへ対応付ける（表示順もこの並び）。
@@ -44,9 +50,11 @@ function formatRejectionBreakdown(rejectedByPhase: RejectionPhaseCounts): string
 // Fired manually from the 分析ダッシュボード's two "応募状況を送信" buttons (DAILY_APPLICATIONS_DIGEST /
 // PERIOD_APPLICATIONS_DIGEST) — unlike ATTENTION_DIGEST this is never sent automatically, only on
 // an explicit click, to every staff/group Chat webhook subscribed to the relevant kind. The
-// candidate/agency numbers are computed client-side (same computeYieldMetricsByPosition helper the
-// dashboard itself renders from — BCA/AIX/BRE each broken out, everything else lumped into 「その他」)
-// and just passed through here for formatting + the actual webhook POST.
+// candidate/agency numbers are computed client-side (ATSContext's sendApplicationsDigest — BCA/AIX/
+// BRE each broken out via computeYieldMetricsByPosition, everything else lumped into 「その他」, then
+// each position's agencies further grouped by the 採用担当者 they're assigned to, with
+// unassigned agencies under 「その他（担当者未設定）」) and just passed through here for formatting +
+// the actual webhook POST.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -73,14 +81,20 @@ export default async function handler(req: any, res: any) {
     const positionSections = (positionGroups as PositionDigestGroup[])
       .filter((g) => g.total > 0)
       .map((g) => {
-        const agencyLines = g.agencyStats
-          .filter((a) => a.total > 0)
-          .map(
-            (a) =>
-              `・${a.agencyName}: 応募${a.total}名 / 書類通過${a.documentPassCount}名 / 1次通過${a.firstInterviewPassCount}名 / 内定${a.offerCount}名 / 承諾${a.acceptCount}名 / ${formatRejectionBreakdown(a.rejectedByPhase)}`
-          )
+        const staffSections = g.staffGroups
+          .filter((sg) => sg.agencyStats.length > 0)
+          .map((sg) => {
+            const agencyLines = sg.agencyStats
+              .map(
+                (a) =>
+                  `・${a.agencyName}: 応募${a.total}名 / 書類通過${a.documentPassCount}名 / 1次通過${a.firstInterviewPassCount}名 / 内定${a.offerCount}名 / 承諾${a.acceptCount}名 / ${formatRejectionBreakdown(a.rejectedByPhase)}`
+              )
+              .join('\n');
+            const heading = sg.isOther ? `*${sg.staffLabel}*` : `*採用担当: ${sg.staffLabel}*`;
+            return `${heading}\n${agencyLines}`;
+          })
           .join('\n');
-        return `■ *${g.positionLabel}*（${g.total}名）\n${agencyLines}`;
+        return `■ *${g.positionLabel}*（${g.total}名）\n${staffSections}`;
       })
       .join('\n\n');
 

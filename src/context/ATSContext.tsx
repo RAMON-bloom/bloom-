@@ -3231,26 +3231,64 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 更新される最新値)。
     const latestAgencies = latestBackupStateRef.current.agencies;
 
+    // ポジション見出しの下は、フラットなエージェント一覧ではなく「採用担当者ごとに、その担当者に
+    // 紐づくエージェント」という2段階の内訳にする。1エージェントが複数の採用担当者に紐づいて
+    // いる場合はそれぞれの担当者の下に重複して現れる(RecruitmentMeetingViewの
+    // 「agencies.filter(assignedStaffNames?.includes(recruiterName))」と同じ考え方)。どの採用
+    // 担当者にも紐づいていないエージェントは「その他」としてまとめる。
+    const OTHER_STAFF_LABEL = 'その他（担当者未設定）';
+
     const buildDigestPayload = (digestTargetStaffNames?: string[]) => {
       const scopedAgencies =
         digestTargetStaffNames && digestTargetStaffNames.length > 0
           ? latestAgencies.filter((ag) => ag.assignedStaffNames?.some((n) => digestTargetStaffNames.includes(n)))
           : latestAgencies;
       const positionGroups = computeYieldMetricsByPosition(scopedAgencies, digestCandidates);
+      const staffOrder = staffList.map((s) => s.name);
+
       const digestPositionGroups = positionGroups
-        .map((g) => ({
-          positionLabel: g.positionLabel,
-          total: g.metrics.reduce((acc, m) => acc + m.totalApplications, 0),
-          agencyStats: g.metrics.map((m) => ({
-            agencyName: m.agencyName,
-            total: m.totalApplications,
-            documentPassCount: m.documentPassCount,
-            firstInterviewPassCount: m.firstInterviewPassCount,
-            offerCount: m.offerCount,
-            acceptCount: m.acceptCount,
-            rejectedByPhase: m.rejectedByPhase
-          }))
-        }))
+        .map((g) => {
+          const total = g.metrics.reduce((acc, m) => acc + m.totalApplications, 0);
+
+          const statsByStaff = new Map<string, ReturnType<typeof buildAgencyStat>[]>();
+          function buildAgencyStat(m: (typeof g.metrics)[number]) {
+            return {
+              agencyName: m.agencyName,
+              total: m.totalApplications,
+              documentPassCount: m.documentPassCount,
+              firstInterviewPassCount: m.firstInterviewPassCount,
+              offerCount: m.offerCount,
+              acceptCount: m.acceptCount,
+              rejectedByPhase: m.rejectedByPhase
+            };
+          }
+
+          g.metrics
+            .filter((m) => m.totalApplications > 0)
+            .forEach((m) => {
+              const stat = buildAgencyStat(m);
+              const agency = scopedAgencies.find((ag) => ag.name === m.agencyName);
+              const assignedNames = agency?.assignedStaffNames?.length ? agency.assignedStaffNames : [OTHER_STAFF_LABEL];
+              assignedNames.forEach((name) => {
+                if (!statsByStaff.has(name)) statsByStaff.set(name, []);
+                statsByStaff.get(name)!.push(stat);
+              });
+            });
+
+          const knownNames = staffOrder.filter((name) => statsByStaff.has(name));
+          const unknownNames = Array.from(statsByStaff.keys()).filter(
+            (name) => name !== OTHER_STAFF_LABEL && !staffOrder.includes(name)
+          );
+          const staffGroups = [...knownNames, ...unknownNames]
+            .map((name) => ({ staffLabel: name, isOther: false, agencyStats: statsByStaff.get(name)! }))
+            .concat(
+              statsByStaff.has(OTHER_STAFF_LABEL)
+                ? [{ staffLabel: OTHER_STAFF_LABEL, isOther: true, agencyStats: statsByStaff.get(OTHER_STAFF_LABEL)! }]
+                : []
+            );
+
+          return { positionLabel: g.positionLabel, total, staffGroups };
+        })
         .filter((g) => g.total > 0);
       const totalCount = digestPositionGroups.reduce((acc, g) => acc + g.total, 0);
       return { positionGroups: digestPositionGroups, totalCount };

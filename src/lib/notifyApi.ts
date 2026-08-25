@@ -196,20 +196,24 @@ export function notifyApplicationsDigest(params: {
   positionGroups: {
     positionLabel: string;
     total: number;
-    agencyStats: {
-      agencyName: string;
-      total: number;
-      documentPassCount: number;
-      firstInterviewPassCount: number;
-      offerCount: number;
-      acceptCount: number;
-      rejectedByPhase: {
-        documentScreening: number;
-        casualInterview: number;
-        firstInterview: number;
-        secondInterview: number;
-        finalInterview: number;
-      };
+    staffGroups: {
+      staffLabel: string; // 採用担当者名、または「その他（担当者未設定）」
+      isOther: boolean;
+      agencyStats: {
+        agencyName: string;
+        total: number;
+        documentPassCount: number;
+        firstInterviewPassCount: number;
+        offerCount: number;
+        acceptCount: number;
+        rejectedByPhase: {
+          documentScreening: number;
+          casualInterview: number;
+          firstInterview: number;
+          secondInterview: number;
+          finalInterview: number;
+        };
+      }[];
     }[];
   }[];
 }): Promise<void> {

@@ -322,8 +322,11 @@ export const CandidateDetailModal: React.FC = () => {
   const [onboardingNotesText, setOnboardingNotesText] = useState<string>('');
   const [onboardingBaseMonthlySalary, setOnboardingBaseMonthlySalary] = useState<string>('');
   const [onboardingHasBonusGuarantee, setOnboardingHasBonusGuarantee] = useState<boolean>(false);
-  const [onboardingBonusGuaranteeAmount, setOnboardingBonusGuaranteeAmount] = useState<string>('');
-  const [onboardingBonusGuaranteePaymentMonth, setOnboardingBonusGuaranteePaymentMonth] = useState<string>('');
+  // 賞与保証は複数回に分けて支給されることがあるため、行の配列として保持する（金額は入力中の
+  // 半端な値をNaNにせず保持できるよう文字列で持ち、保存時にNumberへ変換する）。
+  const [onboardingBonusGuaranteeInstallments, setOnboardingBonusGuaranteeInstallments] = useState<
+    { amount: string; paymentMonth: string }[]
+  >([]);
   const [onboardingHasSignOnBonus, setOnboardingHasSignOnBonus] = useState<boolean>(false);
   const [onboardingSignOnBonusAmount, setOnboardingSignOnBonusAmount] = useState<string>('');
   const [customInterviewerInput, setCustomInterviewerInput] = useState<string>('');
@@ -348,8 +351,11 @@ export const CandidateDetailModal: React.FC = () => {
         setOnboardingNotesText(c.onboardingNotes || '');
         setOnboardingBaseMonthlySalary(c.baseMonthlySalary != null ? String(c.baseMonthlySalary) : '');
         setOnboardingHasBonusGuarantee(!!c.hasBonusGuarantee);
-        setOnboardingBonusGuaranteeAmount(c.bonusGuaranteeAmount != null ? String(c.bonusGuaranteeAmount) : '');
-        setOnboardingBonusGuaranteePaymentMonth(c.bonusGuaranteePaymentMonth || '');
+        setOnboardingBonusGuaranteeInstallments(
+          c.bonusGuaranteeInstallments && c.bonusGuaranteeInstallments.length > 0
+            ? c.bonusGuaranteeInstallments.map((i) => ({ amount: String(i.amount), paymentMonth: i.paymentMonth }))
+            : []
+        );
         setOnboardingHasSignOnBonus(!!c.hasSignOnBonus);
         setOnboardingSignOnBonusAmount(c.signOnBonusAmount != null ? String(c.signOnBonusAmount) : '');
         setNewInterviewRating(c.interviewRating || undefined);
@@ -410,12 +416,25 @@ export const CandidateDetailModal: React.FC = () => {
       onboardingNotes: onboardingNotesText,
       baseMonthlySalary: onboardingBaseMonthlySalary ? Number(onboardingBaseMonthlySalary) : undefined,
       hasBonusGuarantee: onboardingHasBonusGuarantee,
-      bonusGuaranteeAmount: onboardingHasBonusGuarantee && onboardingBonusGuaranteeAmount ? Number(onboardingBonusGuaranteeAmount) : undefined,
-      bonusGuaranteePaymentMonth: onboardingHasBonusGuarantee ? (onboardingBonusGuaranteePaymentMonth || undefined) : undefined,
+      bonusGuaranteeInstallments: onboardingHasBonusGuarantee
+        ? onboardingBonusGuaranteeInstallments
+            .filter((i) => i.amount)
+            .map((i) => ({ amount: Number(i.amount), paymentMonth: i.paymentMonth }))
+        : undefined,
       hasSignOnBonus: onboardingHasSignOnBonus,
       signOnBonusAmount: onboardingHasSignOnBonus && onboardingSignOnBonusAmount ? Number(onboardingSignOnBonusAmount) : undefined
     });
     showToast('入社・フォロー情報を更新しました', 'success');
+  };
+
+  const handleAddBonusGuaranteeInstallment = () => {
+    setOnboardingBonusGuaranteeInstallments((prev) => [...prev, { amount: '', paymentMonth: '' }]);
+  };
+  const handleUpdateBonusGuaranteeInstallment = (index: number, field: 'amount' | 'paymentMonth', value: string) => {
+    setOnboardingBonusGuaranteeInstallments((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  };
+  const handleRemoveBonusGuaranteeInstallment = (index: number) => {
+    setOnboardingBonusGuaranteeInstallments((prev) => prev.filter((_, i) => i !== index));
   };
 
   if (!selectedCandidateId) return null;
@@ -3023,27 +3042,54 @@ export const CandidateDetailModal: React.FC = () => {
                                 <input
                                   type="checkbox"
                                   checked={onboardingHasBonusGuarantee}
-                                  onChange={(e) => setOnboardingHasBonusGuarantee(e.target.checked)}
+                                  onChange={(e) => {
+                                    setOnboardingHasBonusGuarantee(e.target.checked);
+                                    if (e.target.checked && onboardingBonusGuaranteeInstallments.length === 0) {
+                                      setOnboardingBonusGuaranteeInstallments([{ amount: '', paymentMonth: '' }]);
+                                    }
+                                  }}
                                   className="cursor-pointer"
                                 />
                                 <span>賞与保証あり</span>
                               </label>
                               {onboardingHasBonusGuarantee && (
                                 <div className="space-y-1.5">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={onboardingBonusGuaranteeAmount}
-                                    onChange={(e) => setOnboardingBonusGuaranteeAmount(e.target.value)}
-                                    placeholder="保証金額（円）"
-                                    className="w-full bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
-                                  />
-                                  <input
-                                    type="month"
-                                    value={onboardingBonusGuaranteePaymentMonth}
-                                    onChange={(e) => setOnboardingBonusGuaranteePaymentMonth(e.target.value)}
-                                    className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
-                                  />
+                                  {onboardingBonusGuaranteeInstallments.length === 0 && (
+                                    <p className="text-[10px] text-slate-400">支給回ごとに金額・支給年月を追加してください（複数回分割可）</p>
+                                  )}
+                                  {onboardingBonusGuaranteeInstallments.map((row, idx) => (
+                                    <div key={idx} className="flex items-center gap-1">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={row.amount}
+                                        onChange={(e) => handleUpdateBonusGuaranteeInstallment(idx, 'amount', e.target.value)}
+                                        placeholder={`${idx + 1}回目 金額（円）`}
+                                        className="w-full bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500"
+                                      />
+                                      <input
+                                        type="month"
+                                        value={row.paymentMonth}
+                                        onChange={(e) => handleUpdateBonusGuaranteeInstallment(idx, 'paymentMonth', e.target.value)}
+                                        className="bg-white border border-slate-300 text-slate-900 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-indigo-500 shrink-0"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveBonusGuaranteeInstallment(idx)}
+                                        title="この支給回を削除"
+                                        className="text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                                      >
+                                        <XCircle className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    onClick={handleAddBonusGuaranteeInstallment}
+                                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer flex items-center gap-1"
+                                  >
+                                    <Plus className="w-3 h-3" /> 支給回を追加
+                                  </button>
                                 </div>
                               )}
                             </div>

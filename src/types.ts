@@ -102,6 +102,13 @@ export interface ImportedInterviewLog {
   importedAt: string; // 取り込み実行日時 (ISO)
 }
 
+// 賞与保証の1回分の支給内訳。複数回に分けて支給されるケース（例: 初年度冬・翌年夏の2回）に
+// 対応するため配列で持つ（Candidate.bonusGuaranteeInstallments）。
+export interface BonusGuaranteeInstallment {
+  amount: number; // 金額（円）
+  paymentMonth: string; // 支給年月 (YYYY-MM)
+}
+
 export interface Candidate {
   id: string; // e.g. CAND-0001
   name: string;
@@ -153,8 +160,7 @@ export interface Candidate {
   salaryExpectation?: string;
   baseMonthlySalary?: number; // 基本月給（円）。エージェント支払額の計算基準（年収換算=×12）
   hasBonusGuarantee?: boolean; // 賞与保証の有無
-  bonusGuaranteeAmount?: number; // 賞与保証金額（円）。hasBonusGuaranteeがtrueの場合のみ有効
-  bonusGuaranteePaymentMonth?: string; // 賞与保証の支給年月 (YYYY-MM)
+  bonusGuaranteeInstallments?: BonusGuaranteeInstallment[]; // 賞与保証の支給内訳（複数回に分けて支給される場合は複数件）。hasBonusGuaranteeがtrueの場合のみ有効
   hasSignOnBonus?: boolean; // サインオンボーナスの有無
   signOnBonusAmount?: number; // サインオンボーナス金額（円）。hasSignOnBonusがtrueの場合のみ有効
   joiningDate?: string; // 入社予定日 YYYY-MM-DD

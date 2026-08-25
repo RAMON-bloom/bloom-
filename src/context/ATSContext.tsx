@@ -26,7 +26,8 @@ import {
   DriveSyncNewImport,
   DriveSyncDocUpdate,
   DriveSyncDuplicateFolder,
-  DriveSyncDuplicateFolderOption
+  DriveSyncDuplicateFolderOption,
+  BonusGuaranteeInstallment
 } from '../types';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
 import { useAuth } from './AuthContext';
@@ -122,8 +123,7 @@ interface ATSContextType {
       onboardingNotes?: string;
       baseMonthlySalary?: number;
       hasBonusGuarantee?: boolean;
-      bonusGuaranteeAmount?: number;
-      bonusGuaranteePaymentMonth?: string;
+      bonusGuaranteeInstallments?: BonusGuaranteeInstallment[];
       hasSignOnBonus?: boolean;
       signOnBonusAmount?: number;
     }
@@ -1580,8 +1580,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       onboardingNotes?: string;
       baseMonthlySalary?: number;
       hasBonusGuarantee?: boolean;
-      bonusGuaranteeAmount?: number;
-      bonusGuaranteePaymentMonth?: string;
+      bonusGuaranteeInstallments?: BonusGuaranteeInstallment[];
       hasSignOnBonus?: boolean;
       signOnBonusAmount?: number;
     }

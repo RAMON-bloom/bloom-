@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase } from '../types';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
-import { computeAgencyPaymentAmount } from '../lib/agencyPayment';
+import { computeAgencyPaymentAmount, sumBonusGuaranteeAmount } from '../lib/agencyPayment';
 import { 
   Sparkles, 
   Calendar as CalendarIcon, 
@@ -20,7 +20,8 @@ import {
   User,
   Filter,
   Check,
-  ArrowUpRight
+  ArrowUpRight,
+  Download
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<SelectionPhase, { label: string; bg: string; text: string; border: string }> = {
@@ -45,10 +46,10 @@ interface CalendarEvent {
 }
 
 export const OnboardingView: React.FC = () => {
-  const { candidates, agencies, setSelectedCandidateId } = useATS();
+  const { candidates, agencies, setSelectedCandidateId, showToast } = useATS();
 
-  // View Mode: 'cards' | 'calendar' | 'table'
-  const [viewMode, setViewMode] = useState<'cards' | 'calendar' | 'table'>('cards');
+  // View Mode: 'cards' | 'calendar' | 'table'（デフォルトはテーブル表示 — 一覧性が高くユーザーの主な用途）
+  const [viewMode, setViewMode] = useState<'cards' | 'calendar' | 'table'>('table');
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -254,6 +255,70 @@ export const OnboardingView: React.FC = () => {
   // Events for selected day
   const selectedDayEvents = selectedDay ? eventsByDate[selectedDay] || [] : [];
 
+  const RESIGNATION_LABELS: Record<string, string> = {
+    COMPLETED: '交渉完了',
+    NOTICE_SUBMITTED: '退職願提出済',
+    IN_PROGRESS: '交渉中',
+    DIFFICULT: '難航・調整中',
+    NOT_STARTED: '未着手'
+  };
+  const DINNER_LABELS: Record<string, string> = {
+    COMPLETED: '実施済み',
+    SCHEDULED: '予定あり',
+    NOT_REQUIRED: '不要',
+    UNPLANNED: '未定'
+  };
+
+  const exportOnboardingCSV = () => {
+    const headers = [
+      '候補者ID', '名前', '選考ポジション', 'エージェント名', '入社予定日',
+      '基本月給', '年収換算(基本月給×12)',
+      '賞与保証有無', '賞与保証合計額', '賞与保証支給内訳(金額:年月)',
+      'サインオンボーナス有無', 'サインオンボーナス金額',
+      'エージェント手数料率(%)', '手数料率-賞与保証対象', '手数料率-サインオンボーナス対象',
+      'エージェント支払額',
+      '退職交渉状況', '入社前会食状況', '社内担当者'
+    ];
+
+    const rows = filteredJoiningCandidates.map((c) => {
+      const agency = agencies.find((a) => a.id === c.agencyId);
+      const installmentsText = (c.bonusGuaranteeInstallments || [])
+        .map((i) => `${i.amount.toLocaleString('ja-JP')}円:${i.paymentMonth}`)
+        .join(' / ');
+      return [
+        c.id,
+        c.name,
+        c.jobTitle,
+        c.agencyName,
+        c.joiningDate || '',
+        c.baseMonthlySalary != null ? String(c.baseMonthlySalary) : '',
+        c.baseMonthlySalary != null ? String(c.baseMonthlySalary * 12) : '',
+        c.hasBonusGuarantee ? 'あり' : 'なし',
+        c.hasBonusGuarantee ? String(sumBonusGuaranteeAmount(c)) : '0',
+        installmentsText,
+        c.hasSignOnBonus ? 'あり' : 'なし',
+        c.hasSignOnBonus ? String(c.signOnBonusAmount || 0) : '0',
+        agency ? String(agency.commissionRate) : '',
+        agency?.commissionAppliesToBonusGuarantee ? '対象' : '対象外',
+        agency?.commissionAppliesToSignOnBonus ? '対象' : '対象外',
+        String(computeAgencyPaymentAmount(c, agency)),
+        RESIGNATION_LABELS[c.resignationNegotiationStatus || 'NOT_STARTED'],
+        DINNER_LABELS[c.preJoinDinnerStatus || 'UNPLANNED'],
+        c.assignees.join('; ')
+      ];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,﻿' + [headers, ...rows].map((e) => e.map((x) => `"${x}"`).join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `bloom_onboarding_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`入社予定者データ（${filteredJoiningCandidates.length}名）をCSVでダウンロードしました`, 'success');
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Simple Light Header */}
@@ -272,8 +337,9 @@ export const OnboardingView: React.FC = () => {
           </p>
         </div>
 
-        {/* View Switcher Controls */}
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 self-start md:self-auto shrink-0">
+        {/* View Switcher Controls + CSV Export */}
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
           <button
             onClick={() => setViewMode('cards')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -306,6 +372,17 @@ export const OnboardingView: React.FC = () => {
           >
             <Table2 className="w-3.5 h-3.5" />
             テーブル表示
+          </button>
+        </div>
+
+          <button
+            onClick={exportOnboardingCSV}
+            disabled={filteredJoiningCandidates.length === 0}
+            title="入社予定日・給与内訳・エージェント支払額をCSVで出力"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Download className="w-3.5 h-3.5" />
+            CSVエクスポート
           </button>
         </div>
       </div>
@@ -869,11 +946,17 @@ export const OnboardingView: React.FC = () => {
                           <td className="py-2 px-2.5 whitespace-nowrap">
                             {c.hasBonusGuarantee ? (
                               <div>
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">あり</span>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                  あり{(c.bonusGuaranteeInstallments?.length || 0) > 0 && ` (${c.bonusGuaranteeInstallments!.length}回)`}
+                                </span>
                                 <div className="text-[11px] font-mono mt-0.5">
-                                  {c.bonusGuaranteeAmount ? `¥${c.bonusGuaranteeAmount.toLocaleString('ja-JP')}` : '-'}
-                                  {c.bonusGuaranteePaymentMonth && ` (${c.bonusGuaranteePaymentMonth})`}
+                                  {sumBonusGuaranteeAmount(c) > 0 ? `¥${sumBonusGuaranteeAmount(c).toLocaleString('ja-JP')}` : '-'}
                                 </div>
+                                {(c.bonusGuaranteeInstallments?.length || 0) > 0 && (
+                                  <div className="text-[10px] text-slate-400">
+                                    {c.bonusGuaranteeInstallments!.map((i) => i.paymentMonth).filter(Boolean).join('・')}
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500">なし</span>

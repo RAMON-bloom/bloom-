@@ -3193,6 +3193,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else if (!opts?.silent) {
       showToast(`応募状況をChatに送信しました（${notifyCalls.length}件）`, 'success');
     }
+
+    // 「本日の応募状況」は手動ボタン・16時以降の自動送信のどちらから呼ばれても1日1回に統一する
+    // ため、送信経路を問わずここで「今日は送信済み」を記録する。これがないと、誰かが日中に手動で
+    // ボタンを押した後、16時になると自動送信の方はそれを知らずに別途もう一度送ってしまい、
+    // 同じ日に2通届くことになる。
+    if (kind === 'DAILY_APPLICATIONS_DIGEST') {
+      const today = new Date().toISOString().split('T')[0];
+      bumpDailyDigestDate(today);
+      attemptBackup();
+    }
   };
 
   // 抜け防止: 進捗が止まっている候補者 / 書類選考の対応が止まっている候補者。毎レンダー

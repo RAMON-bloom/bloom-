@@ -3212,10 +3212,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 発火する手動送信。宛先解決(担当者個人用＋グループ用Webhook)・失敗時トーストは他のChat通知と
   // 同じ流儀。kindごとに購読しているWebhookが1件もなければ、送信を試みずその旨をトーストで伝える
   // （担当者マスタでのWebhook未設定に気づきやすくするため、無言で何もしないことは避ける）。
-  // Webhookごとにdigest内容(ポジション別×エージェント別集計)を個別計算する — 担当者マスタ／
-  // エージェント設定でWebhookにdigestTargetStaffNamesが設定されていれば、その採用担当者に
-  // 紐づくエージェント(Agency.assignedStaffNames)だけに絞り込んだ「推薦状況」を送るため、送信先
-  // ごとに集計結果が変わり得る。未設定のWebhookは従来通り全エージェント対象。
+  // Webhookごとにdigest内容(ポジション別×採用担当者別×エージェント別集計)を個別計算する。
+  // 担当者マスタ／エージェント設定でWebhookにdigestTargetStaffNamesが設定されていれば、その採用
+  // 担当者に紐づくエージェントの推薦状況だけに絞り込むため、送信先ごとに集計結果が変わり得る。
+  // 未設定のWebhookは従来通り全採用担当者・全エージェント対象。
   const sendApplicationsDigest = async (
     params: {
       kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
@@ -3238,18 +3238,26 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 担当者にも紐づいていないエージェントは「その他」としてまとめる。
     const OTHER_STAFF_LABEL = 'その他（担当者未設定）';
 
+    // 同じエージェントでもポジション(BCA/AIX/BRE)によって窓口の採用担当者が異なる場合、
+    // Agency.assignedStaffNamesByPosition[positionLabel]があればそれを優先し、無ければ
+    // 全ポジション共通のassignedStaffNamesにフォールバックする。「その他」ポジション
+    // (EC/BP/ミドル等をひとまとめにしたグループ)にはポジション別上書きの概念が無いため、
+    // 常にassignedStaffNamesを使う。
+    const resolveAssignedStaffNames = (agency: Agency | undefined, positionLabel: string): string[] => {
+      if (!agency) return [];
+      const override = agency.assignedStaffNamesByPosition?.[positionLabel];
+      if (override && override.length > 0) return override;
+      return agency.assignedStaffNames || [];
+    };
+
     const buildDigestPayload = (digestTargetStaffNames?: string[]) => {
-      const scopedAgencies =
-        digestTargetStaffNames && digestTargetStaffNames.length > 0
-          ? latestAgencies.filter((ag) => ag.assignedStaffNames?.some((n) => digestTargetStaffNames.includes(n)))
-          : latestAgencies;
-      const positionGroups = computeYieldMetricsByPosition(scopedAgencies, digestCandidates);
+      const positionGroups = computeYieldMetricsByPosition(latestAgencies, digestCandidates);
       const staffOrder = staffList.map((s) => s.name);
+      const scopeSet = digestTargetStaffNames && digestTargetStaffNames.length > 0 ? new Set(digestTargetStaffNames) : null;
 
       const digestPositionGroups = positionGroups
         .map((g) => {
-          const total = g.metrics.reduce((acc, m) => acc + m.totalApplications, 0);
-
+          let total = 0;
           const statsByStaff = new Map<string, ReturnType<typeof buildAgencyStat>[]>();
           function buildAgencyStat(m: (typeof g.metrics)[number]) {
             return {
@@ -3266,10 +3274,18 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           g.metrics
             .filter((m) => m.totalApplications > 0)
             .forEach((m) => {
+              const agency = latestAgencies.find((ag) => ag.name === m.agencyName);
+              const assignedNames = resolveAssignedStaffNames(agency, g.positionLabel);
+              const namesToUse = assignedNames.length > 0 ? assignedNames : [OTHER_STAFF_LABEL];
+              // Webhookが特定の採用担当者に絞り込まれている場合、そのスコープ外の担当者名・
+              // 「その他」バケットは丸ごと除外する — このエージェントがこのポジションで対象
+              // 担当者と一切紐づいていなければ、行自体をこのWebhookの応募数に含めない。
+              const namesInScope = scopeSet ? namesToUse.filter((name) => name !== OTHER_STAFF_LABEL && scopeSet.has(name)) : namesToUse;
+              if (scopeSet && namesInScope.length === 0) return;
+
+              total += m.totalApplications;
               const stat = buildAgencyStat(m);
-              const agency = scopedAgencies.find((ag) => ag.name === m.agencyName);
-              const assignedNames = agency?.assignedStaffNames?.length ? agency.assignedStaffNames : [OTHER_STAFF_LABEL];
-              assignedNames.forEach((name) => {
+              namesInScope.forEach((name) => {
                 if (!statsByStaff.has(name)) statsByStaff.set(name, []);
                 statsByStaff.get(name)!.push(stat);
               });

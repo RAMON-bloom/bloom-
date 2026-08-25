@@ -204,7 +204,12 @@ export interface Agency {
   monthlyTarget: number;
   active: boolean;
   notes?: string;
-  assignedStaffNames?: string[]; // Internal hiring staff assigned to this agency
+  assignedStaffNames?: string[]; // Internal hiring staff assigned to this agency（ポジション別上書きが無い場合のデフォルト）
+  // 同じエージェントでも選考ポジション(BCA/AIX/BRE)によって窓口となる弊社担当者が異なる場合の上書き。
+  // キーは選考ポジションのラベル(例:"BCA")。値が空/未指定のポジションはassignedStaffNamesにフォール
+  // バックする。応募状況ダイジェスト（BCA/AIX/BREを個別に見出しを立てる機能）でのみ参照する — その他
+  // ポジション（EC/BP/ミドル等）はダイジェスト側で1つの「その他」に束ねられるため、この上書きは効かない。
+  assignedStaffNamesByPosition?: Partial<Record<string, string[]>>;
 }
 
 // Google Chatへ送る通知の種類。1件のWebhook URLごとにどの種類を受け取るか選べるようにし、

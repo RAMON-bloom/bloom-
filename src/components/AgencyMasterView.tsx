@@ -67,8 +67,13 @@ export const AgencyMasterView: React.FC = () => {
     commissionAppliesToSignOnBonus: false,
     monthlyTarget: 5,
     notes: '',
-    assignedStaffNames: [] as string[]
+    assignedStaffNames: [] as string[],
+    assignedStaffNamesByPosition: {} as Record<string, string[]>
   });
+
+  // 応募状況ダイジェストでポジション別の担当者上書きを設定できる対象。ダイジェスト側が
+  // BCA/AIX/BREだけを個別見出しにする(それ以外は「その他」に束ねる)のに合わせている。
+  const DIGEST_OVERRIDE_POSITIONS = ['BCA', 'AIX', 'BRE'];
 
   // Staff Modal State
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
@@ -166,7 +171,8 @@ export const AgencyMasterView: React.FC = () => {
       commissionAppliesToSignOnBonus: false,
       monthlyTarget: 5,
       notes: '',
-      assignedStaffNames: [staffList[0]?.name || '山田 太郎']
+      assignedStaffNames: [staffList[0]?.name || '山田 太郎'],
+      assignedStaffNamesByPosition: {}
     });
     setIsAgencyModalOpen(true);
   };
@@ -197,7 +203,8 @@ export const AgencyMasterView: React.FC = () => {
       commissionAppliesToSignOnBonus: !!agency.commissionAppliesToSignOnBonus,
       monthlyTarget: agency.monthlyTarget,
       notes: agency.notes || '',
-      assignedStaffNames: agency.assignedStaffNames || []
+      assignedStaffNames: agency.assignedStaffNames || [],
+      assignedStaffNamesByPosition: agency.assignedStaffNamesByPosition || {}
     });
     setIsAgencyModalOpen(true);
   };
@@ -266,7 +273,13 @@ export const AgencyMasterView: React.FC = () => {
       commissionAppliesToSignOnBonus: agencyFormData.commissionAppliesToSignOnBonus,
       monthlyTarget: agencyFormData.monthlyTarget,
       notes: agencyFormData.notes,
-      assignedStaffNames: agencyFormData.assignedStaffNames
+      assignedStaffNames: agencyFormData.assignedStaffNames,
+      assignedStaffNamesByPosition: (() => {
+        const cleaned = Object.fromEntries(
+          Object.entries(agencyFormData.assignedStaffNamesByPosition).filter(([, names]) => names.length > 0)
+        );
+        return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+      })()
     };
 
     if (editingAgency) {
@@ -292,6 +305,16 @@ export const AgencyMasterView: React.FC = () => {
       } else {
         return { ...prev, assignedStaffNames: [...prev.assignedStaffNames, staffName] };
       }
+    });
+  };
+
+  // ポジション別（BCA/AIX/BRE）の担当者上書きトグル。空にすると、そのポジションは上の「弊社側の
+  // 担当リクルーター紐づけ」(assignedStaffNames)にフォールバックする。
+  const handleTogglePositionStaffAssignment = (position: string, staffName: string) => {
+    setAgencyFormData((prev) => {
+      const current = prev.assignedStaffNamesByPosition[position] || [];
+      const next = current.includes(staffName) ? current.filter((n) => n !== staffName) : [...current, staffName];
+      return { ...prev, assignedStaffNamesByPosition: { ...prev.assignedStaffNamesByPosition, [position]: next } };
     });
   };
 
@@ -1463,6 +1486,44 @@ export const AgencyMasterView: React.FC = () => {
                         </div>
                         <span className="text-[10px] text-slate-500">{st.role}</span>
                       </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">
+                  ポジション別の担当者上書き（任意・応募状況ダイジェスト用）
+                </label>
+                <p className="text-[11px] text-slate-500 mb-1.5">
+                  同じエージェントでもポジションによって窓口の担当者が異なる場合はここで上書きできます。未選択のポジションは上の「弊社側の担当リクルーター紐づけ」がそのまま使われます。
+                </p>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2.5">
+                  {DIGEST_OVERRIDE_POSITIONS.map((position) => {
+                    const selected = agencyFormData.assignedStaffNamesByPosition[position] || [];
+                    return (
+                      <div key={position}>
+                        <p className="text-[11px] font-bold text-slate-600 mb-1">{position}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {staffList.map((st) => {
+                            const active = selected.includes(st.name);
+                            return (
+                              <button
+                                key={st.id}
+                                type="button"
+                                onClick={() => handleTogglePositionStaffAssignment(position, st.name)}
+                                className={`text-[10px] font-bold px-2 py-1 rounded-full border transition-colors cursor-pointer ${
+                                  active
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-slate-500 border-slate-300 hover:border-indigo-300'
+                                }`}
+                              >
+                                {st.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

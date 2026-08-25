@@ -1,4 +1,8 @@
-import { Agency, Candidate, RecruiterYieldSnapshot, AgencyYieldSnapshot, PipelineCandidateSnapshot, YieldMetrics, SelectionPhase } from '../types';
+import { Agency, Candidate, RecruiterYieldSnapshot, AgencyYieldSnapshot, PipelineCandidateSnapshot, YieldMetrics, PositionYieldGroup, RejectionPhaseCounts, SelectionPhase } from '../types';
+
+// 応募状況ダイジェスト（Chat webhook）でポジション別に見出しを立てる対象。ここに無いポジション
+// (EC/BP/ミドル等)はまとめて「その他」グループに入る。
+const DIGEST_SPLIT_POSITIONS = ['BCA', 'AIX', 'BRE'];
 
 const PHASE_ORDER: Record<SelectionPhase, number> = {
   'DOCUMENT_SCREENING': 1,
@@ -11,6 +15,34 @@ const PHASE_ORDER: Record<SelectionPhase, number> = {
   'REJECTED': 0,
   'DECLINED': 0
 };
+
+const EMPTY_REJECTED_BY_PHASE: RejectionPhaseCounts = {
+  documentScreening: 0,
+  casualInterview: 0,
+  firstInterview: 0,
+  secondInterview: 0,
+  finalInterview: 0
+};
+
+const REJECTION_PHASE_KEYS: Partial<Record<SelectionPhase, keyof RejectionPhaseCounts>> = {
+  DOCUMENT_SCREENING: 'documentScreening',
+  CASUAL_INTERVIEW: 'casualInterview',
+  FIRST_INTERVIEW: 'firstInterview',
+  SECOND_INTERVIEW: 'secondInterview',
+  FINAL_INTERVIEW: 'finalInterview'
+};
+
+// 見送り(REJECTED)候補者がどの選考フェーズで見送られたかを推定する。評価メモ保存経由の見送り
+// (addEvaluationNoteでresultStatus === 'FAIL'を保存した場合)は、そのメモのphaseが確実な情報源。
+// 一方カンバンでの直接ドラッグ(updateCandidatePhase)による見送りは評価メモを経由しないため、
+// 直近の評価メモのphase（＝見送り直前にいたフェーズの近似値）、それも無ければ書類選考にフォール
+// バックする。
+function resolveRejectionPhase(candidate: Candidate): SelectionPhase {
+  const failNote = candidate.evaluationNotes.find((n) => n.resultStatus === 'FAIL');
+  if (failNote) return failNote.phase;
+  if (candidate.evaluationNotes.length > 0) return candidate.evaluationNotes[0].phase;
+  return 'DOCUMENT_SCREENING';
+}
 
 // Per-agency pass-rate breakdown over whichever candidate set the caller passes in — e.g. the
 // dashboard passes its currently period/position-filtered candidates so "エージェント別歩留まり"
@@ -36,7 +68,8 @@ export function computeYieldMetrics(agencies: Agency[], candidates: Candidate[])
         finalInterviewPassRate: 0,
         offerRate: 0,
         acceptRate: 0,
-        overallYieldRate: 0
+        overallYieldRate: 0,
+        rejectedByPhase: { ...EMPTY_REJECTED_BY_PHASE }
       };
     }
 
@@ -46,6 +79,7 @@ export function computeYieldMetrics(agencies: Agency[], candidates: Candidate[])
     let finalPass = 0;
     let offerCount = 0;
     let acceptCount = 0;
+    const rejectedByPhase: RejectionPhaseCounts = { ...EMPTY_REJECTED_BY_PHASE };
 
     agencyCandidates.forEach((c) => {
       const maxPhaseReached = Math.max(
@@ -71,6 +105,10 @@ export function computeYieldMetrics(agencies: Agency[], candidates: Candidate[])
       if (c.phase === 'OFFER_ACCEPTED') {
         acceptCount++;
       }
+      if (c.phase === 'REJECTED') {
+        const key = REJECTION_PHASE_KEYS[resolveRejectionPhase(c)] || 'documentScreening';
+        rejectedByPhase[key]++;
+      }
     });
 
     const docPassRate = total > 0 ? Math.round((docPass / total) * 100) : 0;
@@ -94,9 +132,27 @@ export function computeYieldMetrics(agencies: Agency[], candidates: Candidate[])
       finalInterviewPassRate: finalPassRate,
       offerRate,
       acceptRate,
-      overallYieldRate: overallYield
+      overallYieldRate: overallYield,
+      rejectedByPhase
     };
   });
+}
+
+// 応募状況ダイジェスト向けに、candidatesをBCA/AIX/BREの3ポジション＋「その他」（残り全ポジション
+// 合算）に分け、それぞれについてcomputeYieldMetricsと同じエージェント別内訳を計算する。
+// jobTitleの一致判定はgetPositionBadge（KanbanView）と同じ完全一致。
+export function computeYieldMetricsByPosition(agencies: Agency[], candidates: Candidate[]): PositionYieldGroup[] {
+  const groups: PositionYieldGroup[] = DIGEST_SPLIT_POSITIONS.map((positionLabel) => ({
+    positionLabel,
+    metrics: computeYieldMetrics(agencies, candidates.filter((c) => c.jobTitle === positionLabel))
+  }));
+
+  const others = candidates.filter((c) => !DIGEST_SPLIT_POSITIONS.includes(c.jobTitle));
+  if (others.length > 0) {
+    groups.push({ positionLabel: 'その他', metrics: computeYieldMetrics(agencies, others) });
+  }
+
+  return groups;
 }
 
 // Mirrors RecruitmentMeetingView's assignedCandidates filter exactly (not archived, still with this

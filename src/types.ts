@@ -256,6 +256,15 @@ export interface AptitudeTestSettings {
   formUrl2?: string; // 適性検査Google Form URL（2つ目）
 }
 
+// 見送り(REJECTED)候補者を、見送られた選考フェーズ別に集計した内訳。
+export interface RejectionPhaseCounts {
+  documentScreening: number;
+  casualInterview: number;
+  firstInterview: number;
+  secondInterview: number;
+  finalInterview: number;
+}
+
 export interface YieldMetrics {
   agencyName: string;
   totalApplications: number;
@@ -271,6 +280,14 @@ export interface YieldMetrics {
   offerRate: number; // %
   acceptRate: number; // %
   overallYieldRate: number; // %
+  rejectedByPhase: RejectionPhaseCounts;
+}
+
+// 応募状況ダイジェスト（Chat webhook）向けの、選考ポジション別のエージェント内訳。
+// computeYieldMetricsByPositionが返す。
+export interface PositionYieldGroup {
+  positionLabel: string;
+  metrics: YieldMetrics[];
 }
 
 export interface AgencyYieldSnapshot {

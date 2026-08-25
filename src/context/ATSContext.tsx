@@ -7,6 +7,7 @@ import {
   EvaluationNote, 
   UserRole,
   YieldMetrics,
+  PositionYieldGroup,
   InternalStaff,
   PreJoinDinnerStatus,
   ResignationNegotiationStatus,
@@ -59,7 +60,7 @@ import { getNextPhase, migrateLegacyPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
 import { AptitudeTestStatus, applyAptitudeTestStatus, APTITUDE_TEST_STATUS_META } from '../lib/aptitudeTestStatus';
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
-import { computeYieldMetrics } from '../lib/yieldMetrics';
+import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
 
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
@@ -177,15 +178,16 @@ interface ATSContextType {
   inquiries: Inquiry[];
   addInquiryMessage: (category: InquiryCategory, text: string, inquiryId?: string) => string;
 
-  // 分析ダッシュボードの「本日/指定期間の応募状況を送信」ボタンから呼ばれる。渡されたagencyStats
-  // (呼び出し元がcomputeYieldMetricsで対象期間分を計算したもの)を、kindに対応するWebhook全件
-  // (担当者個人用＋グループ用)へ送信する。ATTENTION_DIGEST等の自動送信と同じ宛先解決・失敗時
-  // トースト表示のパターンを踏襲するが、こちらは常にユーザーのボタン操作で明示的に発火する。
+  // 分析ダッシュボードの「本日/指定期間の応募状況を送信」ボタンから呼ばれる。渡されたpositionGroups
+  // (呼び出し元がcomputeYieldMetricsByPositionで対象期間分を計算したもの、BCA/AIX/BRE別＋その他)を、
+  // kindに対応するWebhook全件(担当者個人用＋グループ用)へ送信する。ATTENTION_DIGEST等の自動送信と
+  // 同じ宛先解決・失敗時トースト表示のパターンを踏襲するが、こちらは常にユーザーのボタン操作で
+  // 明示的に発火する。
   sendApplicationsDigest: (
     params: {
       kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
       periodLabel: string;
-      agencyStats: YieldMetrics[];
+      positionGroups: PositionYieldGroup[];
     },
     opts?: { silent?: boolean }
   ) => Promise<void>;
@@ -1354,12 +1356,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const { candidates: latestCandidates, agencies: latestAgencies } = latestAttentionStateRef.current;
       const todaysCandidates = latestCandidates.filter((c) => c.appliedDate === today);
-      const todaysYieldMetrics = computeYieldMetrics(latestAgencies, todaysCandidates);
+      const todaysPositionGroups = computeYieldMetricsByPosition(latestAgencies, todaysCandidates);
       await sendApplicationsDigest(
         {
           kind: 'DAILY_APPLICATIONS_DIGEST',
           periodLabel: `本日（${today}）`,
-          agencyStats: todaysYieldMetrics
+          positionGroups: todaysPositionGroups
         },
         { silent: true }
       );
@@ -3134,20 +3136,27 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     params: {
       kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
       periodLabel: string;
-      agencyStats: YieldMetrics[];
+      positionGroups: PositionYieldGroup[];
     },
     opts?: { silent?: boolean }
   ): Promise<void> => {
-    const { kind, periodLabel, agencyStats } = params;
-    const totalCount = agencyStats.reduce((acc, m) => acc + m.totalApplications, 0);
-    const digestAgencyStats = agencyStats.map((m) => ({
-      agencyName: m.agencyName,
-      total: m.totalApplications,
-      documentPassCount: m.documentPassCount,
-      firstInterviewPassCount: m.firstInterviewPassCount,
-      offerCount: m.offerCount,
-      acceptCount: m.acceptCount
-    }));
+    const { kind, periodLabel, positionGroups } = params;
+    const digestPositionGroups = positionGroups
+      .map((g) => ({
+        positionLabel: g.positionLabel,
+        total: g.metrics.reduce((acc, m) => acc + m.totalApplications, 0),
+        agencyStats: g.metrics.map((m) => ({
+          agencyName: m.agencyName,
+          total: m.totalApplications,
+          documentPassCount: m.documentPassCount,
+          firstInterviewPassCount: m.firstInterviewPassCount,
+          offerCount: m.offerCount,
+          acceptCount: m.acceptCount,
+          rejectedByPhase: m.rejectedByPhase
+        }))
+      }))
+      .filter((g) => g.total > 0);
+    const totalCount = digestPositionGroups.reduce((acc, g) => acc + g.total, 0);
 
     const notifyCalls: Promise<void>[] = [];
     staffList.forEach((staff) => {
@@ -3160,7 +3169,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             staffMentionId: staff.chatMentionId,
             periodLabel,
             totalCount,
-            agencyStats: digestAgencyStats
+            positionGroups: digestPositionGroups
           })
         );
       });
@@ -3172,7 +3181,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           webhookUrl,
           periodLabel,
           totalCount,
-          agencyStats: digestAgencyStats
+          positionGroups: digestPositionGroups
         })
       );
     });

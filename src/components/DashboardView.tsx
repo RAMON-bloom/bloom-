@@ -3,7 +3,7 @@ import { useATS } from '../context/ATSContext';
 import { SelectionPhase, ScheduleStatus } from '../types';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
-import { computeYieldMetrics } from '../lib/yieldMetrics';
+import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
 import { 
   BarChart, 
   Bar, 
@@ -199,11 +199,11 @@ export const DashboardView: React.FC = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       const todaysCandidates = candidates.filter((c) => c.appliedDate === today);
-      const todaysYieldMetrics = computeYieldMetrics(agencies, todaysCandidates);
+      const todaysPositionGroups = computeYieldMetricsByPosition(agencies, todaysCandidates);
       await sendApplicationsDigest({
         kind: 'DAILY_APPLICATIONS_DIGEST',
         periodLabel: `本日（${today}）`,
-        agencyStats: todaysYieldMetrics
+        positionGroups: todaysPositionGroups
       });
     } finally {
       setIsSendingDailyDigest(false);
@@ -216,7 +216,7 @@ export const DashboardView: React.FC = () => {
       await sendApplicationsDigest({
         kind: 'PERIOD_APPLICATIONS_DIGEST',
         periodLabel: periodLabelForChat,
-        agencyStats: displayYieldMetrics
+        positionGroups: computeYieldMetricsByPosition(agencies, displayCandidates)
       });
     } finally {
       setIsSendingPeriodDigest(false);

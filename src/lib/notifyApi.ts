@@ -193,13 +193,24 @@ export function notifyApplicationsDigest(params: {
   staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
   periodLabel: string;
   totalCount: number;
-  agencyStats: {
-    agencyName: string;
+  positionGroups: {
+    positionLabel: string;
     total: number;
-    documentPassCount: number;
-    firstInterviewPassCount: number;
-    offerCount: number;
-    acceptCount: number;
+    agencyStats: {
+      agencyName: string;
+      total: number;
+      documentPassCount: number;
+      firstInterviewPassCount: number;
+      offerCount: number;
+      acceptCount: number;
+      rejectedByPhase: {
+        documentScreening: number;
+        casualInterview: number;
+        firstInterview: number;
+        secondInterview: number;
+        finalInterview: number;
+      };
+    }[];
   }[];
 }): Promise<void> {
   return postJson('/api/notify/applications-digest', { ...params, appUrl: window.location.origin });

@@ -181,11 +181,14 @@ interface ATSContextType {
   // (呼び出し元がcomputeYieldMetricsで対象期間分を計算したもの)を、kindに対応するWebhook全件
   // (担当者個人用＋グループ用)へ送信する。ATTENTION_DIGEST等の自動送信と同じ宛先解決・失敗時
   // トースト表示のパターンを踏襲するが、こちらは常にユーザーのボタン操作で明示的に発火する。
-  sendApplicationsDigest: (params: {
-    kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
-    periodLabel: string;
-    agencyStats: YieldMetrics[];
-  }) => Promise<void>;
+  sendApplicationsDigest: (
+    params: {
+      kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
+      periodLabel: string;
+      agencyStats: YieldMetrics[];
+    },
+    opts?: { silent?: boolean }
+  ) => Promise<void>;
 
   // Utils & Yields
   yieldMetrics: YieldMetrics[];
@@ -453,6 +456,21 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(ATTENTION_DIGEST_DATE_KEY, value);
   };
 
+  // 同じ仕組みで「本日の応募状況」自動送信（毎日16時以降、初めて開いたブラウザが送る）の
+  // 「今日はもう送信済みか」を管理する。サーバーcron・サービスアカウントが存在しない構成上、
+  // 正確に16:00:00に発火することは保証できず、16時以降に誰かがこのアプリを開いた（または
+  // 開きっぱなしのタブが次のチェック間隔を迎えた）タイミングでの発火になる — 詳細はこの値を
+  // 使うuseEffect（DAILY_DIGEST_CHECK_INTERVAL_MSの宣言付近）参照。
+  const DAILY_DIGEST_DATE_KEY = 'ats_daily_digest_last_run';
+  const dailyDigestDateRef = useRef<string>(
+    typeof window !== 'undefined' ? localStorage.getItem(DAILY_DIGEST_DATE_KEY) || '' : ''
+  );
+  const bumpDailyDigestDate = (value?: string) => {
+    if (!value || value <= dailyDigestDateRef.current) return;
+    dailyDigestDateRef.current = value;
+    localStorage.setItem(DAILY_DIGEST_DATE_KEY, value);
+  };
+
   const [filters, setFilters] = useState<FilterState>({
     searchQuery: '',
     agencyId: 'ALL',
@@ -691,6 +709,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         bumpCandidateIdSeq(remote.candidateIdSeq);
         // Same reasoning — see attentionDigestDateRef's declaration.
         bumpAttentionDigestDate(remote.attentionDigestLastSentDate);
+        bumpDailyDigestDate(remote.dailyApplicationsDigestLastSentDate);
       } catch {
         // Nothing backed up yet, or the read failed — fall back to merging against this tab's own
         // last-known base (equivalent to a plain overwrite for these collections), matching
@@ -716,7 +735,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         groupChatWebhooks: mergedGroupChatWebhooks,
         positions: mergedPositions,
         candidateIdSeq: candidateIdSeqRef.current,
-        attentionDigestLastSentDate: attentionDigestDateRef.current
+        attentionDigestLastSentDate: attentionDigestDateRef.current,
+        dailyApplicationsDigestLastSentDate: dailyDigestDateRef.current
       })
         .then(() => {
           // Captured after the write completes (so it's already at least as new as whatever
@@ -816,6 +836,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     aptitudeTestSettings?: AptitudeTestSettings;
     candidateIdSeq?: number;
     attentionDigestLastSentDate?: string;
+    dailyApplicationsDigestLastSentDate?: string;
     backedUpAt?: string;
   }) => {
     if (data.candidates) setCandidates(data.candidates.map(migrateLegacyPhase));
@@ -830,6 +851,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
     // Monotonic max, not a plain apply — see attentionDigestDateRef's declaration.
     bumpAttentionDigestDate(data.attentionDigestLastSentDate);
+    bumpDailyDigestDate(data.dailyApplicationsDigestLastSentDate);
     if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
     // Whatever just arrived from Drive is by definition in sync with Drive — record it as the new
     // merge base so the next write's three-way merge diffs against this, not a stale earlier point.
@@ -1146,12 +1168,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
 
-  // Always-fresh snapshot for the attention-notify effect below, same reasoning as
-  // latestBackupStateRef — the 8s delay exists so this reads data *after* auto-restore above has
-  // had a chance to replace whatever this browser started with, not the stale mount-time values.
-  const latestAttentionStateRef = useRef({ candidates, staffList, groupChatWebhooks });
+  // Always-fresh snapshot for the attention-notify and daily-digest effects below, same reasoning
+  // as latestBackupStateRef — the 8s delay on the attention-notify effect exists so it reads data
+  // *after* auto-restore above has had a chance to replace whatever this browser started with, not
+  // the stale mount-time values. The daily-digest effect needs this for a different reason: its
+  // setInterval callback is created once (deps=[driveAccessToken]) and can run for hours, so
+  // closing over `candidates`/`agencies` directly would freeze them at whatever they were when the
+  // interval was set up instead of picking up same-day edits.
+  const latestAttentionStateRef = useRef({ candidates, agencies, staffList, groupChatWebhooks });
   useEffect(() => {
-    latestAttentionStateRef.current = { candidates, staffList, groupChatWebhooks };
+    latestAttentionStateRef.current = { candidates, agencies, staffList, groupChatWebhooks };
   });
 
   // 抜け防止のGoogle Chat通知（進捗停滞ダイジェスト・書類選考対応漏れの個別督促）を、ログイン後
@@ -1287,6 +1313,61 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
     }, 8000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveAccessToken]);
+
+  // 「本日の応募状況」ダイジェストを毎日16時以降に自動送信する。DashboardViewの手動ボタン
+  // （sendApplicationsDigest呼び出し）と全く同じ計算・送信経路を使い、silent:trueで成功/警告の
+  // トーストだけ抑える（失敗トーストは出す — 自動送信でも本当に送信エラーが起きたことは気づける
+  // 方がよい）。サーバーcron・サービスアカウントが存在しない構成上、正確に16:00:00には発火
+  // できない — 16時以降に誰かがこのアプリを開いている（または開きっぱなしのタブが次のチェック
+  // 間隔を迎える）タイミングでの発火になる。「今日はもう送信済みか」はdailyDigestDateRefで
+  // 判定し、これはattentionDigestDateRefと同じくDrive共有バックアップ経由でチーム全体に同期
+  // されるため、複数人が16時以降に別々にログインしても重複送信されない。
+  const DAILY_DIGEST_HOUR = 16;
+  const DAILY_DIGEST_CHECK_INTERVAL_MS = 60000;
+  useEffect(() => {
+    if (!driveAccessToken) return;
+
+    const checkAndSendDailyDigest = async () => {
+      const now = new Date();
+      if (now.getHours() < DAILY_DIGEST_HOUR) return;
+
+      const today = new Date().toISOString().split('T')[0];
+      if (dailyDigestDateRef.current === today) return;
+
+      // 送信前にDriveの最新値を確認し、他のブラウザが既に今日分を送っていないか再確認する
+      // （attentionDigestDateRefの初回チェックと同じ理由 — 完全な排他ロックではないが、ほぼ
+      // 同時に複数ブラウザが16時を迎えた場合の重複リスクを縮小する）。
+      try {
+        const remote = await restoreFromDriveApi(driveAccessTokenRef.current || driveAccessToken);
+        bumpDailyDigestDate(remote.dailyApplicationsDigestLastSentDate);
+      } catch {
+        // Best-effort — fall through with whatever's already known locally.
+      }
+      if (dailyDigestDateRef.current === today) return;
+
+      // 送信前に「今日は送信済み」を確定させてからDriveへ書き戻す — 送信自体に時間がかかる間に
+      // 他のブラウザの次のチェックがすり抜けて二重送信するリスクを下げる。
+      bumpDailyDigestDate(today);
+      attemptBackup();
+
+      const { candidates: latestCandidates, agencies: latestAgencies } = latestAttentionStateRef.current;
+      const todaysCandidates = latestCandidates.filter((c) => c.appliedDate === today);
+      const todaysYieldMetrics = computeYieldMetrics(latestAgencies, todaysCandidates);
+      await sendApplicationsDigest(
+        {
+          kind: 'DAILY_APPLICATIONS_DIGEST',
+          periodLabel: `本日（${today}）`,
+          agencyStats: todaysYieldMetrics
+        },
+        { silent: true }
+      );
+    };
+
+    checkAndSendDailyDigest();
+    const intervalId = setInterval(checkAndSendDailyDigest, DAILY_DIGEST_CHECK_INTERVAL_MS);
+    return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
 
@@ -2452,7 +2533,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         inquiries,
         aptitudeTestSettings,
         candidateIdSeq: candidateIdSeqRef.current,
-        attentionDigestLastSentDate: attentionDigestDateRef.current
+        attentionDigestLastSentDate: attentionDigestDateRef.current,
+        dailyApplicationsDigestLastSentDate: dailyDigestDateRef.current
       });
       // Same reasoning as the auto-backup effect: stamped after the write completes, so the
       // background poll recognizes this as its own echo instead of someone else's newer edit.
@@ -3048,11 +3130,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 発火する手動送信。宛先解決(担当者個人用＋グループ用Webhook)・失敗時トーストは他のChat通知と
   // 同じ流儀。kindごとに購読しているWebhookが1件もなければ、送信を試みずその旨をトーストで伝える
   // （担当者マスタでのWebhook未設定に気づきやすくするため、無言で何もしないことは避ける）。
-  const sendApplicationsDigest = async (params: {
-    kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
-    periodLabel: string;
-    agencyStats: YieldMetrics[];
-  }): Promise<void> => {
+  const sendApplicationsDigest = async (
+    params: {
+      kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
+      periodLabel: string;
+      agencyStats: YieldMetrics[];
+    },
+    opts?: { silent?: boolean }
+  ): Promise<void> => {
     const { kind, periodLabel, agencyStats } = params;
     const totalCount = agencyStats.reduce((acc, m) => acc + m.totalApplications, 0);
     const digestAgencyStats = agencyStats.map((m) => ({
@@ -3093,7 +3178,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     if (notifyCalls.length === 0) {
-      showToast('送信先のWebhookが設定されていません（担当者マスタ・エージェント／採用担当設定をご確認ください）', 'warning');
+      // silent（自動送信）時は無言でスキップ — 誰も操作していないのに「Webhook未設定」警告だけ
+      // 突然出るのは驚かせるだけなので、この警告は手動ボタン操作時のみ表示する。
+      if (!opts?.silent) {
+        showToast('送信先のWebhookが設定されていません（担当者マスタ・エージェント／採用担当設定をご確認ください）', 'warning');
+      }
       return;
     }
 
@@ -3101,7 +3190,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const failedCount = results.filter((r) => r.status === 'rejected').length;
     if (failedCount > 0) {
       showToast(`応募状況の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
-    } else {
+    } else if (!opts?.silent) {
       showToast(`応募状況をChatに送信しました（${notifyCalls.length}件）`, 'success');
     }
   };

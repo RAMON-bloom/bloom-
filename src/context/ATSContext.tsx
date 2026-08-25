@@ -1509,22 +1509,169 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // promise (rather than firing them concurrently) keeps each PATCH's parent read accurate.
   const driveMoveQueueRef = useRef<Map<string, Promise<any>>>(new Map());
 
-  // Fire-and-forget: moves the candidate's whole Drive folder (resume, CV, anything else in it)
-  // into the folder matching their new phase. Prefers the per-candidate folder; falls back to
-  // moving the bare resume file for legacy candidates registered before that folder existed.
-  // Silently no-ops if Drive isn't connected or the resume was never uploaded to Drive at all.
-  const moveResumeFolderIfNeeded = (candidate: Candidate, newPhase: SelectionPhase) => {
-    const driveItemId = candidate.resumeDriveFolderId || candidate.resumeDriveFileId;
-    if (!driveAccessToken || !driveItemId || candidate.phase === newPhase) return;
+  // 移動が失敗した場合の再試行カウント・保留中タイマー（Drive項目IDごと）。attemptBackupと同じ
+  // 指数バックオフ（5秒 * 2^試行回数、上限2分）パターン。このMap自体はページを開いている間だけの
+  // メモリ上の値なので、リロード・再ログインのたびに0から数え直される。
+  const moveRetryCountRef = useRef<Map<string, number>>(new Map());
+  const moveRetryTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // 1セッションのうちにこの回数まで自動リトライしたら、そのセッションでは諦める（トースト1本だけ
+  // 出して以降は無言でリトライし続けない）。5秒*2^8で上限の2分に達したあとも数回試す計算で、
+  // 合計十数分は粘る。永久に無言でリトライし続けてDrive APIを叩き続ける事態を防ぎつつ、次回
+  // ログイン時の起動時チェックでは0から再度チャンスを与える。
+  const MAX_MOVE_RETRIES_PER_SESSION = 8;
+
+  // 「まだDriveへの反映が確認できていない移動」を端末に永続化しておく。以前はfire-and-forgetで
+  // 一度失敗する（またはタブを閉じてリトライが完走しない）とその候補者のファイルが古いフェーズ
+  // フォルダに永久に取り残されていた — Driveバックアップの仕組み(PENDING_BACKUP_KEY)と同じ
+  // 考え方で、次回このアプリを開いた時に自動で再開できるようにする。キーはDrive項目ID。1項目に
+  // つき最新の移動先だけ持てば十分（同じ項目に連続でフェーズ変更が入っても、最終的に反映される
+  // べきなのは最後の値だけ）。pendingSinceは「その移動先が最後に指定された時刻」— 起動時チェック
+  // が、フォルダ削除・候補者削除など何らかの理由で本当に成立しなくなった古い保留(既定30日)を
+  // 無限に持ち続けないための目安に使う。
+  interface PendingDriveMoveEntry {
+    phase: string;
+    pendingSince: number;
+  }
+  const PENDING_DRIVE_MOVES_KEY = 'ats_pending_drive_moves';
+  const STALE_PENDING_MOVE_MS = 30 * 24 * 60 * 60 * 1000;
+  const readPendingDriveMoves = (): Record<string, PendingDriveMoveEntry> => {
+    try {
+      const saved = localStorage.getItem(PENDING_DRIVE_MOVES_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  };
+  const writePendingDriveMove = (driveItemId: string, phase: string) => {
+    const pending = readPendingDriveMoves();
+    pending[driveItemId] = { phase, pendingSince: Date.now() };
+    localStorage.setItem(PENDING_DRIVE_MOVES_KEY, JSON.stringify(pending));
+  };
+  const clearPendingDriveMove = (driveItemId: string) => {
+    const pending = readPendingDriveMoves();
+    if (driveItemId in pending) {
+      delete pending[driveItemId];
+      localStorage.setItem(PENDING_DRIVE_MOVES_KEY, JSON.stringify(pending));
+    }
+  };
+
+  // Stops a pending/in-flight retry loop for a drive item entirely (cancels the scheduled
+  // setTimeout, forgets the retry count, clears the persisted pending-move record). Used when the
+  // item is about to be moved somewhere else for an unrelated reason (permanentlyDeleteCandidate)
+  // — without this, a still-ticking retry for "move to phase folder X" could fire concurrently
+  // with (or right after) that move and undo it, or just keep failing forever against an item
+  // that no longer lives where the retry expects.
+  const cancelPendingDriveMove = (driveItemId: string) => {
+    const timer = moveRetryTimerRef.current.get(driveItemId);
+    if (timer) clearTimeout(timer);
+    moveRetryTimerRef.current.delete(driveItemId);
+    moveRetryCountRef.current.delete(driveItemId);
+    clearPendingDriveMove(driveItemId);
+  };
+
+  // Moves the candidate's whole Drive folder (resume, CV, anything else in it) into the folder
+  // matching their new phase. Prefers the per-candidate folder; falls back to moving the bare
+  // resume file for legacy candidates registered before that folder existed. On failure, retries
+  // with exponential backoff (same schedule as attemptBackup) instead of giving up — a transient
+  // network blip or an expired token mid-move used to leave the file stranded in the old phase
+  // folder forever with nothing but an easy-to-miss 3.5s toast. Looks up the candidate's current
+  // name from the freshest known state (not a stale closure) since a retry can fire long after
+  // the call that originally scheduled it.
+  const attemptResumeFolderMove = (driveItemId: string, phase: string) => {
+    const token = driveAccessTokenRef.current;
+    if (!token) return; // 未ログイン中はリトライしない — 再ログイン時の起動時チェックに任せる
+
     const priorMove = driveMoveQueueRef.current.get(driveItemId) || Promise.resolve();
     const thisMove = priorMove
       .catch(() => {})
-      .then(() => moveResumeToPhaseFolderApi(driveAccessToken, driveItemId, newPhase))
+      .then(() => moveResumeToPhaseFolderApi(token, driveItemId, phase))
+      .then(() => {
+        cancelPendingDriveMove(driveItemId);
+      })
       .catch((err: any) => {
-        showToast(`${candidate.name} さんの履歴書のDriveフォルダ移動に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+        const retryCount = (moveRetryCountRef.current.get(driveItemId) || 0) + 1;
+        moveRetryCountRef.current.set(driveItemId, retryCount);
+        const candidateName =
+          latestBackupStateRef.current.candidates.find(
+            (c) => c.resumeDriveFolderId === driveItemId || c.resumeDriveFileId === driveItemId
+          )?.name || '候補者';
+        if (retryCount === 1) {
+          // 初回失敗時だけ知らせる — 以降は自動リトライが続くだけなので毎回警告すると煩わしい。
+          showToast(
+            `${candidateName} さんの履歴書のDriveフォルダ移動に失敗しました。自動で再試行します: ${err.message || '不明なエラー'}`,
+            'warning'
+          );
+        }
+        // A dead/expired token won't fix itself just by retrying the same request — same reasoning
+        // as attemptBackup's own 401 handling. Refresh right away instead of waiting on whatever
+        // else in the app happens to notice the token is stale.
+        if (err.status === 401) authRefreshNow();
+
+        if (retryCount >= MAX_MOVE_RETRIES_PER_SESSION) {
+          // このセッションでは無言のまま延々とリトライし続けない — ここまで来たら、フォルダが
+          // Drive側で削除された等、自動では解決しない状況の可能性が高い。保留の記録自体は消さず
+          // 残す（PENDING_DRIVE_MOVES_KEYはそのまま）ので、次回ログイン時の起動時チェックで
+          // retryCountが0から数え直され、改めてチャンスが与えられる。
+          showToast(
+            `${candidateName} さんの履歴書のDriveフォルダ移動が${retryCount}回連続で失敗したため、今回のセッションでは再試行を停止しました。次回ログイン時に自動で再試行しますが、繰り返し発生する場合はDriveを直接ご確認ください。`,
+            'warning'
+          );
+          return;
+        }
+        const retryDelay = Math.min(5000 * 2 ** retryCount, 120_000);
+        const timer = setTimeout(() => attemptResumeFolderMove(driveItemId, phase), retryDelay);
+        moveRetryTimerRef.current.set(driveItemId, timer);
       });
     driveMoveQueueRef.current.set(driveItemId, thisMove);
   };
+
+  const moveResumeFolderIfNeeded = (candidate: Candidate, newPhase: SelectionPhase) => {
+    const driveItemId = candidate.resumeDriveFolderId || candidate.resumeDriveFileId;
+    if (!driveItemId || candidate.phase === newPhase) return;
+    // 移動を試みる前に「保留中」として永続化する — 直後にトークンが無い/リクエストが失敗しても、
+    // 次回ログイン時の起動時チェック（下記のuseEffect）が確実に拾って再試行できるようにするため。
+    writePendingDriveMove(driveItemId, newPhase);
+    // 新しいフェーズ変更は仕切り直し — 以前この項目がMAX_MOVE_RETRIES_PER_SESSIONに達して諦めて
+    // いたとしても、今回のユーザー操作起点の要求にはフルの再試行回数を与える（内部の再帰呼び出し
+    // だけがこのカウントを積み上げていく）。
+    moveRetryCountRef.current.delete(driveItemId);
+    const existingTimer = moveRetryTimerRef.current.get(driveItemId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      moveRetryTimerRef.current.delete(driveItemId);
+    }
+    if (!driveAccessToken) return;
+    attemptResumeFolderMove(driveItemId, newPhase);
+  };
+
+  // ログインのたびに一度だけ、前回までに完走しなかった保留中のDriveフォルダ移動を再開する
+  // （retryCountはメモリ上だけの値なので、この時点で自然に0から数え直しになる）。あわせて、
+  // STALE_PENDING_MOVE_MSを超えて成立しなかった保留は、候補者削除・Drive側での手動操作などで
+  // 既に無関係になった可能性が高いとみなし、これ以上リトライ対象に含めず記録からも取り除く
+  // （ats_pending_drive_movesが際限なく肥大化するのを防ぐ）。トークン更新でdriveAccessTokenが
+  // 再発火してもここが再実行されないよう、hasAutoRestoredRef等と同じくrefでガードする。
+  const hasResumedPendingMovesRef = useRef(false);
+  useEffect(() => {
+    if (!driveAccessToken || hasResumedPendingMovesRef.current) return;
+    hasResumedPendingMovesRef.current = true;
+    const pending = readPendingDriveMoves();
+    const now = Date.now();
+    let prunedAny = false;
+    Object.entries(pending).forEach(([driveItemId, entry]) => {
+      if (now - entry.pendingSince > STALE_PENDING_MOVE_MS) {
+        console.warn(`Dropping stale pending Drive move for ${driveItemId} (pending since ${new Date(entry.pendingSince).toISOString()})`);
+        delete pending[driveItemId];
+        prunedAny = true;
+        return;
+      }
+      attemptResumeFolderMove(driveItemId, entry.phase);
+    });
+    if (prunedAny) {
+      localStorage.setItem(PENDING_DRIVE_MOVES_KEY, JSON.stringify(pending));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveAccessToken]);
 
   // Backs up a candidate's full evaluationNotes array into their own Drive folder, independent of
   // the single shared bloom_ats_backup.json blob — evaluation history shouldn't be at the mercy of
@@ -2339,6 +2486,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     (candidate?.resumeDocuments || []).forEach((doc) => {
       if (doc.driveFileId) driveItemIds.add(doc.driveFileId);
     });
+
+    // これらの項目は99_完全削除済みへ移されるため、まだ残っていた「フェーズフォルダへ移動する」
+    // 保留中リトライは丸ごと打ち切る — 放置すると、削除後もバックグラウンドで存在しない移動先を
+    // 相手に無意味なリトライを永久に続けてしまう。
+    driveItemIds.forEach((itemId) => cancelPendingDriveMove(itemId));
 
     if (driveItemIds.size > 0) {
       // Drive未接続（トークン切れ・サイレント再ログイン未完了などで一時的にnullの場合を含む）だと

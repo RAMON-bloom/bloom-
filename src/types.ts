@@ -151,6 +151,12 @@ export interface Candidate {
   // 既知の制限）を回避する。Webhookごと（＝Chatスペースごと）にスレッド実体が別れるためURL単位で保持。
   chatThreadNames?: Record<string, string>;
   salaryExpectation?: string;
+  baseMonthlySalary?: number; // 基本月給（円）。エージェント支払額の計算基準（年収換算=×12）
+  hasBonusGuarantee?: boolean; // 賞与保証の有無
+  bonusGuaranteeAmount?: number; // 賞与保証金額（円）。hasBonusGuaranteeがtrueの場合のみ有効
+  bonusGuaranteePaymentMonth?: string; // 賞与保証の支給年月 (YYYY-MM)
+  hasSignOnBonus?: boolean; // サインオンボーナスの有無
+  signOnBonusAmount?: number; // サインオンボーナス金額（円）。hasSignOnBonusがtrueの場合のみ有効
   joiningDate?: string; // 入社予定日 YYYY-MM-DD
   preJoinDinnerStatus?: PreJoinDinnerStatus; // 入社前会食状況
   preJoinDinnerDate?: string; // 会食予定日/実施日
@@ -187,6 +193,8 @@ export interface Agency {
   email: string;
   contacts?: AgencyContact[]; // 窓口担当者および各エージェント担当者リスト
   commissionRate: number; // Percentage e.g. 35%
+  commissionAppliesToBonusGuarantee?: boolean; // 紹介手数料率を賞与保証額にも適用するか
+  commissionAppliesToSignOnBonus?: boolean; // 紹介手数料率をサインオンボーナス額にも適用するか
   monthlyTarget: number;
   active: boolean;
   notes?: string;

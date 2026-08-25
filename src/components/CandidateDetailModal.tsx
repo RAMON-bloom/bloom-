@@ -54,7 +54,8 @@ import {
   ChevronUp,
   Plus,
   AtSign,
-  ClipboardCheck
+  ClipboardCheck,
+  Wallet
 } from 'lucide-react';
 
 const EVALUATION_GRADES: EvaluationGrade[] = ['A+', 'A-', 'B+', 'B', 'B-', 'C'];
@@ -319,6 +320,12 @@ export const CandidateDetailModal: React.FC = () => {
   const [onboardingDinnerDate, setOnboardingDinnerDate] = useState<string>('');
   const [onboardingResignationStatus, setOnboardingResignationStatus] = useState<ResignationNegotiationStatus>('NOT_STARTED');
   const [onboardingNotesText, setOnboardingNotesText] = useState<string>('');
+  const [onboardingBaseMonthlySalary, setOnboardingBaseMonthlySalary] = useState<string>('');
+  const [onboardingHasBonusGuarantee, setOnboardingHasBonusGuarantee] = useState<boolean>(false);
+  const [onboardingBonusGuaranteeAmount, setOnboardingBonusGuaranteeAmount] = useState<string>('');
+  const [onboardingBonusGuaranteePaymentMonth, setOnboardingBonusGuaranteePaymentMonth] = useState<string>('');
+  const [onboardingHasSignOnBonus, setOnboardingHasSignOnBonus] = useState<boolean>(false);
+  const [onboardingSignOnBonusAmount, setOnboardingSignOnBonusAmount] = useState<string>('');
   const [customInterviewerInput, setCustomInterviewerInput] = useState<string>('');
 
   // Runs only when the open candidate changes (not on every `candidates` update) — this used to
@@ -339,6 +346,12 @@ export const CandidateDetailModal: React.FC = () => {
         setOnboardingDinnerDate(c.preJoinDinnerDate || '');
         setOnboardingResignationStatus(c.resignationNegotiationStatus || 'NOT_STARTED');
         setOnboardingNotesText(c.onboardingNotes || '');
+        setOnboardingBaseMonthlySalary(c.baseMonthlySalary != null ? String(c.baseMonthlySalary) : '');
+        setOnboardingHasBonusGuarantee(!!c.hasBonusGuarantee);
+        setOnboardingBonusGuaranteeAmount(c.bonusGuaranteeAmount != null ? String(c.bonusGuaranteeAmount) : '');
+        setOnboardingBonusGuaranteePaymentMonth(c.bonusGuaranteePaymentMonth || '');
+        setOnboardingHasSignOnBonus(!!c.hasSignOnBonus);
+        setOnboardingSignOnBonusAmount(c.signOnBonusAmount != null ? String(c.signOnBonusAmount) : '');
         setNewInterviewRating(c.interviewRating || undefined);
         setNewDesiredDepartment(c.bcaDesiredDepartment || undefined);
         setNewLRating(c.lRating || undefined);
@@ -394,7 +407,13 @@ export const CandidateDetailModal: React.FC = () => {
       preJoinDinnerStatus: onboardingDinnerStatus,
       preJoinDinnerDate: onboardingDinnerDate || undefined,
       resignationNegotiationStatus: onboardingResignationStatus,
-      onboardingNotes: onboardingNotesText
+      onboardingNotes: onboardingNotesText,
+      baseMonthlySalary: onboardingBaseMonthlySalary ? Number(onboardingBaseMonthlySalary) : undefined,
+      hasBonusGuarantee: onboardingHasBonusGuarantee,
+      bonusGuaranteeAmount: onboardingHasBonusGuarantee && onboardingBonusGuaranteeAmount ? Number(onboardingBonusGuaranteeAmount) : undefined,
+      bonusGuaranteePaymentMonth: onboardingHasBonusGuarantee ? (onboardingBonusGuaranteePaymentMonth || undefined) : undefined,
+      hasSignOnBonus: onboardingHasSignOnBonus,
+      signOnBonusAmount: onboardingHasSignOnBonus && onboardingSignOnBonusAmount ? Number(onboardingSignOnBonusAmount) : undefined
     });
     showToast('入社・フォロー情報を更新しました', 'success');
   };
@@ -2977,6 +2996,80 @@ export const CandidateDetailModal: React.FC = () => {
                             placeholder="例: 退職承認受領済み。PCはMacBook Proを手配。メンターは高橋さんが担当予定。"
                             className="w-full bg-white border border-slate-300 text-slate-900 rounded-xl p-3 text-xs focus:outline-none focus:border-indigo-500 leading-relaxed"
                           />
+                        </div>
+
+                        {/* 5. Salary Breakdown */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 sm:col-span-2">
+                          <label className="block text-slate-800 font-bold text-xs flex items-center gap-2">
+                            <Wallet className="w-4 h-4 text-indigo-600" />
+                            <span>5. 給与内訳（エージェント支払額の計算に使用）</span>
+                          </label>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                              <span className="block text-slate-500 text-[11px] mb-1">基本月給（円）</span>
+                              <input
+                                type="number"
+                                min="0"
+                                value={onboardingBaseMonthlySalary}
+                                onChange={(e) => setOnboardingBaseMonthlySalary(e.target.value)}
+                                placeholder="例: 300000"
+                                className="w-full bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={onboardingHasBonusGuarantee}
+                                  onChange={(e) => setOnboardingHasBonusGuarantee(e.target.checked)}
+                                  className="cursor-pointer"
+                                />
+                                <span>賞与保証あり</span>
+                              </label>
+                              {onboardingHasBonusGuarantee && (
+                                <div className="space-y-1.5">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={onboardingBonusGuaranteeAmount}
+                                    onChange={(e) => setOnboardingBonusGuaranteeAmount(e.target.value)}
+                                    placeholder="保証金額（円）"
+                                    className="w-full bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                                  />
+                                  <input
+                                    type="month"
+                                    value={onboardingBonusGuaranteePaymentMonth}
+                                    onChange={(e) => setOnboardingBonusGuaranteePaymentMonth(e.target.value)}
+                                    className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            <div>
+                              <label className="flex items-center gap-1.5 text-slate-500 text-[11px] mb-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={onboardingHasSignOnBonus}
+                                  onChange={(e) => setOnboardingHasSignOnBonus(e.target.checked)}
+                                  className="cursor-pointer"
+                                />
+                                <span>サインオンボーナスあり</span>
+                              </label>
+                              {onboardingHasSignOnBonus && (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={onboardingSignOnBonusAmount}
+                                  onChange={(e) => setOnboardingSignOnBonusAmount(e.target.value)}
+                                  placeholder="金額（円）"
+                                  className="w-full bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
 

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase } from '../types';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
+import { computeAgencyPaymentAmount } from '../lib/agencyPayment';
 import { 
   Sparkles, 
   Calendar as CalendarIcon, 
@@ -14,6 +15,7 @@ import {
   MessageSquare,
   ChevronLeft,
   LayoutGrid,
+  Table2,
   Clock,
   User,
   Filter,
@@ -43,10 +45,10 @@ interface CalendarEvent {
 }
 
 export const OnboardingView: React.FC = () => {
-  const { candidates, setSelectedCandidateId } = useATS();
+  const { candidates, agencies, setSelectedCandidateId } = useATS();
 
-  // View Mode: 'cards' | 'calendar'
-  const [viewMode, setViewMode] = useState<'cards' | 'calendar'>('cards');
+  // View Mode: 'cards' | 'calendar' | 'table'
+  const [viewMode, setViewMode] = useState<'cards' | 'calendar' | 'table'>('cards');
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -293,6 +295,17 @@ export const OnboardingView: React.FC = () => {
           >
             <CalendarIcon className="w-3.5 h-3.5" />
             カレンダー表示
+          </button>
+          <button
+            onClick={() => setViewMode('table')}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === 'table'
+                ? 'bg-white text-indigo-700 shadow-2xs border border-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Table2 className="w-3.5 h-3.5" />
+            テーブル表示
           </button>
         </div>
       </div>
@@ -777,6 +790,155 @@ export const OnboardingView: React.FC = () => {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* TABLE VIEW */}
+      {viewMode === 'table' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs">
+            <div>
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <span className="p-1 bg-indigo-600 text-white rounded-lg text-xs font-bold"><Table2 className="w-3.5 h-3.5" /></span>
+                入社予定者一覧（テーブル表示）
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                入社予定日・給与内訳・エージェント支払額を一覧で確認できます。行をクリックすると候補者詳細で編集できます。
+              </p>
+            </div>
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+              <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                対象: {filteredJoiningCandidates.length}名
+              </span>
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+                支払額合計: ¥{filteredJoiningCandidates
+                  .reduce((sum, c) => sum + computeAgencyPaymentAmount(c, agencies.find((a) => a.id === c.agencyId)), 0)
+                  .toLocaleString('ja-JP')}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 text-xs font-semibold tracking-wider border-b border-slate-200">
+                    <th className="py-2.5 px-2.5">候補者名 / 職種</th>
+                    <th className="py-2.5 px-2.5">エージェント</th>
+                    <th className="py-2.5 px-2.5">入社予定日</th>
+                    <th className="py-2.5 px-2.5">基本月給</th>
+                    <th className="py-2.5 px-2.5">賞与保証</th>
+                    <th className="py-2.5 px-2.5">サインオンボーナス</th>
+                    <th className="py-2.5 px-2.5">エージェント支払額</th>
+                    <th className="py-2.5 px-2.5">退職交渉</th>
+                    <th className="py-2.5 px-2.5">入社前会食</th>
+                    <th className="py-2.5 px-2.5">社内担当者</th>
+                    <th className="py-2.5 px-2.5 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                  {filteredJoiningCandidates.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-8 text-center text-slate-400">
+                        該当する入社予定者が見つかりません。
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredJoiningCandidates.map((c) => {
+                      const agency = agencies.find((a) => a.id === c.agencyId);
+                      const paymentAmount = computeAgencyPaymentAmount(c, agency);
+                      return (
+                        <tr
+                          key={c.id}
+                          onClick={() => setSelectedCandidateId(c.id)}
+                          className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                        >
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            <div className="font-bold text-slate-900">{c.name}</div>
+                            <div className="text-[11px] text-slate-400">{c.jobTitle}</div>
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap max-w-[140px] truncate">{c.agencyName}</td>
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            <span className="font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-mono">
+                              {c.joiningDate || '未定'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap font-mono">
+                            {c.baseMonthlySalary ? `¥${c.baseMonthlySalary.toLocaleString('ja-JP')}` : '未設定'}
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            {c.hasBonusGuarantee ? (
+                              <div>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">あり</span>
+                                <div className="text-[11px] font-mono mt-0.5">
+                                  {c.bonusGuaranteeAmount ? `¥${c.bonusGuaranteeAmount.toLocaleString('ja-JP')}` : '-'}
+                                  {c.bonusGuaranteePaymentMonth && ` (${c.bonusGuaranteePaymentMonth})`}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500">なし</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            {c.hasSignOnBonus ? (
+                              <div>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">あり</span>
+                                <div className="text-[11px] font-mono mt-0.5">
+                                  {c.signOnBonusAmount ? `¥${c.signOnBonusAmount.toLocaleString('ja-JP')}` : '-'}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500">なし</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            <span className="font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-mono">
+                              ¥{paymentAmount.toLocaleString('ja-JP')}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              c.resignationNegotiationStatus === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+                              c.resignationNegotiationStatus === 'NOTICE_SUBMITTED' ? 'bg-amber-100 text-amber-800' :
+                              c.resignationNegotiationStatus === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' :
+                              c.resignationNegotiationStatus === 'DIFFICULT' ? 'bg-rose-100 text-rose-800' :
+                              'bg-slate-200 text-slate-700'
+                            }`}>
+                              {
+                                c.resignationNegotiationStatus === 'COMPLETED' ? '交渉完了' :
+                                c.resignationNegotiationStatus === 'NOTICE_SUBMITTED' ? '退職願提出済' :
+                                c.resignationNegotiationStatus === 'IN_PROGRESS' ? '交渉中' :
+                                c.resignationNegotiationStatus === 'DIFFICULT' ? '難航・調整中' : '未着手'
+                              }
+                            </span>
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              c.preJoinDinnerStatus === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+                              c.preJoinDinnerStatus === 'SCHEDULED' ? 'bg-amber-100 text-amber-800' :
+                              'bg-slate-200 text-slate-700'
+                            }`}>
+                              {
+                                c.preJoinDinnerStatus === 'COMPLETED' ? '実施済み' :
+                                c.preJoinDinnerStatus === 'SCHEDULED' ? '予定あり' :
+                                c.preJoinDinnerStatus === 'NOT_REQUIRED' ? '不要' : '未定'
+                              }
+                            </span>
+                          </td>
+                          <td className="py-2 px-2.5 max-w-[140px] truncate">{c.assignees.join(', ')}</td>
+                          <td className="py-2 px-2.5 text-right whitespace-nowrap">
+                            <span className="font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-1">
+                              詳細 <ChevronRight className="w-3.5 h-3.5" />
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
     </div>

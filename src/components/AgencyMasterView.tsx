@@ -63,6 +63,8 @@ export const AgencyMasterView: React.FC = () => {
     email: '',
     contacts: [] as AgencyContact[],
     commissionRate: 35,
+    commissionAppliesToBonusGuarantee: false,
+    commissionAppliesToSignOnBonus: false,
     monthlyTarget: 5,
     notes: '',
     assignedStaffNames: [] as string[]
@@ -160,6 +162,8 @@ export const AgencyMasterView: React.FC = () => {
         }
       ],
       commissionRate: 35,
+      commissionAppliesToBonusGuarantee: false,
+      commissionAppliesToSignOnBonus: false,
       monthlyTarget: 5,
       notes: '',
       assignedStaffNames: [staffList[0]?.name || '山田 太郎']
@@ -189,6 +193,8 @@ export const AgencyMasterView: React.FC = () => {
       email: agency.email || '',
       contacts: initialContacts,
       commissionRate: agency.commissionRate,
+      commissionAppliesToBonusGuarantee: !!agency.commissionAppliesToBonusGuarantee,
+      commissionAppliesToSignOnBonus: !!agency.commissionAppliesToSignOnBonus,
       monthlyTarget: agency.monthlyTarget,
       notes: agency.notes || '',
       assignedStaffNames: agency.assignedStaffNames || []
@@ -256,6 +262,8 @@ export const AgencyMasterView: React.FC = () => {
       email: mainEmail,
       contacts: validContacts,
       commissionRate: agencyFormData.commissionRate,
+      commissionAppliesToBonusGuarantee: agencyFormData.commissionAppliesToBonusGuarantee,
+      commissionAppliesToSignOnBonus: agencyFormData.commissionAppliesToSignOnBonus,
       monthlyTarget: agencyFormData.monthlyTarget,
       notes: agencyFormData.notes,
       assignedStaffNames: agencyFormData.assignedStaffNames
@@ -590,6 +598,16 @@ export const AgencyMasterView: React.FC = () => {
                       <div>
                         <span className="text-[10px] text-slate-500 block">紹介手数料率:</span>
                         <span className="font-bold text-slate-900 text-xs">{agency.commissionRate}%</span>
+                        {(agency.commissionAppliesToBonusGuarantee || agency.commissionAppliesToSignOnBonus) && (
+                          <span className="block text-[10px] text-slate-500 mt-0.5">
+                            （
+                            {[
+                              agency.commissionAppliesToBonusGuarantee && '賞与保証',
+                              agency.commissionAppliesToSignOnBonus && 'サインオンボーナス'
+                            ].filter(Boolean).join('・')}
+                            も対象）
+                          </span>
+                        )}
                       </div>
                       <div>
                         <span className="text-[10px] text-slate-500 block">月間目標推薦数:</span>
@@ -1331,6 +1349,29 @@ export const AgencyMasterView: React.FC = () => {
                     className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
                   />
                 </div>
+              </div>
+
+              {/* Commission Rate Scope: what the fee rate above applies to besides base salary */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5">
+                <label className="block text-slate-700 font-medium mb-1">紹介手数料率の対象範囲</label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={agencyFormData.commissionAppliesToBonusGuarantee}
+                    onChange={(e) => setAgencyFormData({ ...agencyFormData, commissionAppliesToBonusGuarantee: e.target.checked })}
+                    className="cursor-pointer"
+                  />
+                  <span>賞与保証額にも手数料率を適用する</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={agencyFormData.commissionAppliesToSignOnBonus}
+                    onChange={(e) => setAgencyFormData({ ...agencyFormData, commissionAppliesToSignOnBonus: e.target.checked })}
+                    className="cursor-pointer"
+                  />
+                  <span>サインオンボーナス額にも手数料率を適用する</span>
+                </label>
               </div>
 
               {/* Linked Company Recruiters */}

@@ -120,6 +120,12 @@ interface ATSContextType {
       preJoinDinnerDate?: string;
       resignationNegotiationStatus?: ResignationNegotiationStatus;
       onboardingNotes?: string;
+      baseMonthlySalary?: number;
+      hasBonusGuarantee?: boolean;
+      bonusGuaranteeAmount?: number;
+      bonusGuaranteePaymentMonth?: string;
+      hasSignOnBonus?: boolean;
+      signOnBonusAmount?: number;
     }
   ) => void;
   addEvaluationNote: (
@@ -1572,6 +1578,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       preJoinDinnerDate?: string;
       resignationNegotiationStatus?: ResignationNegotiationStatus;
       onboardingNotes?: string;
+      baseMonthlySalary?: number;
+      hasBonusGuarantee?: boolean;
+      bonusGuaranteeAmount?: number;
+      bonusGuaranteePaymentMonth?: string;
+      hasSignOnBonus?: boolean;
+      signOnBonusAmount?: number;
     }
   ) => {
     setCandidates((prev) =>

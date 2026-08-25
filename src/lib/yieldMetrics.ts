@@ -32,6 +32,21 @@ const REJECTION_PHASE_KEYS: Partial<Record<SelectionPhase, keyof RejectionPhaseC
   FINAL_INTERVIEW: 'finalInterview'
 };
 
+// 候補者が実際に書類選考を通過したかどうか。`c.phase !== 'DOCUMENT_SCREENING'`という単純な比較は
+// 見送り(REJECTED)/選考辞退(DECLINED)も「書類選考ではない」ため真になってしまい、書類選考の時点で
+// 見送りにした候補者が誤って「書類通過」に数えられてしまうバグの原因だった。評価メモの通過履歴
+// (maxPhaseReached、またはDOCUMENT_SCREENINGフェーズでのPASSメモ)を見て判定する。
+export function hasPassedDocumentScreening(candidate: Candidate): boolean {
+  const maxPhaseReached = Math.max(
+    PHASE_ORDER[candidate.phase],
+    ...candidate.evaluationNotes.map((n) => PHASE_ORDER[n.phase] || 0)
+  );
+  return (
+    maxPhaseReached >= 2 ||
+    candidate.evaluationNotes.some((n) => n.phase === 'DOCUMENT_SCREENING' && n.resultStatus === 'PASS')
+  );
+}
+
 // 見送り(REJECTED)候補者がどの選考フェーズで見送られたかを推定する。評価メモ保存経由の見送り
 // (addEvaluationNoteでresultStatus === 'FAIL'を保存した場合)は、そのメモのphaseが確実な情報源。
 // 一方カンバンでの直接ドラッグ(updateCandidatePhase)による見送りは評価メモを経由しないため、
@@ -192,7 +207,7 @@ function computeAgencyYield(agency: Agency, candidates: Candidate[], meetingMont
   );
 
   const total = agCandidates.length;
-  const docPass = agCandidates.filter((c) => c.phase !== 'DOCUMENT_SCREENING').length;
+  const docPass = agCandidates.filter(hasPassedDocumentScreening).length;
   const firstPass = agCandidates.filter((c) =>
     ['SECOND_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)
   ).length;
@@ -222,7 +237,7 @@ export function computeRecruiterYieldSnapshot(
   const assigned = candidates.filter((c) => c.assignees.includes(recruiterName));
   const candidateCount = assigned.length;
 
-  const docPassCount = assigned.filter((c) => c.phase !== 'DOCUMENT_SCREENING').length;
+  const docPassCount = assigned.filter(hasPassedDocumentScreening).length;
   const docPassRate = candidateCount > 0 ? Math.round((docPassCount / candidateCount) * 100) : 0;
 
   const firstPassCount = assigned.filter((c) =>

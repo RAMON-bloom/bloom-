@@ -29,7 +29,7 @@ import { useATS } from '../context/ATSContext';
 import { RecruiterReport, MeetingActionItem } from '../types';
 import { summarizeDriveMeetingLog, findCalendarMeetingNotes, findGmailMeetingNotes } from '../lib/driveApi';
 import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
-import { computeRecruiterYieldSnapshot, computeRecruiterPipelineSnapshot } from '../lib/yieldMetrics';
+import { computeRecruiterYieldSnapshot, computeRecruiterPipelineSnapshot, hasPassedDocumentScreening } from '../lib/yieldMetrics';
 
 export const RecruitmentMeetingView: React.FC = () => {
   const {
@@ -640,7 +640,7 @@ export const RecruitmentMeetingView: React.FC = () => {
     });
 
     const total = agCandidates.length;
-    const docPass = agCandidates.filter(c => c.phase !== 'DOCUMENT_SCREENING').length;
+    const docPass = agCandidates.filter(hasPassedDocumentScreening).length;
     const firstPass = agCandidates.filter(c => 
       ['SECOND_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(c.phase)
     ).length;
@@ -672,7 +672,7 @@ export const RecruitmentMeetingView: React.FC = () => {
   );
 
   const totalAssignedAll = assignedRecruiterCandidates.length;
-  const liveDocPassCount = assignedRecruiterCandidates.filter(c => c.phase !== 'DOCUMENT_SCREENING').length;
+  const liveDocPassCount = assignedRecruiterCandidates.filter(hasPassedDocumentScreening).length;
   const liveDocPassRate = totalAssignedAll > 0 ? Math.round((liveDocPassCount / totalAssignedAll) * 100) : 0;
 
   const liveFirstPassCount = assignedRecruiterCandidates.filter(c =>

@@ -868,6 +868,83 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem(PENDING_BACKUP_KEY);
   };
 
+  // Same shape as applyDriveSnapshot, but three-way-merges each collection against this tab's own
+  // live state (mergeCollection above) instead of blindly overwriting it — used by the background
+  // poll and the mount-time auto-restore, neither of which has any way to know whether this tab
+  // has a very recent local edit (already written to Drive, or still mid-flight) that predates the
+  // snapshot they just fetched. A blind overwrite there would silently discard that edit the moment
+  // a stale-relative-to-it snapshot comes back (e.g. another tab/session read Drive just before this
+  // tab's write landed, then wrote its own unrelated change back a moment later — see attemptBackup's
+  // comment on pendingLocalWriteRef for the fuller race). Deliberately NOT used by the explicit
+  // "Driveから復元" button (see restoreFromDrive's `merge` param) — someone clicking that wants Drive's
+  // copy to win outright, not a merge.
+  const applyDriveSnapshotMerged = (data: {
+    candidates?: Candidate[];
+    agencies?: Agency[];
+    staffList?: InternalStaff[];
+    meetingLogs?: MeetingLog[];
+    groupChatWebhooks?: ChatWebhook[];
+    positions?: RecruitmentPosition[];
+    inquiries?: Inquiry[];
+    aptitudeTestSettings?: AptitudeTestSettings;
+    candidateIdSeq?: number;
+    attentionDigestLastSentDate?: string;
+    dailyApplicationsDigestLastSentDate?: string;
+    backedUpAt?: string;
+  }) => {
+    const base = syncBaseRef.current;
+    const local = latestBackupStateRef.current;
+
+    const mergedCandidates = data.candidates
+      ? mergeCollection(base.candidates, local.candidates, data.candidates.map(migrateLegacyPhase))
+      : local.candidates;
+    const mergedAgencies = data.agencies ? mergeCollection(base.agencies, local.agencies, data.agencies) : local.agencies;
+    const mergedStaffList = data.staffList ? mergeCollection(base.staffList, local.staffList, data.staffList) : local.staffList;
+    const mergedMeetingLogs = data.meetingLogs
+      ? mergeCollection(base.meetingLogs, local.meetingLogs, data.meetingLogs)
+      : local.meetingLogs;
+    const mergedGroupChatWebhooks = data.groupChatWebhooks
+      ? mergeCollection(base.groupChatWebhooks, local.groupChatWebhooks, data.groupChatWebhooks)
+      : local.groupChatWebhooks;
+    const mergedPositions = data.positions
+      ? mergeCollection(base.positions, local.positions, data.positions)
+      : local.positions;
+
+    if (data.candidates && JSON.stringify(mergedCandidates) !== JSON.stringify(local.candidates)) setCandidates(mergedCandidates);
+    if (data.agencies && JSON.stringify(mergedAgencies) !== JSON.stringify(local.agencies)) setAgencies(mergedAgencies);
+    if (data.staffList && JSON.stringify(mergedStaffList) !== JSON.stringify(local.staffList)) setStaffList(mergedStaffList);
+    if (data.meetingLogs && JSON.stringify(mergedMeetingLogs) !== JSON.stringify(local.meetingLogs)) setMeetingLogs(mergedMeetingLogs);
+    if (data.groupChatWebhooks && JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(local.groupChatWebhooks)) {
+      setGroupChatWebhooks(mergedGroupChatWebhooks);
+    }
+    if (data.positions && JSON.stringify(mergedPositions) !== JSON.stringify(local.positions)) setPositions(mergedPositions);
+    // inquiries/aptitudeTestSettings stay plain-overwrite, same as attemptBackup treats them
+    // (see attemptBackup's comment on why those two aren't id-keyed collections mergeCollection
+    // applies to).
+    if (data.inquiries) setInquiries(data.inquiries);
+    if (data.aptitudeTestSettings) setAptitudeTestSettings(data.aptitudeTestSettings);
+
+    if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
+    bumpAttentionDigestDate(data.attentionDigestLastSentDate);
+    bumpDailyDigestDate(data.dailyApplicationsDigestLastSentDate);
+    if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
+
+    // The merged result — not the raw remote snapshot — is what this tab now knows to be
+    // reconciled against Drive's latest. If that merge kept a local edit Drive doesn't have yet,
+    // this diverges from syncBaseRef's old value, which is exactly what's needed: it makes the
+    // very next candidates/agencies/etc. change (including this one, via the setX calls above)
+    // schedule a fresh attemptBackup that writes the corrected data back.
+    updateSyncBase({
+      candidates: mergedCandidates,
+      agencies: mergedAgencies,
+      staffList: mergedStaffList,
+      meetingLogs: mergedMeetingLogs,
+      groupChatWebhooks: mergedGroupChatWebhooks,
+      positions: mergedPositions
+    });
+    localStorage.removeItem(PENDING_BACKUP_KEY);
+  };
+
   // Auto-restores from Drive once per login. Without this, candidates/agencies/staffList/
   // meetingLogs were seeded purely from this browser's own localStorage (or, on a brand-new
   // browser, this app's built-in demo data — dummy agencies, a dummy 山田太郎 etc.) and stayed
@@ -911,7 +988,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Whatever the outcome (real data restored, nothing backed up yet, or an outright failure),
       // there's nothing further for the bootstrap screen to wait on — let the UI render whatever
       // state resulted rather than block forever on a restore that will never come.
-      restoreFromDrive({ silent: true }).finally(finishBootstrap);
+      restoreFromDrive({ silent: true, merge: true }).finally(finishBootstrap);
       return;
     }
 
@@ -923,7 +1000,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           driveIsAheadOfWhatWeKnow =
             !!data.backedUpAt && (!lastAppliedBackupAtRef.current || data.backedUpAt > lastAppliedBackupAtRef.current);
           if (driveIsAheadOfWhatWeKnow) {
-            applyDriveSnapshot(data);
+            applyDriveSnapshotMerged(data);
             return;
           }
         } catch {
@@ -1141,7 +1218,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!data.backedUpAt) return;
         if (lastAppliedBackupAtRef.current && data.backedUpAt <= lastAppliedBackupAtRef.current) return;
 
-        applyDriveSnapshot(data);
+        applyDriveSnapshotMerged(data);
       } catch (err: any) {
         // Silent — a background poll failing (transient network blip, token mid-refresh, nothing
         // backed up yet) isn't something the user needs interrupted with a toast for; the button-
@@ -2568,14 +2645,18 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // signs in, before any backup exists — is treated as a no-op rather than a scary warning toast
   // on every single login. Any other failure (auth/network/etc.) still surfaces normally, silent
   // or not, since that's a real problem the user should know about.
-  const restoreFromDrive = async (options: { silent?: boolean } = {}) => {
+  const restoreFromDrive = async (options: { silent?: boolean; merge?: boolean } = {}) => {
     if (!driveAccessToken) {
       if (!options.silent) showToast('先にGoogle Driveへログインしてください', 'warning');
       return;
     }
     try {
       const data = await restoreFromDriveApi(driveAccessToken);
-      applyDriveSnapshot(data);
+      if (options.merge) {
+        applyDriveSnapshotMerged(data);
+      } else {
+        applyDriveSnapshot(data);
+      }
       if (!options.silent) showToast('Driveのバックアップからデータを復元しました', 'success');
     } catch (err: any) {
       const notBackedUpYet = String(err.message || '').includes('見つかりませんでした');

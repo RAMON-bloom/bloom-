@@ -7,7 +7,6 @@ import {
   EvaluationNote, 
   UserRole,
   YieldMetrics,
-  PositionYieldGroup,
   InternalStaff,
   PreJoinDinnerStatus,
   ResignationNegotiationStatus,
@@ -57,7 +56,7 @@ import {
 import { getStalledCandidates, getOverdueDocScreening, daysSince, STALLED_DOC_SCREENING_DAYS } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { getNextPhase, migrateLegacyPhase } from '../lib/phaseUtils';
-import { getStaffWebhooksForKind, getGroupWebhooksForKind } from '../lib/staffUtils';
+import { getStaffWebhooksForKind, getGroupWebhooksForKind, getStaffWebhookEntriesForKind, getGroupWebhookEntriesForKind } from '../lib/staffUtils';
 import { AptitudeTestStatus, applyAptitudeTestStatus, APTITUDE_TEST_STATUS_META } from '../lib/aptitudeTestStatus';
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
 import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
@@ -178,16 +177,17 @@ interface ATSContextType {
   inquiries: Inquiry[];
   addInquiryMessage: (category: InquiryCategory, text: string, inquiryId?: string) => string;
 
-  // 分析ダッシュボードの「本日/指定期間の応募状況を送信」ボタンから呼ばれる。渡されたpositionGroups
-  // (呼び出し元がcomputeYieldMetricsByPositionで対象期間分を計算したもの、BCA/AIX/BRE別＋その他)を、
-  // kindに対応するWebhook全件(担当者個人用＋グループ用)へ送信する。ATTENTION_DIGEST等の自動送信と
-  // 同じ宛先解決・失敗時トースト表示のパターンを踏襲するが、こちらは常にユーザーのボタン操作で
-  // 明示的に発火する。
+  // 分析ダッシュボードの「本日/指定期間の応募状況を送信」ボタンから呼ばれる。渡されたcandidates
+  // (呼び出し元が対象期間・ポジションで絞り込んだもの)を元に、kindに対応するWebhook1件ごとに
+  // BCA/AIX/BRE別＋その他のポジション集計を計算して送信する。Webhookが担当者マスタ／エージェント
+  // 設定画面で対象採用担当者(digestTargetStaffNames)を指定していれば、その担当者に紐づくエージェント
+  // だけに絞り込んで集計する(未指定なら全エージェント)。ATTENTION_DIGEST等の自動送信と同じ宛先解決・
+  // 失敗時トースト表示のパターンを踏襲するが、こちらは常にユーザーのボタン操作で明示的に発火する。
   sendApplicationsDigest: (
     params: {
       kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
       periodLabel: string;
-      positionGroups: PositionYieldGroup[];
+      candidates: Candidate[];
     },
     opts?: { silent?: boolean }
   ) => Promise<void>;
@@ -1431,14 +1431,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       bumpDailyDigestDate(today);
       attemptBackup();
 
-      const { candidates: latestCandidates, agencies: latestAgencies } = latestAttentionStateRef.current;
+      const { candidates: latestCandidates } = latestAttentionStateRef.current;
       const todaysCandidates = latestCandidates.filter((c) => c.appliedDate === today);
-      const todaysPositionGroups = computeYieldMetricsByPosition(latestAgencies, todaysCandidates);
       await sendApplicationsDigest(
         {
           kind: 'DAILY_APPLICATIONS_DIGEST',
           periodLabel: `本日（${today}）`,
-          positionGroups: todaysPositionGroups
+          candidates: todaysCandidates
         },
         { silent: true }
       );
@@ -3213,56 +3212,76 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 発火する手動送信。宛先解決(担当者個人用＋グループ用Webhook)・失敗時トーストは他のChat通知と
   // 同じ流儀。kindごとに購読しているWebhookが1件もなければ、送信を試みずその旨をトーストで伝える
   // （担当者マスタでのWebhook未設定に気づきやすくするため、無言で何もしないことは避ける）。
+  // Webhookごとにdigest内容(ポジション別×エージェント別集計)を個別計算する — 担当者マスタ／
+  // エージェント設定でWebhookにdigestTargetStaffNamesが設定されていれば、その採用担当者に
+  // 紐づくエージェント(Agency.assignedStaffNames)だけに絞り込んだ「推薦状況」を送るため、送信先
+  // ごとに集計結果が変わり得る。未設定のWebhookは従来通り全エージェント対象。
   const sendApplicationsDigest = async (
     params: {
       kind: 'DAILY_APPLICATIONS_DIGEST' | 'PERIOD_APPLICATIONS_DIGEST';
       periodLabel: string;
-      positionGroups: PositionYieldGroup[];
+      candidates: Candidate[];
     },
     opts?: { silent?: boolean }
   ): Promise<void> => {
-    const { kind, periodLabel, positionGroups } = params;
-    const digestPositionGroups = positionGroups
-      .map((g) => ({
-        positionLabel: g.positionLabel,
-        total: g.metrics.reduce((acc, m) => acc + m.totalApplications, 0),
-        agencyStats: g.metrics.map((m) => ({
-          agencyName: m.agencyName,
-          total: m.totalApplications,
-          documentPassCount: m.documentPassCount,
-          firstInterviewPassCount: m.firstInterviewPassCount,
-          offerCount: m.offerCount,
-          acceptCount: m.acceptCount,
-          rejectedByPhase: m.rejectedByPhase
+    const { kind, periodLabel, candidates: digestCandidates } = params;
+    // agenciesはrefから読む — この関数は16時自動送信effect([driveAccessToken]依存のみ)からも
+    // 呼ばれるため、直接のクロージャ参照だとログイン後にエージェント設定を変更してもその日一日
+    // 古い一覧のまま送信され続けてしまう(latestBackupStateRefは他の自動送信effectと同じく毎レンダー
+    // 更新される最新値)。
+    const latestAgencies = latestBackupStateRef.current.agencies;
+
+    const buildDigestPayload = (digestTargetStaffNames?: string[]) => {
+      const scopedAgencies =
+        digestTargetStaffNames && digestTargetStaffNames.length > 0
+          ? latestAgencies.filter((ag) => ag.assignedStaffNames?.some((n) => digestTargetStaffNames.includes(n)))
+          : latestAgencies;
+      const positionGroups = computeYieldMetricsByPosition(scopedAgencies, digestCandidates);
+      const digestPositionGroups = positionGroups
+        .map((g) => ({
+          positionLabel: g.positionLabel,
+          total: g.metrics.reduce((acc, m) => acc + m.totalApplications, 0),
+          agencyStats: g.metrics.map((m) => ({
+            agencyName: m.agencyName,
+            total: m.totalApplications,
+            documentPassCount: m.documentPassCount,
+            firstInterviewPassCount: m.firstInterviewPassCount,
+            offerCount: m.offerCount,
+            acceptCount: m.acceptCount,
+            rejectedByPhase: m.rejectedByPhase
+          }))
         }))
-      }))
-      .filter((g) => g.total > 0);
-    const totalCount = digestPositionGroups.reduce((acc, g) => acc + g.total, 0);
+        .filter((g) => g.total > 0);
+      const totalCount = digestPositionGroups.reduce((acc, g) => acc + g.total, 0);
+      return { positionGroups: digestPositionGroups, totalCount };
+    };
 
     const notifyCalls: Promise<void>[] = [];
     staffList.forEach((staff) => {
-      getStaffWebhooksForKind(staff, kind).forEach((webhookUrl) => {
+      getStaffWebhookEntriesForKind(staff, kind).forEach((entry) => {
+        const { positionGroups, totalCount } = buildDigestPayload(entry.digestTargetStaffNames);
         notifyCalls.push(
           notifyApplicationsDigestApi({
             accessToken: driveAccessToken,
-            webhookUrl,
+            webhookUrl: entry.url,
             staffName: staff.name,
             staffMentionId: staff.chatMentionId,
             periodLabel,
             totalCount,
-            positionGroups: digestPositionGroups
+            positionGroups
           })
         );
       });
     });
-    getGroupWebhooksForKind(groupChatWebhooks, kind).forEach((webhookUrl) => {
+    getGroupWebhookEntriesForKind(groupChatWebhooks, kind).forEach((entry) => {
+      const { positionGroups, totalCount } = buildDigestPayload(entry.digestTargetStaffNames);
       notifyCalls.push(
         notifyApplicationsDigestApi({
           accessToken: driveAccessToken,
-          webhookUrl,
+          webhookUrl: entry.url,
           periodLabel,
           totalCount,
-          positionGroups: digestPositionGroups
+          positionGroups
         })
       );
     });

@@ -364,6 +364,24 @@ export const AgencyMasterView: React.FC = () => {
     }));
   };
 
+  // 応募状況ダイジェスト(DAILY/PERIOD_APPLICATIONS_DIGEST)専用の対象採用担当者トグル。未選択(空配列)
+  // なら全エージェント対象、1名以上選ぶとその担当者に紐づくエージェントだけに絞り込まれる。
+  const handleToggleWebhookDigestStaff = (id: string, staffName: string) => {
+    setStaffFormData((prev) => ({
+      ...prev,
+      googleChatWebhooks: prev.googleChatWebhooks.map((wh) => {
+        if (wh.id !== id) return wh;
+        const current = wh.digestTargetStaffNames || [];
+        return {
+          ...wh,
+          digestTargetStaffNames: current.includes(staffName)
+            ? current.filter((n) => n !== staffName)
+            : [...current, staffName]
+        };
+      })
+    }));
+  };
+
   // グループ用Webhook編集ハンドラ（担当者フォームの同名ハンドラと同じ考え方だが、対象はドラフト
   // 配列そのもの。個々の操作はcontextへ即時反映せず、「保存する」ボタンでまとめて確定する）。
   const handleAddGroupWebhookRow = () => {
@@ -391,6 +409,23 @@ export const AgencyMasterView: React.FC = () => {
           ? { ...wh, kinds: wh.kinds.includes(kind) ? wh.kinds.filter((k) => k !== kind) : [...wh.kinds, kind] }
           : wh
       )
+    );
+    setIsGroupWebhookDirty(true);
+  };
+
+  // 個人用Webhookのハンドラと同じ考え方（グループ用WebhookはgroupWebhookDraft経由で編集）。
+  const handleToggleGroupWebhookDigestStaff = (id: string, staffName: string) => {
+    setGroupWebhookDraft((prev) =>
+      prev.map((wh) => {
+        if (wh.id !== id) return wh;
+        const current = wh.digestTargetStaffNames || [];
+        return {
+          ...wh,
+          digestTargetStaffNames: current.includes(staffName)
+            ? current.filter((n) => n !== staffName)
+            : [...current, staffName]
+        };
+      })
     );
     setIsGroupWebhookDirty(true);
   };
@@ -1034,6 +1069,35 @@ export const AgencyMasterView: React.FC = () => {
                         </p>
                       )}
                     </div>
+                    {(wh.kinds.includes('DAILY_APPLICATIONS_DIGEST') || wh.kinds.includes('PERIOD_APPLICATIONS_DIGEST')) && (
+                      <div className="pt-1.5 border-t border-slate-200">
+                        <p className="text-[10px] text-slate-500 mb-1">
+                          応募状況ダイジェストの対象採用担当者（未選択なら全員・エージェント紐づけで絞り込み）:
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {staffList.map((st) => {
+                            const active = (wh.digestTargetStaffNames || []).includes(st.name);
+                            return (
+                              <button
+                                key={st.id}
+                                type="button"
+                                disabled={userRole !== 'ADMIN'}
+                                onClick={() => handleToggleGroupWebhookDigestStaff(wh.id, st.name)}
+                                className={`text-[10px] font-bold px-2 py-1 rounded-full border transition-colors ${
+                                  userRole === 'ADMIN' ? 'cursor-pointer' : 'cursor-default'
+                                } ${
+                                  active
+                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                    : 'bg-white text-slate-500 border-slate-300 hover:border-emerald-300'
+                                }`}
+                              >
+                                {st.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1601,6 +1665,32 @@ export const AgencyMasterView: React.FC = () => {
                             </p>
                           )}
                         </div>
+                        {(wh.kinds.includes('DAILY_APPLICATIONS_DIGEST') || wh.kinds.includes('PERIOD_APPLICATIONS_DIGEST')) && (
+                          <div className="pt-1.5 border-t border-slate-200">
+                            <p className="text-[10px] text-slate-500 mb-1">
+                              応募状況ダイジェストの対象採用担当者（未選択なら全員・エージェント紐づけで絞り込み）:
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {staffList.map((st) => {
+                                const active = (wh.digestTargetStaffNames || []).includes(st.name);
+                                return (
+                                  <button
+                                    key={st.id}
+                                    type="button"
+                                    onClick={() => handleToggleWebhookDigestStaff(wh.id, st.name)}
+                                    className={`text-[10px] font-bold px-2 py-1 rounded-full border transition-colors cursor-pointer ${
+                                      active
+                                        ? 'bg-emerald-600 text-white border-emerald-600'
+                                        : 'bg-white text-slate-500 border-slate-300 hover:border-emerald-300'
+                                    }`}
+                                  >
+                                    {st.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

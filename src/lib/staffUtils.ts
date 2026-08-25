@@ -57,3 +57,42 @@ export function getGroupWebhooksForKind(groupWebhooks: ChatWebhook[], kind: Chat
   });
   return urls;
 }
+
+export interface WebhookEntry {
+  url: string;
+  digestTargetStaffNames?: string[];
+}
+
+// getStaffWebhooksForKindと同じ絞り込みだが、応募状況ダイジェスト(DAILY/PERIOD_APPLICATIONS_DIGEST)
+// が送信先ごとにdigestTargetStaffNamesで対象採用担当者を絞れるよう、URLだけでなくChatWebhookの
+// 付随情報も返す。他の通知種別はURLだけで足りるため既存のgetStaffWebhooksForKindを使い続けてよい。
+export function getStaffWebhookEntriesForKind(staff: InternalStaff, kind: ChatNotificationKind): WebhookEntry[] {
+  const entries: WebhookEntry[] = [];
+  const seen = new Set<string>();
+  (staff.googleChatWebhooks || []).forEach((wh) => {
+    const url = wh.url.trim();
+    if (url && wh.kinds.includes(kind) && !seen.has(url)) {
+      seen.add(url);
+      entries.push({ url, digestTargetStaffNames: wh.digestTargetStaffNames });
+    }
+  });
+  const legacyUrl = staff.googleChatWebhookUrl?.trim();
+  if (legacyUrl && !seen.has(legacyUrl)) {
+    entries.push({ url: legacyUrl });
+  }
+  return entries;
+}
+
+// getGroupWebhooksForKindのWebhookEntry版。
+export function getGroupWebhookEntriesForKind(groupWebhooks: ChatWebhook[], kind: ChatNotificationKind): WebhookEntry[] {
+  const entries: WebhookEntry[] = [];
+  const seen = new Set<string>();
+  groupWebhooks.forEach((wh) => {
+    const url = wh.url.trim();
+    if (url && wh.kinds.includes(kind) && !seen.has(url)) {
+      seen.add(url);
+      entries.push({ url, digestTargetStaffNames: wh.digestTargetStaffNames });
+    }
+  });
+  return entries;
+}

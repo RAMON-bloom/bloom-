@@ -231,6 +231,10 @@ export interface ChatWebhook {
   url: string;
   label?: string; // 自分用の任意メモ（例:「個人スペース」「採用チーム全体」）。どのGoogle Chatスペース宛かを区別するため
   kinds: ChatNotificationKind[]; // このURLに送る通知の種類（複数選択可）
+  // DAILY/PERIOD_APPLICATIONS_DIGEST専用の絞り込み。指定した採用担当者に紐づくエージェント
+  // （Agency.assignedStaffNames）の推薦状況だけをこのURLへ送る。未設定/空配列なら従来通り
+  // 全エージェント対象。
+  digestTargetStaffNames?: string[];
 }
 
 export interface InternalStaff {

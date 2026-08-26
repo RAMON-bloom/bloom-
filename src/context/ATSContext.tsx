@@ -61,6 +61,39 @@ import { AptitudeTestStatus, applyAptitudeTestStatus, APTITUDE_TEST_STATUS_META 
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
 import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
 
+// localStorage.setItem can throw (most commonly QuotaExceededError, likely here given candidates
+// carry full-size photos and résumé text inline) without any error boundary above this provider to
+// catch it. Left unguarded, that throw used to abort the whole passive-effects flush for this
+// commit, silently skipping every effect declared after the one that threw — including the
+// auto-backup-to-Drive effect further down. The result: an edit (e.g. a candidate's evaluation
+// note) would show its normal success toast (state update always lands), but the note's own
+// persist effect could throw, so the write never reached localStorage, no pending-backup flag was
+// ever queued, and neither Drive nor the very reopen-this-browser self-heal path had anything to
+// detect — the edit vanished with no error surfaced anywhere. Every effect that persists to
+// localStorage below routes through this so one write's failure can no longer swallow the rest.
+function safeSetLocalStorage(key: string, value: unknown): boolean {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (err) {
+    console.error(`localStorage.setItem("${key}") failed:`, err);
+    return false;
+  }
+}
+
+// avatarUrl (a full-size base64-encoded résumé photo) and rawResumeContent (the entire original
+// résumé/CV text) together make up ~91% of a typical candidate record's serialized size — measured
+// across a real 44-candidate backup, avatarUrl alone was ~83%. Both are only ever written from (and
+// re-read from) the shared Drive backup, never reconstructed locally, so neither is needed in the
+// two purely-local-cache copies of `candidates` (the plain localStorage mirror below, and the
+// syncBase snapshot further down): stripping them there is a large, safe cut to this app's
+// localStorage footprint (see safeSetLocalStorage's comment above for why that footprint matters).
+// Do NOT apply this to what's held in React state or pushed to Drive — only to what gets persisted
+// to localStorage.
+function stripHeavyCandidateFieldsForLocalStorage(candidates: Candidate[]): Omit<Candidate, 'avatarUrl' | 'rawResumeContent'>[] {
+  return candidates.map(({ avatarUrl, rawResumeContent, ...rest }) => rest);
+}
+
 export type ActiveTab = 'kanban' | 'list' | 'recruitment_meeting' | 'dashboard' | 'onboarding' | 'archived' | 'agency_master';
 
 interface Toast {
@@ -483,41 +516,55 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     positions: []
   });
 
+  // Throttled so a single bad commit (up to 9 of these effects firing together) can't spam 9
+  // identical toasts — one warning per 10s window is plenty to get the user's attention.
+  const localStorageFailureToastAtRef = useRef(0);
+  const warnLocalStorageFailure = () => {
+    const now = Date.now();
+    if (now - localStorageFailureToastAtRef.current > 10_000) {
+      localStorageFailureToastAtRef.current = now;
+      showToast(
+        'この端末への保存に失敗したため、今回の変更はDriveに同期されません（ブラウザの保存容量が上限に達している可能性があります）。不要なタブを閉じてから、もう一度操作をやり直してください。',
+        'warning'
+      );
+    }
+  };
+
   // Save to localStorage on state changes
   useEffect(() => {
-    localStorage.setItem('ats_candidates', JSON.stringify(candidates));
+    if (!safeSetLocalStorage('ats_candidates', stripHeavyCandidateFieldsForLocalStorage(candidates))) warnLocalStorageFailure();
   }, [candidates]);
 
   useEffect(() => {
-    localStorage.setItem('ats_agencies', JSON.stringify(agencies));
+    if (!safeSetLocalStorage('ats_agencies', agencies)) warnLocalStorageFailure();
   }, [agencies]);
 
   useEffect(() => {
-    localStorage.setItem('ats_staff_list', JSON.stringify(staffList));
+    if (!safeSetLocalStorage('ats_staff_list', staffList)) warnLocalStorageFailure();
   }, [staffList]);
 
   useEffect(() => {
-    localStorage.setItem('ats_meeting_logs', JSON.stringify(meetingLogs));
+    if (!safeSetLocalStorage('ats_meeting_logs', meetingLogs)) warnLocalStorageFailure();
   }, [meetingLogs]);
 
   useEffect(() => {
-    localStorage.setItem('ats_group_chat_webhooks', JSON.stringify(groupChatWebhooks));
+    if (!safeSetLocalStorage('ats_group_chat_webhooks', groupChatWebhooks)) warnLocalStorageFailure();
   }, [groupChatWebhooks]);
 
   useEffect(() => {
-    localStorage.setItem('ats_positions', JSON.stringify(positions));
+    if (!safeSetLocalStorage('ats_positions', positions)) warnLocalStorageFailure();
   }, [positions]);
 
   useEffect(() => {
-    localStorage.setItem('ats_inquiries', JSON.stringify(inquiries));
+    if (!safeSetLocalStorage('ats_inquiries', inquiries)) warnLocalStorageFailure();
   }, [inquiries]);
 
   useEffect(() => {
-    localStorage.setItem('ats_aptitude_test_settings', JSON.stringify(aptitudeTestSettings));
+    if (!safeSetLocalStorage('ats_aptitude_test_settings', aptitudeTestSettings)) warnLocalStorageFailure();
   }, [aptitudeTestSettings]);
 
   useEffect(() => {
-    localStorage.setItem('ats_deleted_drive_item_ids', JSON.stringify(deletedDriveItemIds));
+    if (!safeSetLocalStorage('ats_deleted_drive_item_ids', deletedDriveItemIds)) warnLocalStorageFailure();
   }, [deletedDriveItemIds]);
 
   // Always-fresh snapshot of everything backupToDrive bundles together, read from inside the
@@ -579,9 +626,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     })()
   });
   const updateSyncBase = (partial: Partial<typeof syncBaseRef.current>) => {
+    // syncBaseRef.current itself always keeps the full candidate records (photo/résumé text
+    // included) — mergeCollection's base/local/remote three-way comparison needs them to actually
+    // match what Drive and React state hold, or every candidate would look "changed since base"
+    // just because these two heavy fields are missing from base. Only the localStorage mirror of
+    // it is stripped, same as the plain 'ats_candidates' cache above and for the same reason.
     syncBaseRef.current = { ...syncBaseRef.current, ...partial };
     (Object.keys(partial) as (keyof typeof SYNC_BASE_KEYS)[]).forEach((key) => {
-      localStorage.setItem(SYNC_BASE_KEYS[key], JSON.stringify(syncBaseRef.current[key]));
+      const valueToPersist =
+        key === 'candidates' ? stripHeavyCandidateFieldsForLocalStorage(syncBaseRef.current.candidates) : syncBaseRef.current[key];
+      if (!safeSetLocalStorage(SYNC_BASE_KEYS[key], valueToPersist)) warnLocalStorageFailure();
     });
   };
 

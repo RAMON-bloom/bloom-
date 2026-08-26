@@ -2359,7 +2359,30 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // sharing one id, where deleting either one deletes both (since delete/permanentlyDelete filter
   // by id match, which then matches both records). candidateIdSeqRef (see its declaration above)
   // also factors in here so a number freed up by a permanent delete — on this device or any other
-  // that has since synced — is never reissued. Shared by addCandidate and reissueCandidateId.
+  // that has since synced — is never reissued.
+  //
+  // None of the above actually rules out a collision, though: candidateIdSeqRef only reflects
+  // whatever this device last synced from Drive, so two people registering a candidate within the
+  // same sync window (Drive backup is debounced/polled, not instant) can both compute the same
+  // "next" number before either write lands — confirmed in production once already (CAND-0013,
+  // see candidateIdSeqRef's own comment) even with this monotonic-max counter in place. The
+  // -XXXXXX suffix below is the actual collision guard: 31^6 (~887 million) equally-likely draws
+  // makes two independent calls landing on the same suffix negligible (~1 in 887 million), independent
+  // of any sync timing. A 4-char suffix (31^4, ~924,000) was tried first but rejected — simulated
+  // pairwise collision odds of ~1 in 924 (0.1%) for two people registering at the same moment isn't
+  // the "never" this is meant to guarantee. The numeric part is kept purely for human
+  // readability/ordering (and is all reissueCandidateId/the reduce above ever parse — parseInt stops
+  // at the first non-digit, so the suffix is transparently ignored by existing numeric-floor logic
+  // without any code changes there). Excludes visually-ambiguous characters (0/O, 1/I, L) since this
+  // ID does get read aloud/typed by people occasionally.
+  const ID_SUFFIX_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const randomIdSuffix = (): string => {
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => ID_SUFFIX_CHARS[b % ID_SUFFIX_CHARS.length]).join('');
+  };
+
+  // Shared by addCandidate and reissueCandidateId.
   const issueNextCandidateId = (): string => {
     const maxExistingIdNum = candidates.reduce((max, c) => {
       const num = parseInt(c.id.replace('CAND-', ''), 10);
@@ -2367,7 +2390,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 0);
     nextCandidateIdNumRef.current = Math.max(maxExistingIdNum, nextCandidateIdNumRef.current, candidateIdSeqRef.current) + 1;
     bumpCandidateIdSeq(nextCandidateIdNumRef.current);
-    return `CAND-${String(nextCandidateIdNumRef.current).padStart(4, '0')}`;
+    return `CAND-${String(nextCandidateIdNumRef.current).padStart(4, '0')}-${randomIdSuffix()}`;
   };
 
   const addCandidate = (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => {
@@ -3483,10 +3506,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const agency = latestAgencies.find((ag) => ag.name === m.agencyName);
               const assignedNames = resolveAssignedStaffNames(agency, g.positionLabel);
               const namesToUse = assignedNames.length > 0 ? assignedNames : [OTHER_STAFF_LABEL];
-              // Webhookが特定の採用担当者に絞り込まれている場合、そのスコープ外の担当者名・
-              // 「その他」バケットは丸ごと除外する — このエージェントがこのポジションで対象
-              // 担当者と一切紐づいていなければ、行自体をこのWebhookの応募数に含めない。
-              const namesInScope = scopeSet ? namesToUse.filter((name) => name !== OTHER_STAFF_LABEL && scopeSet.has(name)) : namesToUse;
+              // Webhookが特定の採用担当者に絞り込まれている場合、そのスコープ外の担当者名は
+              // 除外する — このエージェントがこのポジションで対象担当者と一切紐づいていなければ、
+              // 行自体をこのWebhookの応募数に含めない。ただし「その他（担当者未設定）」＝自己応募は
+              // どの担当者にも紐づかない以上、特定の担当者に絞る設定の対象になりようがないため、
+              // スコープの有無に関わらず常に含める。除外していた頃は、絞り込み付きWebhookしか
+              // 存在しない状況で自己応募が発生すると、どのWebhookにも一切届かなかった。
+              const namesInScope = scopeSet ? namesToUse.filter((name) => name === OTHER_STAFF_LABEL || scopeSet.has(name)) : namesToUse;
               if (scopeSet && namesInScope.length === 0) return;
 
               total += m.totalApplications;

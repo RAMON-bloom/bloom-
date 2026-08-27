@@ -1,8 +1,14 @@
 import { Agency, Candidate, RecruiterYieldSnapshot, AgencyYieldSnapshot, PipelineCandidateSnapshot, YieldMetrics, PositionYieldGroup, RejectionPhaseCounts, SelectionPhase } from '../types';
 
 // 応募状況ダイジェスト（Chat webhook）でポジション別に見出しを立てる対象。ここに無いポジション
-// (EC/BP/ミドル等)はまとめて「その他」グループに入る。
-const DIGEST_SPLIT_POSITIONS = ['BCA', 'AIX', 'BRE'];
+// (ミドル等)はまとめて「その他」グループに入る。「BCA」は独立した募集ポジションではなく、EC/BP
+// 事業部をまとめた呼称なので、jobTitleが"EC"または"BP"の候補者をここに合算する（BCAという
+// jobTitleを持つ候補者は実在しない — positions一覧にも独立項目として残していない）。
+const DIGEST_SPLIT_POSITIONS: { label: string; matches: (jobTitle: string) => boolean }[] = [
+  { label: 'BCA', matches: (jobTitle) => jobTitle === 'EC' || jobTitle === 'BP' },
+  { label: 'AIX', matches: (jobTitle) => jobTitle === 'AIX' },
+  { label: 'BRE', matches: (jobTitle) => jobTitle === 'BRE' }
+];
 
 const PHASE_ORDER: Record<SelectionPhase, number> = {
   'DOCUMENT_SCREENING': 1,
@@ -153,16 +159,15 @@ export function computeYieldMetrics(agencies: Agency[], candidates: Candidate[])
   });
 }
 
-// 応募状況ダイジェスト向けに、candidatesをBCA/AIX/BREの3ポジション＋「その他」（残り全ポジション
-// 合算）に分け、それぞれについてcomputeYieldMetricsと同じエージェント別内訳を計算する。
-// jobTitleの一致判定はgetPositionBadge（KanbanView）と同じ完全一致。
+// 応募状況ダイジェスト向けに、candidatesをBCA(EC+BP)/AIX/BREの3ポジション＋「その他」（残り全
+// ポジション合算）に分け、それぞれについてcomputeYieldMetricsと同じエージェント別内訳を計算する。
 export function computeYieldMetricsByPosition(agencies: Agency[], candidates: Candidate[]): PositionYieldGroup[] {
-  const groups: PositionYieldGroup[] = DIGEST_SPLIT_POSITIONS.map((positionLabel) => ({
-    positionLabel,
-    metrics: computeYieldMetrics(agencies, candidates.filter((c) => c.jobTitle === positionLabel))
+  const groups: PositionYieldGroup[] = DIGEST_SPLIT_POSITIONS.map(({ label, matches }) => ({
+    positionLabel: label,
+    metrics: computeYieldMetrics(agencies, candidates.filter((c) => matches(c.jobTitle)))
   }));
 
-  const others = candidates.filter((c) => !DIGEST_SPLIT_POSITIONS.includes(c.jobTitle));
+  const others = candidates.filter((c) => !DIGEST_SPLIT_POSITIONS.some(({ matches }) => matches(c.jobTitle)));
   if (others.length > 0) {
     groups.push({ positionLabel: 'その他', metrics: computeYieldMetrics(agencies, others) });
   }

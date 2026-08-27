@@ -6,6 +6,7 @@ import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
+import { isBcaPosition } from './KanbanView';
 
 const PHASE_LABELS: Record<SelectionPhase, string> = {
   DOCUMENT_SCREENING: '書類選考',
@@ -441,7 +442,7 @@ export const CandidateFormModal: React.FC = () => {
       preJoinDinnerStatus: formData.preJoinDinnerStatus,
       resignationNegotiationStatus: formData.resignationNegotiationStatus,
       onboardingNotes: formData.onboardingNotes,
-      bcaDesiredDepartment: formData.jobTitle.includes('BCA') ? formData.bcaDesiredDepartment : undefined
+      bcaDesiredDepartment: isBcaPosition(formData.jobTitle) ? formData.bcaDesiredDepartment : undefined
     });
 
     setIsAddModalOpen(false);
@@ -767,13 +768,13 @@ export const CandidateFormModal: React.FC = () => {
               <input
                 type="text"
                 required
-                placeholder="選考ポジション (EC, BP, AIX, BRE, BCA など)"
+                placeholder="選考ポジション (EC, BP, AIX, BRE, ミドル など)"
                 value={formData.jobTitle}
                 onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-1.5 focus:outline-none focus:bg-white focus:border-indigo-500 text-xs"
               />
 
-              {formData.jobTitle.toUpperCase().includes('BCA') && (
+              {isBcaPosition(formData.jobTitle) && (
                 <div className="mt-2.5 p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-1.5 animate-in fade-in">
                   <label className="block text-indigo-900 text-[11px] font-bold">BCA希望事業部 *</label>
                   <div className="flex items-center gap-1.5">

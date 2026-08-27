@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useATS } from '../context/ATSContext';
 import { SelectionPhase, ScheduleStatus, EvaluationGrade } from '../types';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
+import { isBcaPosition } from './KanbanView';
 import { FilterBar } from './FilterBar';
 import { InterviewScheduleCalendar } from './InterviewScheduleCalendar';
 import { renderGradeBadge } from './CandidateDetailModal';
@@ -750,7 +751,7 @@ export const ListView: React.FC = () => {
                           <span className="inline-block bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded text-xs border border-indigo-100">
                             {c.jobTitle}
                           </span>
-                          {c.jobTitle.toUpperCase().includes('BCA') && c.bcaDesiredDepartment && (
+                          {isBcaPosition(c.jobTitle) && c.bcaDesiredDepartment && (
                             <span className="inline-block bg-indigo-50 text-indigo-700 font-extrabold px-1.5 py-0.5 rounded text-[10px] border border-indigo-100">
                               {c.bcaDesiredDepartment === 'BOTH' ? 'F+/AC' : c.bcaDesiredDepartment}
                             </span>

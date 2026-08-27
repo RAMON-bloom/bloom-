@@ -100,12 +100,20 @@ export const isFirstInterviewOrAbove = (phase: SelectionPhase) => {
   return ['FIRST_INTERVIEW', 'SECOND_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER_ISSUED', 'OFFER_ACCEPTED'].includes(phase);
 };
 
+// 「BCA」はEC/BP事業部をまとめた呼称であり、候補者は個別の募集ポジションとしてEC・BPどちらかを
+// 選ぶ（positions一覧に独立の"BCA"項目はない）。BCA配下の候補者だけが持つ「希望事業部(F+/AC)」の
+// 表示要否など、EC/BPをひとまとめに扱いたい箇所はここを介して判定する。
+export const isBcaPosition = (jobTitle: string): boolean => {
+  const normalized = jobTitle.trim().toUpperCase();
+  return normalized === 'EC' || normalized === 'BP';
+};
+
 // One uniform badge style for every position — they're distinguished by their label, not by hue.
 export const getPositionBadge = (pos: string, bcaDept?: 'F+' | 'AC' | 'BOTH') => {
-  if (pos === 'BCA') {
+  if (isBcaPosition(pos)) {
     return (
       <span className="inline-flex items-center gap-1 bg-indigo-600 text-white font-black text-xs px-2 py-0.5 rounded shadow-2xs tracking-wider">
-        <span>BCA</span>
+        <span>{pos}</span>
         {bcaDept && (
           <span className="bg-indigo-800 text-indigo-100 text-[10px] font-bold px-1 rounded">
             {bcaDept === 'BOTH' ? 'F+/AC' : bcaDept}

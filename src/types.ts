@@ -8,14 +8,25 @@ export interface RecruitmentPosition {
 
 // 初回ログイン・localStorage未保存の端末での初期値。実際の一覧はATSContextのpositions
 // (Drive共有バックアップ経由で同期)を参照すること。
+// 「BCA」はEC/BP事業部をまとめた呼称であり、候補者が直接選ぶ募集ポジションではないため、
+// 独立した項目としては含めない（EC・BPどちらも実質BCA配下）。ダイジェスト集計・ダッシュボード
+// 側で「BCA」という見出しを立てる際は、EC/BPのjobTitleを持つ候補者を合算する
+// （src/lib/yieldMetrics.tsのDIGEST_SPLIT_POSITIONS参照）。
 export const DEFAULT_POSITIONS: RecruitmentPosition[] = [
   { id: 'pos-ec', label: 'EC' },
   { id: 'pos-bp', label: 'BP' },
   { id: 'pos-aix', label: 'AIX' },
   { id: 'pos-bre', label: 'BRE' },
-  { id: 'pos-bca', label: 'BCA' },
   { id: 'pos-middle', label: 'ミドル' }
 ];
+
+// 共有Drive上のpositions一覧に残っている、独立した募集ポジションとしての「BCA」（過去に
+// DEFAULT_POSITIONSへ含まれていた名残）を、一度きりのマイグレーションとして取り除く。EC/BP自体
+// は変更しない。適用してもcandidatesのjobTitleは一切書き換わらない（jobTitleが"BCA"の候補者は
+// 実データ上存在しないことを確認済み）ので、既存候補者データへの影響はない。
+export function migrateLegacyPositions(positions: RecruitmentPosition[]): RecruitmentPosition[] {
+  return positions.filter((p) => p.label !== 'BCA');
+}
 
 export type LcmRating = '〇' | '△' | '✕';
 export type BcaDesiredDepartment = 'F+' | 'AC' | 'BOTH';

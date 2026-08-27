@@ -17,6 +17,7 @@ import {
   ChatWebhook,
   RecruitmentPosition,
   DEFAULT_POSITIONS,
+  migrateLegacyPositions,
   Inquiry,
   InquiryCategory,
   InterviewFormat,
@@ -391,7 +392,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 使われている値そのものであり、他のコレクションのような「偽のサンプルデータ」ではない）。
   const [positions, setPositions] = useState<RecruitmentPosition[]>(() => {
     const saved = localStorage.getItem('ats_positions');
-    return saved ? JSON.parse(saved) : DEFAULT_POSITIONS;
+    return saved ? migrateLegacyPositions(JSON.parse(saved)) : DEFAULT_POSITIONS;
   });
 
   // アプリ内「お問い合わせ」スレッド一覧。他のバックアップ対象データと同じ扱い（localStorage
@@ -878,7 +879,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.staffList) setStaffList(data.staffList);
     if (data.meetingLogs) setMeetingLogs(data.meetingLogs);
     if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
-    if (data.positions) setPositions(data.positions);
+    if (data.positions) setPositions(migrateLegacyPositions(data.positions));
     if (data.inquiries) setInquiries(data.inquiries);
     // Monotonic max, not a plain apply — see candidateIdSeqRef's declaration.
     if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
@@ -937,7 +938,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ? mergeCollection(base.groupChatWebhooks, local.groupChatWebhooks, data.groupChatWebhooks)
       : local.groupChatWebhooks;
     const mergedPositions = data.positions
-      ? mergeCollection(base.positions, local.positions, data.positions)
+      ? mergeCollection(base.positions, local.positions, migrateLegacyPositions(data.positions))
       : local.positions;
 
     if (data.candidates && JSON.stringify(mergedCandidates) !== JSON.stringify(local.candidates)) setCandidates(mergedCandidates);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase, ScheduleStatus, EvaluationGrade, PreJoinDinnerStatus, ResignationNegotiationStatus, LcmRating, BcaDesiredDepartment, EvaluationNote, ImportedInterviewLog, InterviewFormat } from '../types';
-import { isFirstInterviewOrAbove } from './KanbanView';
+import { isFirstInterviewOrAbove, isBcaPosition } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
 import { RejectionReasonModal } from './RejectionReasonModal';
 import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder, listFolderFiles } from '../lib/driveApi';
@@ -982,7 +982,7 @@ export const CandidateDetailModal: React.FC = () => {
                 </div>
 
                 {/* BCA Desired Department Selector */}
-                {candidate.jobTitle.toUpperCase().includes('BCA') && (
+                {isBcaPosition(candidate.jobTitle) && (
                   <div className="flex items-center gap-1.5 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200 animate-in fade-in">
                     <span className="text-[11px] font-bold text-indigo-900">BCA希望事業部:</span>
                     <select

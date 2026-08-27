@@ -29,10 +29,6 @@ import notifyEvaluationResult from './api/notify/evaluation-result';
 import notifyDocumentScreeningThread from './api/notify/document-screening-thread';
 import notifyDeveloperInquiry from './api/notify/developer-inquiry';
 import notifyEvaluationSummaryThread from './api/notify/evaluation-summary-thread';
-import notifySendAptitudeTestEmail from './api/notify/send-aptitude-test-email';
-import notifyAptitudeTestReminder from './api/notify/aptitude-test-reminder';
-import notifyAptitudeTestSent from './api/notify/aptitude-test-sent';
-import notifyAptitudeTestDeadlineAlert from './api/notify/aptitude-test-deadline-alert';
 import notifyApplicationsDigest from './api/notify/applications-digest';
 
 async function startServer() {
@@ -66,10 +62,6 @@ async function startServer() {
   app.post('/api/notify/document-screening-thread', notifyDocumentScreeningThread);
   app.post('/api/notify/developer-inquiry', notifyDeveloperInquiry);
   app.post('/api/notify/evaluation-summary-thread', notifyEvaluationSummaryThread);
-  app.post('/api/notify/send-aptitude-test-email', notifySendAptitudeTestEmail);
-  app.post('/api/notify/aptitude-test-reminder', notifyAptitudeTestReminder);
-  app.post('/api/notify/aptitude-test-sent', notifyAptitudeTestSent);
-  app.post('/api/notify/aptitude-test-deadline-alert', notifyAptitudeTestDeadlineAlert);
   app.post('/api/notify/applications-digest', notifyApplicationsDigest);
 
   // Vite middleware for development

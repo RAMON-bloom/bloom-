@@ -8,12 +8,6 @@ import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, s
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { getNextPhase, PHASE_SEQUENCE } from '../lib/phaseUtils';
-import { sendAptitudeTestEmail } from '../lib/notifyApi';
-import {
-  DEFAULT_APTITUDE_TEST_SUBJECT_TEMPLATE,
-  DEFAULT_APTITUDE_TEST_BODY_TEMPLATE,
-  renderAptitudeTestTemplate
-} from '../lib/aptitudeTestTemplate';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
@@ -130,8 +124,6 @@ export const CandidateDetailModal: React.FC = () => {
     driveAccessToken,
     connectDrive,
     updateInterviewLogForPhase,
-    markAptitudeTestSent,
-    aptitudeTestSettings,
     positionOptions
   } = useATS();
 
@@ -214,9 +206,6 @@ export const CandidateDetailModal: React.FC = () => {
   const [logImportTargetPhase, setLogImportTargetPhase] = useState<SelectionPhase | null>(null);
   const [logImportDate, setLogImportDate] = useState<string>('');
   const [isImportingLogPhase, setIsImportingLogPhase] = useState<SelectionPhase | null>(null);
-
-  // 適性検査メール送信中フラグ（送信ボタンのローディング表示用）
-  const [isSendingAptitudeTest, setIsSendingAptitudeTest] = useState(false);
 
   // Evaluation Log edit/delete state
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -946,71 +935,6 @@ export const CandidateDetailModal: React.FC = () => {
       );
     } finally {
       setIsImportingLogPhase(null);
-    }
-  };
-
-  // 実施期限日時を変更した際、送信リマインド予定日時を「期限−7日」に再計算する。既にリマインド
-  // 通知が済んでいてもクリアする（期限の再設定＝リマインドサイクルのやり直しという意図）。
-  const computeDefaultAptitudeReminder = (deadline: string): string | undefined => {
-    if (!deadline) return undefined;
-    const d = new Date(deadline);
-    if (Number.isNaN(d.getTime())) return undefined;
-    d.setDate(d.getDate() - 7);
-    // datetime-local入力が期待する "YYYY-MM-DDTHH:mm" 形式に切り詰める（toISOStringはUTC/秒以下
-    // まで含むため、getFullYear等から組み立ててローカル時刻のまま保つ）。
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-
-  const handleSendAptitudeTest = async () => {
-    if (!driveAccessToken) {
-      showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
-      await connectDrive();
-      return;
-    }
-    if (!candidate.email) {
-      showToast('この候補者にはメールアドレスが登録されていません。', 'warning');
-      return;
-    }
-
-    setIsSendingAptitudeTest(true);
-    try {
-      const vars = {
-        candidateName: candidate.name,
-        deadline: candidate.aptitudeTestDeadline ? candidate.aptitudeTestDeadline.replace('T', ' ') : '未設定',
-        formUrl1: aptitudeTestSettings.formUrl1 || '(Form URL未設定)',
-        formUrl2: aptitudeTestSettings.formUrl2 || '(Form URL未設定)'
-      };
-      const subject = renderAptitudeTestTemplate(
-        aptitudeTestSettings.subjectTemplate || DEFAULT_APTITUDE_TEST_SUBJECT_TEMPLATE,
-        vars
-      );
-      const bodyText = renderAptitudeTestTemplate(
-        aptitudeTestSettings.bodyTemplate || DEFAULT_APTITUDE_TEST_BODY_TEMPLATE,
-        vars
-      );
-
-      await sendAptitudeTestEmail({
-        accessToken: driveAccessToken,
-        to: candidate.email,
-        subject,
-        bodyText,
-        replyTo: aptitudeTestSettings.replyToAddress || undefined,
-        senderDisplayName: aptitudeTestSettings.senderDisplayName || undefined
-      });
-
-      markAptitudeTestSent(candidate.id);
-      showToast('適性検査メールを送信しました', 'success');
-    } catch (err: any) {
-      const message = err.message || '不明なエラー';
-      showToast(
-        message.includes('403') || message.includes('401')
-          ? 'メール送信の権限が不足している可能性があります。ヘッダー右上の「Drive連携」から一度ログアウトし、再度ログインしてください。'
-          : `送信に失敗しました: ${message}`,
-        'warning'
-      );
-    } finally {
-      setIsSendingAptitudeTest(false);
     }
   };
 
@@ -2776,48 +2700,10 @@ export const CandidateDetailModal: React.FC = () => {
                           type="datetime-local"
                           value={candidate.aptitudeTestDeadline || ''}
                           onChange={(e) => {
-                            const deadline = e.target.value;
-                            updateCandidate({
-                              ...candidate,
-                              aptitudeTestDeadline: deadline || undefined,
-                              aptitudeTestReminderAt: deadline ? computeDefaultAptitudeReminder(deadline) : undefined,
-                              aptitudeTestReminderNotifiedAt: undefined,
-                              aptitudeTestDeadlineAlertNotifiedAt: undefined
-                            });
+                            updateCandidate({ ...candidate, aptitudeTestDeadline: e.target.value || undefined });
                           }}
                           className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
                         />
-                      </div>
-                      <div>
-                        <label className="block text-slate-600 font-bold mb-1 text-[11px]">送信リマインド予定日時</label>
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="datetime-local"
-                            value={candidate.aptitudeTestReminderAt || ''}
-                            onChange={(e) =>
-                              updateCandidate({
-                                ...candidate,
-                                aptitudeTestReminderAt: e.target.value || undefined,
-                                aptitudeTestReminderNotifiedAt: undefined
-                              })
-                            }
-                            className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
-                          />
-                          <button
-                            type="button"
-                            disabled={!candidate.aptitudeTestDeadline}
-                            onClick={() =>
-                              updateCandidate({
-                                ...candidate,
-                                aptitudeTestReminderAt: computeDefaultAptitudeReminder(candidate.aptitudeTestDeadline!),
-                                aptitudeTestReminderNotifiedAt: undefined
-                              })
-                            }
-                            className="shrink-0 px-2.5 py-1.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            1週間前に設定
-                          </button>
-                        </div>
                       </div>
                     </div>
 
@@ -2864,31 +2750,6 @@ export const CandidateDetailModal: React.FC = () => {
                       {candidate.aptitudeTestCompletedAt && (
                         <span className="text-slate-500">実施: {new Date(candidate.aptitudeTestCompletedAt).toLocaleString('ja-JP')}</span>
                       )}
-                      {candidate.aptitudeTestReminderNotifiedAt && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          リマインド通知済み ({new Date(candidate.aptitudeTestReminderNotifiedAt).toLocaleString('ja-JP')})
-                        </span>
-                      )}
-                      {candidate.aptitudeTestDeadlineAlertNotifiedAt && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                          期限前日アラート送信済み ({new Date(candidate.aptitudeTestDeadlineAlertNotifiedAt).toLocaleString('ja-JP')})
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <p className="text-[10px] text-slate-400">
-                        送信先: {candidate.email || '（メールアドレス未登録）'}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleSendAptitudeTest}
-                        disabled={isSendingAptitudeTest || !candidate.email}
-                        className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSendingAptitudeTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                        <span>{isSendingAptitudeTest ? '送信中...' : '適性検査メールを送信'}</span>
-                      </button>
                     </div>
                   </div>
                 )}

@@ -15,7 +15,6 @@ import {
   OverdueDocScreeningInfo,
   ImportedInterviewLog,
   ChatWebhook,
-  AptitudeTestSettings,
   RecruitmentPosition,
   DEFAULT_POSITIONS,
   Inquiry,
@@ -48,9 +47,6 @@ import {
   notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi,
   notifyDeveloperInquiry as notifyDeveloperInquiryApi,
   notifyEvaluationSummaryThread as notifyEvaluationSummaryThreadApi,
-  notifyAptitudeTestReminder as notifyAptitudeTestReminderApi,
-  notifyAptitudeTestSent as notifyAptitudeTestSentApi,
-  notifyAptitudeTestDeadlineAlert as notifyAptitudeTestDeadlineAlertApi,
   notifyApplicationsDigest as notifyApplicationsDigestApi
 } from '../lib/notifyApi';
 import { getStalledCandidates, getOverdueDocScreening, daysSince, STALLED_DOC_SCREENING_DAYS } from '../lib/attentionUtils';
@@ -144,7 +140,6 @@ interface ATSContextType {
   updateInterviewersForPhase: (candidateId: string, phase: SelectionPhase, interviewers: string[]) => void;
   updateInterviewFormatForPhase: (candidateId: string, phase: SelectionPhase, format?: InterviewFormat) => void;
   updateInterviewLogForPhase: (candidateId: string, phase: SelectionPhase, log: ImportedInterviewLog) => void;
-  markAptitudeTestSent: (candidateId: string) => void;
   updateAptitudeTestStatus: (candidateId: string, status: AptitudeTestStatus) => void;
   updateOnboardingInfo: (
     candidateId: string,
@@ -201,10 +196,6 @@ interface ATSContextType {
   // positionsのlabelだけを取り出した一覧。候補者登録フォーム・詳細画面・フィルタなど
   // 「ラベル文字列の一覧が欲しいだけ」の既存の呼び出し元向け。
   positionOptions: string[];
-
-  // 適性検査メール送信のグローバル設定（差出人表示名・返信先・件名/本文テンプレート・Form URL）。
-  aptitudeTestSettings: AptitudeTestSettings;
-  updateAptitudeTestSettings: (settings: AptitudeTestSettings) => void;
 
   // アプリ内「お問い合わせ」。開発者とのチャット形式のスレッド一覧。
   inquiries: Inquiry[];
@@ -410,13 +401,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : [];
   });
 
-  // 適性検査メール送信のグローバル設定。groupChatWebhooksのようなid付き配列ではなく単一の設定
-  // オブジェクトなので、3-way mergeの対象にはせずinquiries同様プレーンな上書きで扱う。
-  const [aptitudeTestSettings, setAptitudeTestSettings] = useState<AptitudeTestSettings>(() => {
-    const saved = localStorage.getItem('ats_aptitude_test_settings');
-    return saved ? JSON.parse(saved) : {};
-  });
-
   // Every Drive item id (folder/file) permanentlyDeleteCandidate has ever deleted, plus anything
   // explicitly marked "無視する" in the Drive sync review modal — checked by previewDriveSync so
   // it never offers either back up as a "new" unregistered resume. Needed because Drive's own
@@ -559,9 +543,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!safeSetLocalStorage('ats_inquiries', inquiries)) warnLocalStorageFailure();
   }, [inquiries]);
 
-  useEffect(() => {
-    if (!safeSetLocalStorage('ats_aptitude_test_settings', aptitudeTestSettings)) warnLocalStorageFailure();
-  }, [aptitudeTestSettings]);
 
   useEffect(() => {
     if (!safeSetLocalStorage('ats_deleted_drive_item_ids', deletedDriveItemIds)) warnLocalStorageFailure();
@@ -572,9 +553,9 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // candidates/agencies/staffList may have moved on from whatever they were when the meetingLogs
   // change that scheduled it happened, and the Drive backup should reflect the latest, not a
   // slightly-stale snapshot from several seconds earlier.
-  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries, aptitudeTestSettings });
+  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries });
   useEffect(() => {
-    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries, aptitudeTestSettings };
+    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries };
   });
 
   // The merge base for mergeCollection (above): each collection as of the last time this tab
@@ -741,10 +722,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // structures made a safe merge a bigger job), but that's exactly what let a device with
     // incomplete local data (e.g. Drive restore never actually succeeded at login) stamp its own
     // near-empty copy over the shared candidates/meetingLogs on its very first auto-backup — now
-    // covered the same way as agencies/staffList/groupChatWebhooks. inquiries and
-    // aptitudeTestSettings remain plain overwrite (inquiries change rarely enough that this hasn't
-    // been a reported problem; aptitudeTestSettings is a single object, not an id-keyed collection,
-    // so mergeCollection doesn't apply to it).
+    // covered the same way as agencies/staffList/groupChatWebhooks. inquiries remains plain
+    // overwrite (changes rarely enough that this hasn't been a reported problem).
     (async () => {
       let remoteCandidates = syncBaseRef.current.candidates;
       let remoteAgencies = syncBaseRef.current.agencies;
@@ -889,7 +868,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     groupChatWebhooks?: ChatWebhook[];
     positions?: RecruitmentPosition[];
     inquiries?: Inquiry[];
-    aptitudeTestSettings?: AptitudeTestSettings;
     candidateIdSeq?: number;
     attentionDigestLastSentDate?: string;
     dailyApplicationsDigestLastSentDate?: string;
@@ -902,7 +880,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.groupChatWebhooks) setGroupChatWebhooks(data.groupChatWebhooks);
     if (data.positions) setPositions(data.positions);
     if (data.inquiries) setInquiries(data.inquiries);
-    if (data.aptitudeTestSettings) setAptitudeTestSettings(data.aptitudeTestSettings);
     // Monotonic max, not a plain apply — see candidateIdSeqRef's declaration.
     if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
     // Monotonic max, not a plain apply — see attentionDigestDateRef's declaration.
@@ -940,7 +917,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     groupChatWebhooks?: ChatWebhook[];
     positions?: RecruitmentPosition[];
     inquiries?: Inquiry[];
-    aptitudeTestSettings?: AptitudeTestSettings;
     candidateIdSeq?: number;
     attentionDigestLastSentDate?: string;
     dailyApplicationsDigestLastSentDate?: string;
@@ -972,11 +948,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setGroupChatWebhooks(mergedGroupChatWebhooks);
     }
     if (data.positions && JSON.stringify(mergedPositions) !== JSON.stringify(local.positions)) setPositions(mergedPositions);
-    // inquiries/aptitudeTestSettings stay plain-overwrite, same as attemptBackup treats them
-    // (see attemptBackup's comment on why those two aren't id-keyed collections mergeCollection
+    // inquiries stays plain-overwrite, same as attemptBackup treats it
+    // (see attemptBackup's comment on why it isn't an id-keyed collection mergeCollection
     // applies to).
     if (data.inquiries) setInquiries(data.inquiries);
-    if (data.aptitudeTestSettings) setAptitudeTestSettings(data.aptitudeTestSettings);
 
     if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
     bumpAttentionDigestDate(data.attentionDigestLastSentDate);
@@ -1085,180 +1060,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // with the 2s auto-backup debounce above, worst case end-to-end is now ~12s instead of ~25s.
   const DRIVE_POLL_INTERVAL_MS = 10000;
 
-  // Always-fresh snapshot for checkAptitudeReminders (below), read from inside the poll timer's
-  // closure rather than captured at effect-setup time — same reasoning as latestAttentionStateRef
-  // further down, just for a different periodic check.
-  const latestAptitudeReminderStateRef = useRef({ candidates, staffList, groupChatWebhooks });
-  useEffect(() => {
-    latestAptitudeReminderStateRef.current = { candidates, staffList, groupChatWebhooks };
-  });
-
-  // Guards against firing the same candidate's reminder twice within one browser session while the
-  // persisted aptitudeTestReminderNotifiedAt write (below) is still in flight — candidates now go
-  // through mergeCollection like any other collection, but a same-candidate conflict (this field
-  // vs. some other field both changed since base) still falls back to "local wins" wholesale, so
-  // this in-memory guard still matters within a single session's own retries.
-  const firedAptitudeReminderIdsRef = useRef<Set<string>>(new Set());
-  // Same in-session guard, for checkAptitudeTestDeadlineAlerts below.
-  const firedAptitudeDeadlineAlertIdsRef = useRef<Set<string>>(new Set());
-
-  // 適性検査の送信リマインド通知。サーバーCron・サービスアカウントが存在しない構成上、
-  // ATTENTION_DIGEST/DOC_SCREENING_NUDGEと同じく「誰かがアプリを開いている間にブラウザ側で
-  // チェックする」しかない。ただしあちらは1日1回のダイジェストだが、こちらは候補者ごとに一度きり
-  // 通知できればよいので、日付の間引きは行わず単に`aptitudeTestReminderNotifiedAt`未設定の候補者を
-  // 毎ポーリング（20秒ごと、タブが可視の間）チェックする。
-  const checkAptitudeReminders = () => {
-    if (!driveAccessToken) return;
-    const {
-      candidates: latestCandidates,
-      staffList: latestStaffList,
-      groupChatWebhooks: latestGroupWebhooks
-    } = latestAptitudeReminderStateRef.current;
-    const now = new Date();
-
-    const due = latestCandidates.filter(
-      (c) =>
-        c.aptitudeTestReminderAt &&
-        new Date(c.aptitudeTestReminderAt) <= now &&
-        !c.aptitudeTestReminderNotifiedAt &&
-        !firedAptitudeReminderIdsRef.current.has(c.id)
-    );
-    if (due.length === 0) return;
-
-    due.forEach((candidate) => {
-      firedAptitudeReminderIdsRef.current.add(candidate.id);
-
-      const notifyPromises: Promise<void>[] = [];
-      const targetStaffNames = new Set(
-        [candidate.documentScreeningAssignee, ...candidate.assignees].filter((n): n is string => !!n)
-      );
-      targetStaffNames.forEach((name) => {
-        const staff = latestStaffList.find((s) => s.name === name);
-        if (!staff) return;
-        getStaffWebhooksForKind(staff, 'APTITUDE_TEST_REMINDER').forEach((webhookUrl) => {
-          notifyPromises.push(
-            notifyAptitudeTestReminderApi({
-              accessToken: driveAccessToken,
-              webhookUrl,
-              staffName: staff.name,
-              staffMentionId: staff.chatMentionId,
-              candidateName: candidate.name,
-              candidateId: candidate.id,
-              deadline: candidate.aptitudeTestDeadline
-            })
-          );
-        });
-      });
-      getGroupWebhooksForKind(latestGroupWebhooks, 'APTITUDE_TEST_REMINDER').forEach((webhookUrl) => {
-        notifyPromises.push(
-          notifyAptitudeTestReminderApi({
-            accessToken: driveAccessToken,
-            webhookUrl,
-            candidateName: candidate.name,
-            candidateId: candidate.id,
-            deadline: candidate.aptitudeTestDeadline
-          })
-        );
-      });
-
-      Promise.allSettled(notifyPromises).then((results) => {
-        const failedCount = results.filter((r) => r.status === 'rejected').length;
-        if (failedCount > 0) {
-          console.error(`適性検査リマインド通知: ${failedCount}件の送信に失敗しました`);
-        }
-        // Best-effort, same convention as ATTENTION_DIGEST/DOC_SCREENING_NUDGE below: mark notified
-        // regardless of individual webhook failures, so a broken webhook URL doesn't cause this
-        // candidate to be re-attempted forever. Uses setCandidates directly (not updateCandidate)
-        // to avoid a user-facing "更新しました" toast for a fully background action.
-        setCandidates((prev) =>
-          prev.map((c) => (c.id === candidate.id ? { ...c, aptitudeTestReminderNotifiedAt: new Date().toISOString() } : c))
-        );
-      });
-    });
-  };
-
-  // 適性検査の実施期限「前日10時」アラート。checkAptitudeRemindersと全く同じ制約・同じ流儀
-  // （サーバーCronが無いので誰かがアプリを開いている間のポーリングに便乗、候補者ごとに一度きり）。
-  // 「前日10時」はその瞬間ちょうどに発火するのではなく、その時刻を過ぎて以降に誰かが最初にアプリを
-  // 開いた（またはポーリング中だった）タイミングで発火する — サーバーCronが無い以上、これが実現
-  // できる限界。実施済み（aptitudeTestCompletedAt設定済み）の候補者は対象外。
-  const checkAptitudeTestDeadlineAlerts = () => {
-    if (!driveAccessToken) return;
-    const {
-      candidates: latestCandidates,
-      staffList: latestStaffList,
-      groupChatWebhooks: latestGroupWebhooks
-    } = latestAptitudeReminderStateRef.current;
-    const now = new Date();
-
-    const due = latestCandidates.filter((c) => {
-      if (!c.aptitudeTestDeadline || c.aptitudeTestCompletedAt || c.aptitudeTestDeadlineAlertNotifiedAt) return false;
-      if (firedAptitudeDeadlineAlertIdsRef.current.has(c.id)) return false;
-      const deadline = new Date(c.aptitudeTestDeadline);
-      if (Number.isNaN(deadline.getTime())) return false;
-      const alertThreshold = new Date(deadline);
-      alertThreshold.setDate(alertThreshold.getDate() - 1);
-      alertThreshold.setHours(10, 0, 0, 0);
-      return alertThreshold <= now;
-    });
-    if (due.length === 0) return;
-
-    due.forEach((candidate) => {
-      firedAptitudeDeadlineAlertIdsRef.current.add(candidate.id);
-
-      const notifyPromises: Promise<void>[] = [];
-      const targetStaffNames = new Set(
-        [candidate.documentScreeningAssignee, ...candidate.assignees].filter((n): n is string => !!n)
-      );
-      targetStaffNames.forEach((name) => {
-        const staff = latestStaffList.find((s) => s.name === name);
-        if (!staff) return;
-        getStaffWebhooksForKind(staff, 'APTITUDE_TEST_DEADLINE_ALERT').forEach((webhookUrl) => {
-          notifyPromises.push(
-            notifyAptitudeTestDeadlineAlertApi({
-              accessToken: driveAccessToken,
-              webhookUrl,
-              staffName: staff.name,
-              staffMentionId: staff.chatMentionId,
-              candidateName: candidate.name,
-              candidateId: candidate.id,
-              deadline: candidate.aptitudeTestDeadline
-            })
-          );
-        });
-      });
-      getGroupWebhooksForKind(latestGroupWebhooks, 'APTITUDE_TEST_DEADLINE_ALERT').forEach((webhookUrl) => {
-        notifyPromises.push(
-          notifyAptitudeTestDeadlineAlertApi({
-            accessToken: driveAccessToken,
-            webhookUrl,
-            candidateName: candidate.name,
-            candidateId: candidate.id,
-            deadline: candidate.aptitudeTestDeadline
-          })
-        );
-      });
-
-      Promise.allSettled(notifyPromises).then((results) => {
-        const failedCount = results.filter((r) => r.status === 'rejected').length;
-        if (failedCount > 0) {
-          console.error(`適性検査期限前日アラート通知: ${failedCount}件の送信に失敗しました`);
-        }
-        setCandidates((prev) =>
-          prev.map((c) => (c.id === candidate.id ? { ...c, aptitudeTestDeadlineAlertNotifiedAt: new Date().toISOString() } : c))
-        );
-      });
-    });
-  };
-
   useEffect(() => {
     if (!driveAccessToken) return;
 
     let cancelled = false;
     const poll = async () => {
       if (document.visibilityState !== 'visible') return;
-      checkAptitudeReminders();
-      checkAptitudeTestDeadlineAlerts();
       // A local edit is still mid-flight to Drive (debounced write not yet landed) — skip this
       // tick rather than risk applying someone else's snapshot from before our edit existed. The
       // next tick, 20s later, will see it once our own write has long since completed.
@@ -1868,55 +1675,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 適性検査メール送信成功時に呼ばれる。updateCandidateと違い、呼び出し側（送信ボタンのハンドラ）
   // が既に「送信しました」の専用トーストを出すため、ここではsetCandidatesを直接使い二重トースト
   // を避ける（updateInterviewLogForPhaseと同じ流儀）。
-  const markAptitudeTestSent = (candidateId: string) => {
-    const target = candidates.find((c) => c.id === candidateId);
-    setCandidates((prev) =>
-      prev.map((c) =>
-        c.id === candidateId
-          ? { ...c, aptitudeTestSentAt: new Date().toISOString(), lastUpdated: new Date().toISOString().split('T')[0] }
-          : c
-      )
-    );
-    if (!target) return;
-
-    // 送付完了通知（APTITUDE_TEST_SENT種別を選んだWebhookのみが対象）。EVALUATION_RESULT等と同じ
-    // ブロードキャスト方式（担当者に限定しない、opt-inしたWebhook全てへ送る）。
-    const notifyCalls: Promise<void>[] = [];
-    staffList.forEach((staff) => {
-      getStaffWebhooksForKind(staff, 'APTITUDE_TEST_SENT').forEach((webhookUrl) => {
-        notifyCalls.push(
-          notifyAptitudeTestSentApi({
-            accessToken: driveAccessToken,
-            webhookUrl,
-            candidateName: target.name,
-            candidateId: target.id,
-            deadline: target.aptitudeTestDeadline
-          })
-        );
-      });
-    });
-    getGroupWebhooksForKind(groupChatWebhooks, 'APTITUDE_TEST_SENT').forEach((webhookUrl) => {
-      notifyCalls.push(
-        notifyAptitudeTestSentApi({
-          accessToken: driveAccessToken,
-          webhookUrl,
-          candidateName: target.name,
-          candidateId: target.id,
-          deadline: target.aptitudeTestDeadline
-        })
-      );
-    });
-    if (notifyCalls.length > 0) {
-      Promise.allSettled(notifyCalls).then((results) => {
-        const failedCount = results.filter((r) => r.status === 'rejected').length;
-        if (failedCount > 0) {
-          console.error(`Aptitude-test-sent Chat notify: ${failedCount}件の送信に失敗しました`);
-          showToast(`適性検査送付完了通知の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
-        }
-      });
-    }
-  };
-
   // 適性検査ステータスバッジ（カンバンカード・一覧・ダッシュボード・候補者詳細）のクリック切り替え
   // で使う専用アップデータ。updateCandidatePhase/updateCandidateScheduleと同じく、クイック操作
   // なので専用の分かりやすいトーストを出す（updateCandidateの汎用トーストとは別扱い）。
@@ -2770,11 +2528,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('選考ポジション設定を更新しました', 'success');
   };
 
-  const updateAptitudeTestSettings = (settings: AptitudeTestSettings) => {
-    setAptitudeTestSettings(settings);
-    showToast('適性検査メール設定を更新しました', 'success');
-  };
-
 
   // Google Drive Integration — re-runs the same login used to enter the app, e.g. after the
   // access token has expired and the background silent refresh in AuthGate couldn't restore it.
@@ -2838,7 +2591,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         groupChatWebhooks: mergedGroupChatWebhooks,
         positions: mergedPositions,
         inquiries,
-        aptitudeTestSettings,
         candidateIdSeq: candidateIdSeqRef.current,
         attentionDigestLastSentDate: attentionDigestDateRef.current,
         dailyApplicationsDigestLastSentDate: dailyDigestDateRef.current
@@ -3683,7 +3435,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateInterviewersForPhase,
         updateInterviewFormatForPhase,
         updateInterviewLogForPhase,
-        markAptitudeTestSent,
         updateAptitudeTestStatus,
         updateOnboardingInfo,
         addEvaluationNote,
@@ -3708,8 +3459,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         positions,
         updatePositions,
         positionOptions: positions.map((p) => p.label),
-        aptitudeTestSettings,
-        updateAptitudeTestSettings,
         inquiries,
         addInquiryMessage,
         sendApplicationsDigest,

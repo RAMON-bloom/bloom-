@@ -9,9 +9,6 @@ export const CHAT_NOTIFICATION_KINDS: { key: ChatNotificationKind; label: string
   { key: 'DOCUMENT_SCREENING_THREAD', label: '書類選考通過スレッド作成', description: '書類選考を通過した候補者ごとに、候補者名＋エージェント名で新規スレッドを作成' },
   { key: 'DEVELOPER_INQUIRY', label: '開発者へのお問い合わせ', description: 'アプリ内「お問い合わせ」からバグ報告・改善提案等のメッセージが送信された際' },
   { key: 'EVALUATION_SUMMARY_THREAD', label: '候補者スレッドへの評価サマリ書き込み', description: '各選考フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む' },
-  { key: 'APTITUDE_TEST_REMINDER', label: '適性検査 送信リマインド', description: '候補者ごとに設定した適性検査の送信リマインド日時が到来した際' },
-  { key: 'APTITUDE_TEST_SENT', label: '適性検査 送付完了通知', description: '適性検査メールを送付した際（候補者名・実施期限を通知）' },
-  { key: 'APTITUDE_TEST_DEADLINE_ALERT', label: '適性検査 期限前日アラート', description: '実施期限前日の午前10時時点で、まだ実施済みとしてマークされていない候補者がいる際' },
   { key: 'DAILY_APPLICATIONS_DIGEST', label: '本日の応募状況（手動送信）', description: '分析ダッシュボードの「本日の応募状況を送信」ボタンを押した際、その日の応募数・エージェント別進捗を送信' },
   { key: 'PERIOD_APPLICATIONS_DIGEST', label: '指定期間の応募状況（手動送信）', description: '分析ダッシュボードの「指定期間の応募状況を送信」ボタンを押した際、選択中の期間の応募数・エージェント別状況を送信' }
 ];

@@ -171,12 +171,9 @@ export interface Candidate {
   notes?: string;
   isArchived?: boolean; // 削除・過去アーカイブ済みフラグ
   deletedAt?: string;  // 削除・アーカイブ日時
-  aptitudeTestDeadline?: string; // 適性検査 実施期限日時 (datetime-local形式 YYYY-MM-DDTHH:mm)
-  aptitudeTestReminderAt?: string; // 適性検査 送信リマインド予定日時（デフォルトは期限の1週間前、担当者が上書き可）
-  aptitudeTestSentAt?: string; // 適性検査メールを送信した日時 (ISO)
+  aptitudeTestDeadline?: string; // 適性検査 実施期限日時 (datetime-local形式 YYYY-MM-DDTHH:mm)。ステータスバッジの締切表示に使用
+  aptitudeTestSentAt?: string; // 適性検査を送付済みとして手動でマークした日時 (ISO)
   aptitudeTestCompletedAt?: string; // 候補者が適性検査を実施済みとして手動でマークした日時 (ISO)。Google Form回答の自動検知はしないため手動運用
-  aptitudeTestReminderNotifiedAt?: string; // 送信リマインドのChat通知を送った日時 (ISO、重複通知防止のガード)
-  aptitudeTestDeadlineAlertNotifiedAt?: string; // 実施期限前日アラートのChat通知を送った日時 (ISO、重複通知防止のガード)
   docScreeningNudgeLastSentDate?: string; // 書類選考対応漏れの個別督促(DOC_SCREENING_NUDGE)を最後に送った日 (YYYY-MM-DD)。毎日連続で督促し続けないためのクールダウン判定に使う
   aptitudeTestVerbalScore?: number; // 適性検査 言語スコア (0〜10点満点)
   aptitudeTestNonVerbalScore?: number; // 適性検査 非言語スコア (0〜10点満点)
@@ -223,9 +220,6 @@ export type ChatNotificationKind =
   | 'DOCUMENT_SCREENING_THREAD'   // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
   | 'DEVELOPER_INQUIRY'           // アプリ内「お問い合わせ」からのメッセージ送信
   | 'EVALUATION_SUMMARY_THREAD'   // 各フェーズの合否判定・LCM評価サマリ・次回面接官のアサイン状況を、書類選考通過スレッドへ書き込む
-  | 'APTITUDE_TEST_REMINDER'      // 適性検査の送信リマインド予定日時が到来した際
-  | 'APTITUDE_TEST_SENT'          // 適性検査メールを送付した際（候補者名・実施期限を通知）
-  | 'APTITUDE_TEST_DEADLINE_ALERT'  // 実施期限前日10時時点で未完了（aptitudeTestCompletedAt未設定）の際
   | 'DAILY_APPLICATIONS_DIGEST'     // ダッシュボードの「本日の応募状況を送信」ボタンからの手動送信
   | 'PERIOD_APPLICATIONS_DIGEST';   // ダッシュボードの「指定期間の応募状況を送信」ボタンからの手動送信
 
@@ -251,18 +245,6 @@ export interface InternalStaff {
   googleChatWebhooks?: ChatWebhook[]; // 本人のGoogle Chatスペースの着信Webhook URL一覧。1件ごとに送る通知の種類(kinds)を指定できる
   email?: string; // Googleログインアカウントのメールアドレス。自己登録・自己編集の識別キー（管理者が手動追加した過去のレコードでは未設定のことがある）
   chatMentionId?: string; // 本人のGoogle Chat数値ユーザーID。設定すると個人宛通知の「@名前」が本物のメンション（相手に通知が飛ぶ）になる。未設定なら太字テキストのみのフォールバック表示
-}
-
-// 適性検査メール送信のグローバル設定（組織で1つ、Driveバックアップに他の設定同様プレーン上書きで保存）。
-// 送信自体は担当者本人のGoogleアカウントから行うため、実際の送信元メールアドレスはGmail APIの制約上
-// そのアカウントに固定される（senderDisplayNameは表示名のみを変える）。
-export interface AptitudeTestSettings {
-  senderDisplayName?: string; // メールの差出人表示名（例: 「bloom採用担当」）
-  replyToAddress?: string; // 返信先(Reply-To)アドレス
-  subjectTemplate?: string; // 件名テンプレート。{{candidateName}} {{deadline}} {{formUrl1}} {{formUrl2}} が使える
-  bodyTemplate?: string; // 本文テンプレート。同上のプレースホルダが使える
-  formUrl1?: string; // 適性検査Google Form URL（1つ目）
-  formUrl2?: string; // 適性検査Google Form URL（2つ目）
 }
 
 // 見送り(REJECTED)候補者を、見送られた選考フェーズ別に集計した内訳。

@@ -397,11 +397,20 @@ export interface Inquiry {
 // 計算してユーザーに提示するための型。何を反映し、何を無視する（今後の同期対象から外す）かを
 // 選んでから適用できるようにするのが目的（過去の古いレジュメが無自覚に選考パイプラインへ
 // 新規候補者として乗ってしまう事故を防ぐ）。
+// アプリのフェーズとDriveフォルダの位置が食い違っているとき、どちらを正とするか。
+// APP_TO_DRIVE: アプリの現在フェーズが正 → Driveフォルダをそのフェーズのフォルダへ移動する
+//   （アプリでフェーズ変更した際のDrive側の移動が失敗・未完了のまま残っている典型ケース）
+// DRIVE_TO_APP: Drive上のフォルダ位置が正 → アプリのフェーズをそれに合わせて変更する
+//   （Drive上で手でフォルダを動かして選考を進めた／戻したケース）
+export type DriveSyncPhaseMoveDirection = 'APP_TO_DRIVE' | 'DRIVE_TO_APP';
+
 export interface DriveSyncPhaseMove {
   candidateId: string;
   candidateName: string;
   currentPhase: SelectionPhase;
   drivePhase: SelectionPhase;
+  driveItemId: string; // 候補者のDriveフォルダID（フォルダ化前の旧候補者は履歴書ファイルID）
+  suggestedDirection: DriveSyncPhaseMoveDirection; // 既定の解消方向（最終的にはモーダルでユーザーが選ぶ）
 }
 
 export interface DriveSyncNewImport {

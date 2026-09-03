@@ -113,6 +113,7 @@ export const CandidateDetailModal: React.FC = () => {
     updateEvaluationNote,
     deleteEvaluationNote,
     updateCandidate,
+    patchCandidate,
     mergeResumeDocuments,
     deleteCandidate,
     restoreCandidate,
@@ -692,7 +693,12 @@ export const CandidateDetailModal: React.FC = () => {
       showToast(err?.message || 'ファイル処理中にエラーが発生しました', 'warning');
     } finally {
       if (Object.keys(patch).length > 0) {
-        updateCandidate({ ...candidate, ...patch, lastUpdated: new Date().toISOString().split('T')[0] });
+        // Not `updateCandidate({ ...candidate, ...patch })`: `candidate` was captured before the
+        // awaits above (parse → Drive upload → photo detection can take tens of seconds), so
+        // writing it back wholesale silently reverted anything that changed meanwhile — most
+        // visibly a phase change made from another tab or by a teammate, which then no longer
+        // matched where the Drive folder had been moved to.
+        patchCandidate(candidate.id, patch);
       }
       setIsDetailCompressing(false);
       setIsDetailParsing(false);
@@ -3264,10 +3270,9 @@ export const CandidateDetailModal: React.FC = () => {
         resumeDocs={resumeDocs}
         driveAccessToken={driveAccessToken}
         onSavePhoto={(newAvatarUrl) => {
-          updateCandidate({
-            ...candidate,
-            avatarUrl: newAvatarUrl
-          });
+          // Patch, not a whole-record write: the cropper can stay open a while, and `candidate`
+          // is the snapshot from when it opened (same stale-snapshot reasoning as the file drop).
+          patchCandidate(candidate.id, { avatarUrl: newAvatarUrl });
           showToast('履歴書から切り抜いた顔写真を適用・保存しました', 'success');
         }}
       />

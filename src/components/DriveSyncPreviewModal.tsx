@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useATS } from '../context/ATSContext';
 import { X, EyeOff, FolderSync, UserPlus, FilePlus, Copy } from 'lucide-react';
-import { SelectionPhase, DriveSyncDuplicateFolder } from '../types';
+import { SelectionPhase, DriveSyncDuplicateFolder, DriveSyncPhaseMoveDirection } from '../types';
 
 const PHASE_LABELS: Record<SelectionPhase, string> = {
   DOCUMENT_SCREENING: '書類選考',
@@ -39,6 +39,9 @@ export const DriveSyncPreviewModal: React.FC = () => {
   const { driveSyncPreview, applyDriveSync, cancelDriveSyncPreview, isApplyingDriveSync } = useATS();
 
   const [checkedMoves, setCheckedMoves] = useState<Set<string>>(new Set());
+  // Per phase-mismatch row: which side wins. Seeded from previewDriveSync's suggestedDirection
+  // (app→Drive whenever the app clearly holds the newer decision), but always overridable here.
+  const [moveDirections, setMoveDirections] = useState<Map<string, DriveSyncPhaseMoveDirection>>(new Map());
   const [checkedDocUpdates, setCheckedDocUpdates] = useState<Set<string>>(new Set());
   const [checkedImports, setCheckedImports] = useState<Set<string>>(new Set());
   const [checkedDuplicates, setCheckedDuplicates] = useState<Set<string>>(new Set());
@@ -51,6 +54,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
   useEffect(() => {
     if (driveSyncPreview) {
       setCheckedMoves(new Set(driveSyncPreview.phaseMoves.map((m) => m.candidateId)));
+      setMoveDirections(new Map(driveSyncPreview.phaseMoves.map((m) => [m.candidateId, m.suggestedDirection])));
       // Doc updates default checked too — they only add files already sitting in that candidate's
       // own Drive folder to resumeDocuments, nothing moves or changes in Drive itself.
       setCheckedDocUpdates(new Set(driveSyncPreview.docUpdates.map((d) => d.candidateId)));
@@ -117,9 +121,19 @@ export const DriveSyncPreviewModal: React.FC = () => {
   const visibleImports = driveSyncPreview.newImports.filter((e) => !ignoredKeys.has(e.key));
   const selectedTotal = checkedMoves.size + checkedDocUpdates.size + checkedImports.size + checkedDuplicates.size;
 
+  const setMoveDirection = (candidateId: string, direction: DriveSyncPhaseMoveDirection) => {
+    setMoveDirections((prev) => new Map(prev).set(candidateId, direction));
+  };
+  const directionOf = (candidateId: string): DriveSyncPhaseMoveDirection =>
+    moveDirections.get(candidateId) ||
+    driveSyncPreview.phaseMoves.find((m) => m.candidateId === candidateId)?.suggestedDirection ||
+    'DRIVE_TO_APP';
+
   const handleApply = () => {
+    const checkedMoveIds = Array.from(checkedMoves);
     applyDriveSync({
-      phaseMoveCandidateIds: Array.from(checkedMoves),
+      phaseMoveCandidateIds: checkedMoveIds.filter((id) => directionOf(id) === 'DRIVE_TO_APP'),
+      driveFolderMoveCandidateIds: checkedMoveIds.filter((id) => directionOf(id) === 'APP_TO_DRIVE'),
       importKeys: Array.from(checkedImports),
       ignoreKeys: Array.from(ignoredKeys),
       docUpdateCandidateIds: Array.from(checkedDocUpdates),
@@ -223,31 +237,72 @@ export const DriveSyncPreviewModal: React.FC = () => {
             <div>
               <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
                 <FolderSync className="w-4 h-4 text-indigo-600" />
-                <span>フェーズ更新（{driveSyncPreview.phaseMoves.length}件）</span>
+                <span>フェーズの食い違い（{driveSyncPreview.phaseMoves.length}件）</span>
               </h4>
               <p className="text-[11px] text-slate-500 mb-2">
-                Drive上でフォルダが別フェーズへ移動されていた、登録済みの候補者です。
+                アプリ上の選考フェーズと、Drive上でフォルダが置かれているフェーズが一致していない登録済み候補者です。行ごとに、どちらを正とするか選んでください。
+                アプリで選考を進めたのにDrive側のフォルダ移動が済んでいないケースは「Driveフォルダを移動」、Drive上で手でフォルダを動かしたケースは「アプリのフェーズを変更」を選びます。
               </p>
-              <div className="space-y-1.5">
-                {driveSyncPreview.phaseMoves.map((m) => (
-                  <label
-                    key={m.candidateId}
-                    className="flex items-center gap-2.5 bg-slate-50/80 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer hover:border-indigo-300"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checkedMoves.has(m.candidateId)}
-                      onChange={() => toggleMove(m.candidateId)}
-                      className="accent-indigo-600 shrink-0"
-                    />
-                    <span className="text-xs font-bold text-slate-900 flex-1 truncate">{m.candidateName}</span>
-                    <span className="text-[11px] text-slate-500 shrink-0">{PHASE_LABELS[m.currentPhase]}</span>
-                    <span className="text-slate-300 shrink-0">→</span>
-                    <span className="text-[11px] font-semibold text-indigo-700 shrink-0">
-                      {PHASE_LABELS[m.drivePhase]}
-                    </span>
-                  </label>
-                ))}
+              <div className="space-y-2">
+                {driveSyncPreview.phaseMoves.map((m) => {
+                  const direction = directionOf(m.candidateId);
+                  const checked = checkedMoves.has(m.candidateId);
+                  const appToDrive = direction === 'APP_TO_DRIVE';
+                  return (
+                    <div
+                      key={m.candidateId}
+                      className={`bg-slate-50/80 border rounded-lg px-3 py-2 ${checked ? 'border-slate-200' : 'border-slate-200 opacity-70'}`}
+                    >
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleMove(m.candidateId)}
+                          className="accent-indigo-600 shrink-0"
+                        />
+                        <span className="text-xs font-bold text-slate-900 flex-1 truncate">{m.candidateName}</span>
+                        <span className="text-[11px] text-slate-500 shrink-0">
+                          アプリ: <span className={appToDrive ? 'font-semibold text-indigo-700' : ''}>{PHASE_LABELS[m.currentPhase]}</span>
+                        </span>
+                        <span className="text-slate-300 shrink-0">/</span>
+                        <span className="text-[11px] text-slate-500 shrink-0">
+                          Drive: <span className={appToDrive ? '' : 'font-semibold text-indigo-700'}>{PHASE_LABELS[m.drivePhase]}</span>
+                        </span>
+                      </label>
+                      <div className="mt-1.5 ml-6 flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <button
+                          type="button"
+                          disabled={!checked}
+                          onClick={() => setMoveDirection(m.candidateId, 'APP_TO_DRIVE')}
+                          className={`px-2 py-1 rounded-md border cursor-pointer disabled:cursor-default ${
+                            appToDrive
+                              ? 'border-indigo-300 bg-indigo-50 text-indigo-700 font-semibold'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          Driveフォルダを「{PHASE_LABELS[m.currentPhase]}」へ移動
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!checked}
+                          onClick={() => setMoveDirection(m.candidateId, 'DRIVE_TO_APP')}
+                          className={`px-2 py-1 rounded-md border cursor-pointer disabled:cursor-default ${
+                            !appToDrive
+                              ? 'border-indigo-300 bg-indigo-50 text-indigo-700 font-semibold'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          アプリのフェーズを「{PHASE_LABELS[m.drivePhase]}」に変更
+                        </button>
+                        {m.suggestedDirection === 'APP_TO_DRIVE' && (
+                          <span className="text-slate-400">
+                            （アプリ側の判断が新しいと推定されるため、Driveフォルダの移動を推奨）
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

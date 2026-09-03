@@ -220,20 +220,43 @@ export async function moveFileToFolder(
   newFolderId: string
 ): Promise<DriveFile> {
   const currentParents = await getFileParents(accessToken, fileId);
-  const fields = 'id,name,mimeType,modifiedTime,webViewLink';
-  if (currentParents.includes(newFolderId)) {
+  const fields = 'id,name,mimeType,modifiedTime,webViewLink,parents';
+  const strayParents = currentParents.filter((p) => p !== newFolderId);
+
+  // Already exactly where it belongs and nowhere else — nothing to do. (Previously "already has
+  // newFolderId as a parent" alone short-circuited here, which left an item that had ended up
+  // spanning two phase folders permanently spanning them: every later move to the folder it was
+  // *also* in was treated as a no-op, so the stale second parent was never cleaned up.)
+  if (currentParents.includes(newFolderId) && strayParents.length === 0) {
     const res = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?fields=${fields}`);
     return await res.json();
   }
 
-  const params = new URLSearchParams({ addParents: newFolderId, fields });
-  if (currentParents.length > 0) {
-    params.set('removeParents', currentParents.join(','));
-  }
+  const params = new URLSearchParams({ fields });
+  if (!currentParents.includes(newFolderId)) params.set('addParents', newFolderId);
+  if (strayParents.length > 0) params.set('removeParents', strayParents.join(','));
   const res = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?${params.toString()}`, {
     method: 'PATCH'
   });
-  return await res.json();
+  let moved: DriveFile & { parents?: string[] } = await res.json();
+
+  // The parents read above and the PATCH aren't atomic: a move for the same item fired from another
+  // tab/user in between makes our removeParents miss its new parent, and the item ends up with two
+  // phase folders at once. Re-check what Drive actually reports after the PATCH and strip anything
+  // that isn't the requested folder, so the end state is always "in exactly one phase folder".
+  const leftoverParents = (moved.parents || []).filter((p) => p !== newFolderId);
+  if (leftoverParents.length > 0) {
+    const fixParams = new URLSearchParams({ fields, removeParents: leftoverParents.join(',') });
+    const fixRes = await driveFetch(accessToken, `${DRIVE_API}/files/${fileId}?${fixParams.toString()}`, {
+      method: 'PATCH'
+    });
+    moved = await fixRes.json();
+  }
+  if (moved.parents && !moved.parents.includes(newFolderId)) {
+    // Lets the client's retry loop notice rather than recording a success that isn't one.
+    throw new Error('Drive API error: 移動後のフォルダ位置を確認できませんでした（同時に別の移動が行われた可能性があります）');
+  }
+  return moved;
 }
 
 // Permanently deletes a file or folder (and, for a folder, everything inside it) from Drive —

@@ -23,6 +23,7 @@ import {
   InterviewFormat,
   DriveSyncPreview,
   DriveSyncPhaseMove,
+  DriveSyncPhaseMoveDirection,
   DriveSyncNewImport,
   DriveSyncDocUpdate,
   DriveSyncDuplicateFolder,
@@ -170,6 +171,7 @@ interface ATSContextType {
   deleteEvaluationNote: (candidateId: string, noteId: string) => void;
   addCandidate: (candidateData: Omit<Candidate, 'id' | 'lastUpdated' | 'evaluationNotes' | 'appliedMonth'>) => void;
   updateCandidate: (updatedCandidate: Candidate) => void;
+  patchCandidate: (candidateId: string, patch: Partial<Candidate>) => void;
   mergeResumeDocuments: (candidateId: string, newFiles: { id: string; name: string; webViewLink?: string }[]) => void;
   deleteCandidate: (id: string) => void;
   restoreCandidate: (id: string) => void;
@@ -242,7 +244,8 @@ interface ATSContextType {
   cancelDriveSyncPreview: () => void;
   isApplyingDriveSync: boolean;
   applyDriveSync: (selection: {
-    phaseMoveCandidateIds: string[];
+    phaseMoveCandidateIds: string[]; // Drive → アプリ: アプリのフェーズをDriveフォルダの位置に合わせる
+    driveFolderMoveCandidateIds?: string[]; // アプリ → Drive: Driveフォルダをアプリの現在フェーズのフォルダへ移動する
     importKeys: string[];
     ignoreKeys: string[];
     docUpdateCandidateIds?: string[];
@@ -1449,7 +1452,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .catch(() => {})
       .then(() => moveResumeToPhaseFolderApi(token, driveItemId, phase))
       .then(() => {
-        cancelPendingDriveMove(driveItemId);
+        // 成功したこの移動が「最後に要求された移動先」である場合だけ保留を解消する。この移動の
+        // 後ろにさらに別フェーズへの要求がキューに並んでいる場合（フェーズ変更の連打）、保留
+        // レコードは既にその新しい移動先を指しているので、ここで消すと後続の移動が失敗した際に
+        // 永続化された再試行の足場が失われてしまう（後続の成功時に改めて解消される）。
+        const pending = readPendingDriveMoves()[driveItemId];
+        if (!pending || pending.phase === phase) cancelPendingDriveMove(driveItemId);
       })
       .catch((err: any) => {
         const retryCount = (moveRetryCountRef.current.get(driveItemId) || 0) + 1;
@@ -1488,23 +1496,38 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     driveMoveQueueRef.current.set(driveItemId, thisMove);
   };
 
-  const moveResumeFolderIfNeeded = (candidate: Candidate, newPhase: SelectionPhase) => {
-    const driveItemId = candidate.resumeDriveFolderId || candidate.resumeDriveFileId;
-    if (!driveItemId || candidate.phase === newPhase) return;
+  // ユーザー操作起点で「このDrive項目を、このフェーズのフォルダへ」移動を要求する共通入口。
+  // moveResumeFolderIfNeeded（フェーズ変更時）と、Drive同期モーダルで「アプリ側を正としてDrive
+  // フォルダを移動」を選んだ場合（applyDriveSync）の両方から使う。
+  const requestResumeFolderMove = (driveItemId: string, phase: SelectionPhase) => {
     // 移動を試みる前に「保留中」として永続化する — 直後にトークンが無い/リクエストが失敗しても、
     // 次回ログイン時の起動時チェック（下記のuseEffect）が確実に拾って再試行できるようにするため。
-    writePendingDriveMove(driveItemId, newPhase);
-    // 新しいフェーズ変更は仕切り直し — 以前この項目がMAX_MOVE_RETRIES_PER_SESSIONに達して諦めて
-    // いたとしても、今回のユーザー操作起点の要求にはフルの再試行回数を与える（内部の再帰呼び出し
-    // だけがこのカウントを積み上げていく）。
+    writePendingDriveMove(driveItemId, phase);
+    // 新しい要求は仕切り直し — 以前この項目がMAX_MOVE_RETRIES_PER_SESSIONに達して諦めていたと
+    // しても、今回のユーザー操作起点の要求にはフルの再試行回数を与える（内部の再帰呼び出しだけが
+    // このカウントを積み上げていく）。
     moveRetryCountRef.current.delete(driveItemId);
     const existingTimer = moveRetryTimerRef.current.get(driveItemId);
     if (existingTimer) {
       clearTimeout(existingTimer);
       moveRetryTimerRef.current.delete(driveItemId);
     }
-    if (!driveAccessToken) return;
-    attemptResumeFolderMove(driveItemId, newPhase);
+    if (!driveAccessTokenRef.current) return;
+    attemptResumeFolderMove(driveItemId, phase);
+  };
+
+  const moveResumeFolderIfNeeded = (candidate: Candidate, newPhase: SelectionPhase) => {
+    const driveItemId = candidate.resumeDriveFolderId || candidate.resumeDriveFileId;
+    if (!driveItemId) return;
+    // `candidate` は呼び出し元のレンダー時点の`candidates`スナップショットなので、その`phase`は
+    // 直前の変更をまだ反映していないことがある（再レンダー前に2回続けてフェーズ変更した場合 —
+    // 例: カンバンで1次面接へドラッグして即座に書類選考へ戻す）。以前は「phaseが既にnewPhaseと
+    // 同じなら何もしない」だけで判定していたため、この2回目の変更がスキップされ、Driveフォルダは
+    // *1回目* の移動先に置き去りになっていた。保留レコードがある＝この項目には未確定の移動が
+    // 残っている＝実際のフォルダ位置は不明、なので、その場合は必ず改めて移動先を指定し直す
+    // （既にそこにあればサーバー側で何もしないので安全）。
+    if (candidate.phase === newPhase && !(driveItemId in readPendingDriveMoves())) return;
+    requestResumeFolderMove(driveItemId, newPhase);
   };
 
   // ログインのたびに一度だけ、前回までに完走しなかった保留中のDriveフォルダ移動を再開する
@@ -2225,6 +2248,21 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`${updatedCandidate.name} さんの情報を更新しました`, 'success');
   };
 
+  // updateCandidateと同じ扱い（トースト・lastUpdated更新あり）だが、候補者レコード全体を差し替える
+  // のではなく、指定したフィールドだけを*その時点の最新状態*に重ねる。await を挟んだ後に書き戻す
+  // 処理（詳細画面の書類ドロップ: 解析→Driveアップロード→顔写真検出で数十秒かかる）では、呼び出し
+  // 元が握っている`candidate`はもう古いスナップショットで、それを丸ごとupdateCandidateに渡すと、
+  // その間に別タブ・別メンバーの操作で変わった値（典型的にはフェーズ）を黙って元に戻してしまい、
+  // しかもDriveフォルダはそれに追随して戻らないため、アプリのフェーズとDriveフォルダが食い違う
+  // 原因になっていた。
+  const patchCandidate = (candidateId: string, patch: Partial<Candidate>) => {
+    const name = latestBackupStateRef.current.candidates.find((c) => c.id === candidateId)?.name;
+    setCandidates((prev) =>
+      prev.map((c) => (c.id === candidateId ? { ...c, ...patch, lastUpdated: new Date().toISOString().split('T')[0] } : c))
+    );
+    if (name) showToast(`${name} さんの情報を更新しました`, 'success');
+  };
+
   // Silently appends newly-discovered Drive files to a candidate's resumeDocuments — used for the
   // background "refresh this candidate's documents from their Drive folder" check on opening
   // their detail view. Deliberately no toast/lastUpdated bump: unlike updateCandidate, this runs
@@ -2667,19 +2705,38 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const folderIdToEntry = new Map(entries.filter((e) => e.folderId).map((e) => [e.folderId as string, e]));
       const fileIdToEntry = new Map(entries.filter((e) => !e.folderId).map((e) => [e.file.id, e]));
 
+      const pendingMoves = readPendingDriveMoves();
       const phaseMoves: DriveSyncPhaseMove[] = [];
       candidates.forEach((c) => {
+        const driveItemId = c.resumeDriveFolderId || c.resumeDriveFileId;
         const entry = c.resumeDriveFolderId
           ? folderIdToEntry.get(c.resumeDriveFolderId)
           : c.resumeDriveFileId
           ? fileIdToEntry.get(c.resumeDriveFileId)
           : undefined;
-        if (entry && entry.phase in PHASE_ORDER && entry.phase !== c.phase) {
+        if (driveItemId && entry && entry.phase in PHASE_ORDER && entry.phase !== c.phase) {
+          const drivePhase = entry.phase as SelectionPhase;
+          // アプリのフェーズとDriveフォルダの位置が食い違うとき、どちらを正とみなすか。以前は常に
+          // 「Drive → アプリ」（Drive上で手でフォルダを動かしたケースだけを想定）で、モーダルでも
+          // 既定でチェック済みだった。しかし実際に多いのは「アプリでフェーズ変更したがDrive側の
+          // 移動が失敗／未完了のまま残った」ケースで、そこにDrive → アプリを適用すると、確定した
+          // はずの選考結果がアプリ上で*巻き戻る*事故になっていた。アプリ側が明らかに新しい判断を
+          // 持っている根拠があれば「アプリ → Drive」を既定にする: このブラウザにその項目の未確定
+          // の移動が残っている／アプリ上で見送り・選考辞退として選考が終了している／Driveが指す
+          // フェーズに対する合否付きの評価メモがアプリに記録済み（＝そのフェーズはもう終わっている）。
+          const concludedInApp = c.phase === 'REJECTED' || c.phase === 'DECLINED';
+          const evaluatedPastDrivePhase = (c.evaluationNotes || []).some(
+            (n) => n.phase === drivePhase && (n.resultStatus === 'PASS' || n.resultStatus === 'FAIL')
+          );
+          const suggestedDirection: DriveSyncPhaseMoveDirection =
+            driveItemId in pendingMoves || concludedInApp || evaluatedPastDrivePhase ? 'APP_TO_DRIVE' : 'DRIVE_TO_APP';
           phaseMoves.push({
             candidateId: c.id,
             candidateName: c.name,
             currentPhase: c.phase,
-            drivePhase: entry.phase as SelectionPhase
+            drivePhase,
+            driveItemId,
+            suggestedDirection
           });
         }
       });
@@ -2851,7 +2908,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // (deletedDriveItemIds) so they stop being offered on future syncs. Anything left unselected —
   // neither applied nor ignored — is simply left for the next preview to ask about again.
   const applyDriveSync = async (selection: {
-    phaseMoveCandidateIds: string[];
+    phaseMoveCandidateIds: string[]; // Drive → アプリ: アプリのフェーズをDriveフォルダの位置に合わせる
+    driveFolderMoveCandidateIds?: string[]; // アプリ → Drive: Driveフォルダをアプリの現在フェーズのフォルダへ移動する
     importKeys: string[];
     ignoreKeys: string[];
     docUpdateCandidateIds?: string[];
@@ -2862,6 +2920,21 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const moveIds = new Set(selection.phaseMoveCandidateIds);
       const docUpdateIds = new Set(selection.docUpdateCandidateIds || []);
+
+      // 「アプリ側を正としてDriveフォルダを移動」を選ばれた候補者: アプリのフェーズはそのままで、
+      // Drive項目をそのフェーズのフォルダへ移す。通常のフェーズ変更時と同じ再試行・保留永続化つき
+      // の経路（requestResumeFolderMove）に乗せるだけなので、ここでは完了を待たない — 完了・失敗は
+      // その経路のトーストで通知される。移動先は、モーダルを開いていた間に変わっている可能性を
+      // 考えてプレビュー時点のcurrentPhaseではなく今の最新状態から取る。
+      const driveFolderMoveIds = new Set(selection.driveFolderMoveCandidateIds || []);
+      let driveFolderMoveCount = 0;
+      driveFolderMoveIds.forEach((candidateId) => {
+        const move = driveSyncPreview.phaseMoves.find((m) => m.candidateId === candidateId);
+        if (!move) return;
+        const latest = latestBackupStateRef.current.candidates.find((c) => c.id === candidateId);
+        requestResumeFolderMove(move.driveItemId, latest?.phase || move.currentPhase);
+        driveFolderMoveCount++;
+      });
       if (moveIds.size > 0 || docUpdateIds.size > 0) {
         setCandidates((prev) =>
           prev.map((c) => {
@@ -3045,7 +3118,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const summary = [
-        moveIds.size > 0 ? `フェーズ更新 ${moveIds.size}件` : null,
+        moveIds.size > 0 ? `アプリのフェーズをDriveに合わせて更新 ${moveIds.size}件` : null,
+        driveFolderMoveCount > 0
+          ? `Driveフォルダをアプリのフェーズへ移動 ${driveFolderMoveCount}件（バックグラウンドで実行中、失敗時は自動再試行）`
+          : null,
         docUpdateIds.size > 0 ? `既存候補者への書類追加 ${docUpdateIds.size}件` : null,
         importedCount > 0 ? `新規取込 ${importedCount}件` : null,
         failedCount > 0 ? `取込失敗 ${failedCount}件` : null,
@@ -3443,6 +3519,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteEvaluationNote,
         addCandidate,
         updateCandidate,
+        patchCandidate,
         mergeResumeDocuments,
         deleteCandidate,
         restoreCandidate,

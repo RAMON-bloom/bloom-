@@ -849,10 +849,9 @@ export const ListView: React.FC = () => {
                           {(c.scheduleStatus === 'SCHEDULE_CONFIRMED' || c.scheduleStatus === 'PROPOSING_DATES') && (
                             <input
                               type="datetime-local"
-                              value={c.nextScheduleDate ? new Date(c.nextScheduleDate).toISOString().slice(0, 16) : ''}
+                              value={c.nextScheduleDate || ''}
                               onChange={(e) => {
-                                const d = e.target.value ? new Date(e.target.value).toISOString() : undefined;
-                                updateCandidateSchedule(c.id, c.scheduleStatus, d, c.nextInterviewers);
+                                updateCandidateSchedule(c.id, c.scheduleStatus, e.target.value || undefined, c.nextInterviewers);
                               }}
                               className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-600 focus:outline-none focus:border-indigo-400"
                             />

@@ -754,19 +754,26 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // last-known base (equivalent to a plain overwrite for these collections), matching
         // the previous behavior for this rare case rather than blocking the write entirely.
       }
-      const mergedCandidates = mergeCollection(syncBaseRef.current.candidates, latestBackupStateRef.current.candidates, remoteCandidates);
-      const mergedAgencies = mergeCollection(syncBaseRef.current.agencies, latestBackupStateRef.current.agencies, remoteAgencies);
-      const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, latestBackupStateRef.current.staffList, remoteStaffList);
-      const mergedMeetingLogs = mergeCollection(syncBaseRef.current.meetingLogs, latestBackupStateRef.current.meetingLogs, remoteMeetingLogs);
+      // Snapshot of "local" as of the moment we compute the merge/write payload below — kept
+      // separately from latestBackupStateRef.current (which keeps moving every render) so that
+      // once the write below finishes, we can tell whether anything changed locally *during* the
+      // backupToDriveApi network round-trip (e.g. a candidate registered while this POST was still
+      // in flight). See the reconciliation comment in the .then() below for why that distinction
+      // matters.
+      const localAtMergeTime = latestBackupStateRef.current;
+      const mergedCandidates = mergeCollection(syncBaseRef.current.candidates, localAtMergeTime.candidates, remoteCandidates);
+      const mergedAgencies = mergeCollection(syncBaseRef.current.agencies, localAtMergeTime.agencies, remoteAgencies);
+      const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, localAtMergeTime.staffList, remoteStaffList);
+      const mergedMeetingLogs = mergeCollection(syncBaseRef.current.meetingLogs, localAtMergeTime.meetingLogs, remoteMeetingLogs);
       const mergedGroupChatWebhooks = mergeCollection(
         syncBaseRef.current.groupChatWebhooks,
-        latestBackupStateRef.current.groupChatWebhooks,
+        localAtMergeTime.groupChatWebhooks,
         remoteGroupChatWebhooks
       );
-      const mergedPositions = mergeCollection(syncBaseRef.current.positions, latestBackupStateRef.current.positions, remotePositions);
+      const mergedPositions = mergeCollection(syncBaseRef.current.positions, localAtMergeTime.positions, remotePositions);
 
       backupToDriveApi(token, {
-        ...latestBackupStateRef.current,
+        ...localAtMergeTime,
         candidates: mergedCandidates,
         agencies: mergedAgencies,
         staffList: mergedStaffList,
@@ -795,16 +802,34 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
           // The merge may have pulled in another tab's concurrent addition/edit that this tab's
           // own state didn't have — reflect that back locally so this tab's UI matches what Drive
-          // now actually holds instead of silently drifting from it.
-          if (JSON.stringify(mergedCandidates) !== JSON.stringify(latestBackupStateRef.current.candidates)) setCandidates(mergedCandidates);
-          if (JSON.stringify(mergedAgencies) !== JSON.stringify(latestBackupStateRef.current.agencies)) setAgencies(mergedAgencies);
-          if (JSON.stringify(mergedStaffList) !== JSON.stringify(latestBackupStateRef.current.staffList)) setStaffList(mergedStaffList);
-          if (JSON.stringify(mergedMeetingLogs) !== JSON.stringify(latestBackupStateRef.current.meetingLogs)) setMeetingLogs(mergedMeetingLogs);
-          if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(latestBackupStateRef.current.groupChatWebhooks)) {
-            setGroupChatWebhooks(mergedGroupChatWebhooks);
+          // now actually holds. But latestBackupStateRef.current may ALSO have moved on from
+          // localAtMergeTime while the write above was in flight (e.g. someone registered a new
+          // candidate mid-POST) — that local change was never part of mergedCandidates and isn't
+          // on Drive yet, so blindly overwriting with mergedCandidates would silently erase it
+          // from the UI (and, since the next auto-backup starts from whatever we set here, from
+          // Drive forever too). Re-merge once more, this time treating "what changed locally
+          // since we computed the write payload" (localAtMergeTime -> now) as its own local/base
+          // pair against what actually landed on Drive (mergedCandidates as "remote") so any such
+          // in-flight local edit survives instead of being clobbered.
+          const finalCandidates = mergeCollection(localAtMergeTime.candidates, latestBackupStateRef.current.candidates, mergedCandidates);
+          const finalAgencies = mergeCollection(localAtMergeTime.agencies, latestBackupStateRef.current.agencies, mergedAgencies);
+          const finalStaffList = mergeCollection(localAtMergeTime.staffList, latestBackupStateRef.current.staffList, mergedStaffList);
+          const finalMeetingLogs = mergeCollection(localAtMergeTime.meetingLogs, latestBackupStateRef.current.meetingLogs, mergedMeetingLogs);
+          const finalGroupChatWebhooks = mergeCollection(
+            localAtMergeTime.groupChatWebhooks,
+            latestBackupStateRef.current.groupChatWebhooks,
+            mergedGroupChatWebhooks
+          );
+          const finalPositions = mergeCollection(localAtMergeTime.positions, latestBackupStateRef.current.positions, mergedPositions);
+          if (JSON.stringify(finalCandidates) !== JSON.stringify(latestBackupStateRef.current.candidates)) setCandidates(finalCandidates);
+          if (JSON.stringify(finalAgencies) !== JSON.stringify(latestBackupStateRef.current.agencies)) setAgencies(finalAgencies);
+          if (JSON.stringify(finalStaffList) !== JSON.stringify(latestBackupStateRef.current.staffList)) setStaffList(finalStaffList);
+          if (JSON.stringify(finalMeetingLogs) !== JSON.stringify(latestBackupStateRef.current.meetingLogs)) setMeetingLogs(finalMeetingLogs);
+          if (JSON.stringify(finalGroupChatWebhooks) !== JSON.stringify(latestBackupStateRef.current.groupChatWebhooks)) {
+            setGroupChatWebhooks(finalGroupChatWebhooks);
           }
-          if (JSON.stringify(mergedPositions) !== JSON.stringify(latestBackupStateRef.current.positions)) {
-            setPositions(mergedPositions);
+          if (JSON.stringify(finalPositions) !== JSON.stringify(latestBackupStateRef.current.positions)) {
+            setPositions(finalPositions);
           }
           if (hadBackupFailureRef.current) {
             hadBackupFailureRef.current = false;
@@ -2615,6 +2640,10 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch {
         // Nothing backed up yet, or the read failed — fall back to this tab's own base.
       }
+      // See attemptBackup's matching comment: captured once here so the reconciliation below can
+      // tell what changed locally *during* the backupToDriveApi round-trip, as opposed to what was
+      // already reflected in the payload we're about to send.
+      const localAtMergeTime = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions };
       const mergedCandidates = mergeCollection(syncBaseRef.current.candidates, candidates, remoteCandidates);
       const mergedAgencies = mergeCollection(syncBaseRef.current.agencies, agencies, remoteAgencies);
       const mergedStaffList = mergeCollection(syncBaseRef.current.staffList, staffList, remoteStaffList);
@@ -2646,12 +2675,28 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         groupChatWebhooks: mergedGroupChatWebhooks,
         positions: mergedPositions
       });
-      if (JSON.stringify(mergedCandidates) !== JSON.stringify(candidates)) setCandidates(mergedCandidates);
-      if (JSON.stringify(mergedAgencies) !== JSON.stringify(agencies)) setAgencies(mergedAgencies);
-      if (JSON.stringify(mergedStaffList) !== JSON.stringify(staffList)) setStaffList(mergedStaffList);
-      if (JSON.stringify(mergedMeetingLogs) !== JSON.stringify(meetingLogs)) setMeetingLogs(mergedMeetingLogs);
-      if (JSON.stringify(mergedGroupChatWebhooks) !== JSON.stringify(groupChatWebhooks)) setGroupChatWebhooks(mergedGroupChatWebhooks);
-      if (JSON.stringify(mergedPositions) !== JSON.stringify(positions)) setPositions(mergedPositions);
+      // Reconcile against whatever's live right now, not the `candidates`/etc. closures captured
+      // when this function started — those went stale the moment the awaits above yielded, and a
+      // candidate registered mid-request would otherwise get wiped by a blind overwrite here. See
+      // attemptBackup's matching comment for the full reasoning.
+      const finalCandidates = mergeCollection(localAtMergeTime.candidates, latestBackupStateRef.current.candidates, mergedCandidates);
+      const finalAgencies = mergeCollection(localAtMergeTime.agencies, latestBackupStateRef.current.agencies, mergedAgencies);
+      const finalStaffList = mergeCollection(localAtMergeTime.staffList, latestBackupStateRef.current.staffList, mergedStaffList);
+      const finalMeetingLogs = mergeCollection(localAtMergeTime.meetingLogs, latestBackupStateRef.current.meetingLogs, mergedMeetingLogs);
+      const finalGroupChatWebhooks = mergeCollection(
+        localAtMergeTime.groupChatWebhooks,
+        latestBackupStateRef.current.groupChatWebhooks,
+        mergedGroupChatWebhooks
+      );
+      const finalPositions = mergeCollection(localAtMergeTime.positions, latestBackupStateRef.current.positions, mergedPositions);
+      if (JSON.stringify(finalCandidates) !== JSON.stringify(latestBackupStateRef.current.candidates)) setCandidates(finalCandidates);
+      if (JSON.stringify(finalAgencies) !== JSON.stringify(latestBackupStateRef.current.agencies)) setAgencies(finalAgencies);
+      if (JSON.stringify(finalStaffList) !== JSON.stringify(latestBackupStateRef.current.staffList)) setStaffList(finalStaffList);
+      if (JSON.stringify(finalMeetingLogs) !== JSON.stringify(latestBackupStateRef.current.meetingLogs)) setMeetingLogs(finalMeetingLogs);
+      if (JSON.stringify(finalGroupChatWebhooks) !== JSON.stringify(latestBackupStateRef.current.groupChatWebhooks)) {
+        setGroupChatWebhooks(finalGroupChatWebhooks);
+      }
+      if (JSON.stringify(finalPositions) !== JSON.stringify(latestBackupStateRef.current.positions)) setPositions(finalPositions);
       showToast('候補者・エージェント・MTGログをDriveにバックアップしました', 'success');
     } catch (err: any) {
       showToast(`Driveバックアップに失敗しました: ${err.message || '不明なエラー'}`, 'warning');

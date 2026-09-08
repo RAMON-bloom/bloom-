@@ -139,10 +139,12 @@ export interface Candidate {
   assignees: string[]; // List of internal staff names
   documentScreeningAssignee?: string; // 弊社主担当者とは別に書類選考のみを担当する社内スタッフ名（未設定/主担当者と同一の場合は主担当者がそのまま書類選考も担当）
   phase: SelectionPhase;
+  skippedPhases?: SelectionPhase[]; // このポジション/候補者では実施しない選考フェーズ（例: 2次面接を省略）。getNextPhase()が次フェーズを決める際に読み飛ばす。書類選考・オファー関連フェーズは対象外で、カジュアル面談/1次/2次/最終面接のみ省略可能
   scheduleStatus: ScheduleStatus;
   nextScheduleDate?: string; // YYYY-MM-DD THH:mm
   nextInterviewers?: string[]; // 次回面接官リスト (1次面接以降)
   interviewersByPhase?: Partial<Record<SelectionPhase, string[]>>; // 選考フローの各ステップ（1次面接・2次面接など）ごとの担当面接官リスト。nextInterviewersは「次に控えている1件」用の単一枠だが、こちらはステップごとに独立して保持するため、まだ現在のフェーズに到達していないステップにも事前アサインできる
+  scheduleByPhase?: Partial<Record<SelectionPhase, { status: ScheduleStatus; date?: string }>>; // interviewersByPhaseと同じく、選考フローの各ステップごとに独立して調整状況・日程を保持する。scheduleStatus/nextScheduleDateは「現在のフェーズ」用の単一枠のため、まだ現在のフェーズに到達していない（またはすでに通過した）ステップの日程を個別に入力・保持したい場合はこちらを使う（例: カジュアル面談を挟むか未定のまま先に日程だけ押さえておきたい場合）
   interviewFormatByPhase?: Partial<Record<SelectionPhase, InterviewFormat>>; // 選考フローの各ステップごとの実施方式（対面 / オンライン）
   interviewLogsByPhase?: Partial<Record<SelectionPhase, ImportedInterviewLog>>; // 選考フローの各ステップごとに、Drive/カレンダー連携で取り込んだ面談ログ(Gemini議事録AI要約)
   avatarUrl?: string; // 履歴書切り抜き顔写真 URL

@@ -7,7 +7,7 @@ import { RejectionReasonModal } from './RejectionReasonModal';
 import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder, listFolderFiles } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
-import { getNextPhase, PHASE_SEQUENCE } from '../lib/phaseUtils';
+import { getNextPhase, PHASE_SEQUENCE, SKIPPABLE_PHASES } from '../lib/phaseUtils';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
 import { 
@@ -106,6 +106,8 @@ export const CandidateDetailModal: React.FC = () => {
     setSelectedCandidateId, 
     updateCandidatePhase, 
     updateCandidateSchedule,
+    updateScheduleForPhase,
+    toggleSkippedPhase,
     updateInterviewersForPhase,
     updateInterviewFormatForPhase,
     updateOnboardingInfo,
@@ -772,7 +774,7 @@ export const CandidateDetailModal: React.FC = () => {
       setCollapsedSections((prev) => ({ ...prev, evalForm: true }));
 
       if (evalTargetPhase === candidate.phase) {
-        const nextPhase = getNextPhase(candidate.phase, newDocScreeningNextPhase);
+        const nextPhase = getNextPhase(candidate.phase, newDocScreeningNextPhase, candidate.skippedPhases);
         if (nextPhase) {
           updateCandidatePhase(candidate.id, nextPhase);
           if (newNextInterviewer) {
@@ -853,7 +855,7 @@ export const CandidateDetailModal: React.FC = () => {
   // 合格保存で現在地が進む先のフェーズ (対象フェーズが現在地と一致し、かつ次フェーズが存在する場合のみ)。
   // このフェーズが決まる場合のみ、保存ボタン横に次回面接官の指定欄を出す。
   const pendingPassNextPhase =
-    evalTargetPhase === candidate.phase ? getNextPhase(candidate.phase, newDocScreeningNextPhase) : null;
+    evalTargetPhase === candidate.phase ? getNextPhase(candidate.phase, newDocScreeningNextPhase, candidate.skippedPhases) : null;
 
   const toggleLogImportPanel = (phase: SelectionPhase) => {
     if (logImportTargetPhase === phase) {
@@ -1522,13 +1524,26 @@ export const CandidateDetailModal: React.FC = () => {
 
                 {/* Step-by-Step Selection Ladder (段々レイアウト) */}
                 {!collapsedSections.dashboard && (() => {
-                  const LADDER_STAGES: { phase: SelectionPhase; stepNum: string; title: string; isOffer: boolean }[] = [
-                    { phase: 'DOCUMENT_SCREENING', stepNum: '1', title: '書類選考 / 面談', isOffer: false },
-                    { phase: 'FIRST_INTERVIEW', stepNum: '2', title: '1次面接', isOffer: false },
-                    { phase: 'SECOND_INTERVIEW', stepNum: '3', title: '2次面接', isOffer: false },
-                    { phase: 'FINAL_INTERVIEW', stepNum: '4', title: '最終面接', isOffer: false },
-                    { phase: 'OFFER_ISSUED', stepNum: '5', title: 'オファー面談・内定調整', isOffer: true }
+                  // カジュアル面談は書類選考通過後に挟むかどうかを選べる任意ステップだが、日程調整は
+                  // 現在のフェーズに関わらず(まだそのフェーズに到達していない/既に通過済みの候補者にも)
+                  // 事前に入力できるようにしたいため、常時ラダーの専用行として出す
+                  // (interviewersByPhase等と同じ「まだ現在のフェーズでなくても編集できる」方針)。
+                  // ポジションによっては2次面接を省略する等、候補者ごとにフローをアレンジしたい
+                  // ケースがあるため、skippedPhasesに含まれるステップはラダーから除外し、残った
+                  // ステップ番号を詰め直す(トグルUIは下のツールバーで操作する)。
+                  const skippedPhases = candidate.skippedPhases || [];
+                  const LADDER_STAGES_ALL: { phase: SelectionPhase; title: string; isOffer: boolean }[] = [
+                    { phase: 'DOCUMENT_SCREENING', title: '書類選考 / 面談', isOffer: false },
+                    { phase: 'CASUAL_INTERVIEW', title: 'カジュアル面談', isOffer: false },
+                    { phase: 'FIRST_INTERVIEW', title: '1次面接', isOffer: false },
+                    { phase: 'SECOND_INTERVIEW', title: '2次面接', isOffer: false },
+                    { phase: 'FINAL_INTERVIEW', title: '最終面接', isOffer: false },
+                    { phase: 'OFFER_ISSUED', title: 'オファー面談・内定調整', isOffer: true }
                   ];
+                  const LADDER_STAGES: { phase: SelectionPhase; stepNum: string; title: string; isOffer: boolean }[] =
+                    LADDER_STAGES_ALL
+                      .filter((s) => !skippedPhases.includes(s.phase))
+                      .map((s, i) => ({ ...s, stepNum: String(i + 1) }));
 
                   // 表示が長くなり閲覧しづらくならないよう、デフォルトでは現在進行中のフェーズまで
                   // だけを表示する。それより先のフェーズを前もって調整したい場合は「次回選考の調整」
@@ -1544,8 +1559,38 @@ export const CandidateDetailModal: React.FC = () => {
                   const visibleCount = Math.min(LADDER_STAGES.length, defaultVisibleCount + manuallyRevealedStages);
                   const visibleStages = LADDER_STAGES.slice(0, visibleCount);
 
+                  // まだ実施していない今後のラウンドだけを省略/復活の対象にする(現在進行中・
+                  // 既に完了したラウンドを今から無かったことにはできない)。
+                  const skippableFutureStages = SKIPPABLE_PHASES.filter(
+                    (p) => PHASE_SEQUENCE.indexOf(p) > currentPhaseSeqIndex
+                  );
+
                   return (
                   <div className="p-3 bg-slate-50/50 space-y-2">
+                    {skippableFutureStages.length > 0 && (
+                      <div className="flex items-center flex-wrap gap-1.5 bg-white border border-dashed border-slate-300 rounded-xl px-3 py-2">
+                        <span className="text-[10px] text-slate-500 font-semibold shrink-0">選考フローをアレンジ（省略するラウンドを選択）:</span>
+                        {skippableFutureStages.map((phase) => {
+                          const isSkipped = skippedPhases.includes(phase);
+                          const title = LADDER_STAGES_ALL.find((s) => s.phase === phase)?.title || phase;
+                          return (
+                            <button
+                              key={phase}
+                              type="button"
+                              onClick={() => toggleSkippedPhase(candidate.id, phase)}
+                              className={`text-[10px] font-bold px-2 py-1 rounded-full border transition-colors cursor-pointer ${
+                                isSkipped
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200 line-through'
+                                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                              }`}
+                              title={isSkipped ? `クリックで${title}を選考フローに戻す` : `クリックで${title}を省略する`}
+                            >
+                              {title}{isSkipped ? '（省略中）' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     {visibleStages.map((stg) => {
                       const phaseNotes = candidate.evaluationNotes.filter((n) => n.phase === stg.phase);
                       const latestNote = phaseNotes[phaseNotes.length - 1];
@@ -1728,10 +1773,37 @@ export const CandidateDetailModal: React.FC = () => {
                                   className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-[10px] font-bold rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                                 />
                               </div>
+                            ) : latestNote ? (
+                              <span className="text-[11px] text-slate-500 font-medium block">完了</span>
                             ) : (
-                              <span className="text-[11px] text-slate-500 font-medium block">
-                                {latestNote ? '完了' : '未定'}
-                              </span>
+                              <div className="space-y-1">
+                                <select
+                                  value={candidate.scheduleByPhase?.[stg.phase]?.status || 'UNARRANGED'}
+                                  onChange={(e) => updateScheduleForPhase(
+                                    candidate.id,
+                                    stg.phase,
+                                    e.target.value as ScheduleStatus,
+                                    candidate.scheduleByPhase?.[stg.phase]?.date
+                                  )}
+                                  className="w-full bg-slate-50 border border-slate-300 text-slate-800 font-bold text-[10px] rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                >
+                                  <option value="UNARRANGED">未手配</option>
+                                  <option value="PROPOSING_DATES">候補日提示中</option>
+                                  <option value="SCHEDULE_CONFIRMED">日程確定</option>
+                                  <option value="WAITING_RESULT">結果待ち</option>
+                                </select>
+                                <input
+                                  type="datetime-local"
+                                  value={candidate.scheduleByPhase?.[stg.phase]?.date || ''}
+                                  onChange={(e) => updateScheduleForPhase(
+                                    candidate.id,
+                                    stg.phase,
+                                    candidate.scheduleByPhase?.[stg.phase]?.status || 'UNARRANGED',
+                                    e.target.value
+                                  )}
+                                  className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-[10px] font-bold rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                />
+                              </div>
                             )}
                           </div>
                         </div>

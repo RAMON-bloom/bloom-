@@ -107,17 +107,33 @@ export function computeYieldMetrics(agencies: Agency[], candidates: Candidate[])
         PHASE_ORDER[c.phase],
         ...c.evaluationNotes.map((n) => PHASE_ORDER[n.phase] || 0)
       );
+      // 選考フローのアレンジ(candidate.skippedPhases、例: 2次面接を省略)で実施していないフェーズは、
+      // 単に他のフェーズまで到達しているというだけで「そのフェーズを通過した」に数えてはいけない
+      // （2次面接を省略して最終面接まで進んだ候補者を「2次面接通過」に誤ってカウントしてしまうため）。
+      const isApplicable = (phase: SelectionPhase) => !c.skippedPhases?.includes(phase);
 
-      if (maxPhaseReached >= 2 || c.evaluationNotes.some((n) => n.phase === 'DOCUMENT_SCREENING' && n.resultStatus === 'PASS')) {
+      if (
+        isApplicable('DOCUMENT_SCREENING') &&
+        (maxPhaseReached >= 2 || c.evaluationNotes.some((n) => n.phase === 'DOCUMENT_SCREENING' && n.resultStatus === 'PASS'))
+      ) {
         docPass++;
       }
-      if (maxPhaseReached >= 3 || c.evaluationNotes.some((n) => n.phase === 'FIRST_INTERVIEW' && n.resultStatus === 'PASS')) {
+      if (
+        isApplicable('FIRST_INTERVIEW') &&
+        (maxPhaseReached >= 3 || c.evaluationNotes.some((n) => n.phase === 'FIRST_INTERVIEW' && n.resultStatus === 'PASS'))
+      ) {
         firstPass++;
       }
-      if (maxPhaseReached >= 4 || c.evaluationNotes.some((n) => n.phase === 'SECOND_INTERVIEW' && n.resultStatus === 'PASS')) {
+      if (
+        isApplicable('SECOND_INTERVIEW') &&
+        (maxPhaseReached >= 4 || c.evaluationNotes.some((n) => n.phase === 'SECOND_INTERVIEW' && n.resultStatus === 'PASS'))
+      ) {
         secondPass++;
       }
-      if (maxPhaseReached >= 5 || c.evaluationNotes.some((n) => n.phase === 'FINAL_INTERVIEW' && n.resultStatus === 'PASS')) {
+      if (
+        isApplicable('FINAL_INTERVIEW') &&
+        (maxPhaseReached >= 5 || c.evaluationNotes.some((n) => n.phase === 'FINAL_INTERVIEW' && n.resultStatus === 'PASS'))
+      ) {
         finalPass++;
       }
       if (c.phase === 'OFFER_ISSUED' || c.phase === 'OFFER_ACCEPTED' || maxPhaseReached >= 5) {

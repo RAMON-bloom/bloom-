@@ -140,6 +140,8 @@ interface ATSContextType {
     nextInterviewers?: string[]
   ) => void;
   updateInterviewersForPhase: (candidateId: string, phase: SelectionPhase, interviewers: string[]) => void;
+  updateScheduleForPhase: (candidateId: string, phase: SelectionPhase, status: ScheduleStatus, date?: string) => void;
+  toggleSkippedPhase: (candidateId: string, phase: SelectionPhase) => void;
   updateInterviewFormatForPhase: (candidateId: string, phase: SelectionPhase, format?: InterviewFormat) => void;
   updateInterviewLogForPhase: (candidateId: string, phase: SelectionPhase, log: ImportedInterviewLog) => void;
   updateAptitudeTestStatus: (candidateId: string, status: AptitudeTestStatus) => void;
@@ -1635,9 +1637,16 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             DECLINED: '選考辞退'
           };
           showToast(`${c.name} さんのフェーズを「${phaseNames[newPhase]}」に変更しました`, 'success');
+          // まだそのフェーズに到達していない間にscheduleByPhaseへ事前入力された調整状況・日程が
+          // あれば、現在フェーズ用の単一枠(scheduleStatus/nextScheduleDate)に引き継ぐ
+          // (引き継がないと、事前入力した内容がラダー上「現在進行中」に切り替わった瞬間に
+          // 見えなくなってしまうため)。
+          const preScheduled = c.scheduleByPhase?.[newPhase];
           return {
             ...c,
             phase: newPhase,
+            scheduleStatus: preScheduled ? preScheduled.status : c.scheduleStatus,
+            nextScheduleDate: preScheduled ? preScheduled.date : c.nextScheduleDate,
             rejectionReason: isTerminalRejection ? (reason?.trim() || undefined) : undefined,
             lastUpdated: new Date().toISOString().split('T')[0]
           };
@@ -1686,6 +1695,45 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           : c
       )
+    );
+  };
+
+  // interviewersByPhaseと同じく、選考フローの各ステップごとに独立して調整状況・日程を保持する。
+  // scheduleStatus/nextScheduleDateは「現在のフェーズ」用の単一枠のため、そちらは更新せず
+  // scheduleByPhaseのみ更新する（現在のフェーズ分はupdateCandidateScheduleが引き続き担当）。
+  const updateScheduleForPhase = (candidateId: string, phase: SelectionPhase, status: ScheduleStatus, date?: string) => {
+    setCandidates((prev) =>
+      prev.map((c) =>
+        c.id === candidateId
+          ? {
+              ...c,
+              scheduleByPhase: { ...(c.scheduleByPhase || {}), [phase]: { status, date } },
+              lastUpdated: new Date().toISOString().split('T')[0]
+            }
+          : c
+      )
+    );
+  };
+
+  // ポジションによっては2次面接を省略するなど、候補者ごとに選考フローの一部ラウンドを
+  // 省略/復活できるようにするトグル。省略中のフェーズはgetNextPhase()が読み飛ばし、
+  // 候補者詳細のラダー表示からも該当ステップの行を除く。
+  const toggleSkippedPhase = (candidateId: string, phase: SelectionPhase) => {
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (c.id !== candidateId) return c;
+        const current = c.skippedPhases || [];
+        const willSkip = !current.includes(phase);
+        showToast(
+          willSkip ? `${PHASE_LABEL_MAP[phase]}を省略するフローに変更しました` : `${PHASE_LABEL_MAP[phase]}を選考フローに戻しました`,
+          'info'
+        );
+        return {
+          ...c,
+          skippedPhases: willSkip ? [...current, phase] : current.filter((p) => p !== phase),
+          lastUpdated: new Date().toISOString().split('T')[0]
+        };
+      })
     );
   };
 
@@ -1872,7 +1920,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // 次回(1次面接)の面接官アサイン状況・実施方式は、まだこの保存処理がsetCandidatesで
         // 反映される前なので、target(保存前のスナップショット)の既存値に、今回の保存で新たに
         // 選ばれた値(nextInterviewerName/nextInterviewFormat)をマージして最新状態を組み立てる。
-        const nextPhaseForThread = getNextPhase(noteData.phase, docScreeningNextPhase);
+        const nextPhaseForThread = getNextPhase(noteData.phase, docScreeningNextPhase, target.skippedPhases);
         const nextPhaseLabelForThread = nextPhaseForThread ? phaseLabels[nextPhaseForThread] : undefined;
         const existingNextInterviewersForThread = nextPhaseForThread ? target.interviewersByPhase?.[nextPhaseForThread] || [] : [];
         const nextInterviewerNamesForThread =
@@ -1941,7 +1989,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       //    まだ存在しないスレッドがGoogle Chat側で新規作成されてしまい、「書類選考通過スレッド」の
       //    Webhookが不合格の候補者にもスレッドを立ててしまう不具合になっていた。
       if (noteData.phase !== 'DOCUMENT_SCREENING') {
-        const nextPhase = noteData.resultStatus === 'PASS' ? getNextPhase(noteData.phase) : null;
+        const nextPhase = noteData.resultStatus === 'PASS' ? getNextPhase(noteData.phase, undefined, target.skippedPhases) : null;
         const nextPhaseLabel = nextPhase ? phaseLabels[nextPhase] : undefined;
         const existingNextInterviewers = nextPhase ? target.interviewersByPhase?.[nextPhase] || [] : [];
         const nextInterviewerNames =
@@ -3555,6 +3603,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCandidatePhase,
         updateCandidateSchedule,
         updateInterviewersForPhase,
+        updateScheduleForPhase,
+        toggleSkippedPhase,
         updateInterviewFormatForPhase,
         updateInterviewLogForPhase,
         updateAptitudeTestStatus,

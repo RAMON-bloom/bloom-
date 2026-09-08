@@ -49,7 +49,8 @@ import {
   Plus,
   AtSign,
   ClipboardCheck,
-  Wallet
+  Wallet,
+  ArrowRight
 } from 'lucide-react';
 
 const EVALUATION_GRADES: EvaluationGrade[] = ['A+', 'A-', 'B+', 'B', 'B-', 'C'];
@@ -1466,36 +1467,40 @@ export const CandidateDetailModal: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 sm:gap-3 ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {/* 進行中フェーズ選択 */}
+                    {/* 現在地表示。フェーズの変更自体は下のラダーの各ステップをクリックする方式に
+                        統一した（ドロップダウンとラダーで状態が二重に見えていたのを解消）。見送り/
+                        選考辞退はラダーに専用ステップが無い終端状態のため、ここに専用ボタンを残す。 */}
                     <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
                       <span className="text-[11px] font-bold text-slate-600">現在地:</span>
-                      {userRole !== 'INTERVIEWER' ? (
-                        <select
-                          value={candidate.phase}
-                          onChange={(e) => {
-                            const next = e.target.value as SelectionPhase;
-                            if (next === 'REJECTED' || next === 'DECLINED') {
-                              setPendingRejectionPhase(next);
-                            } else {
-                              updateCandidatePhase(candidate.id, next);
-                            }
-                          }}
-                          className="bg-transparent text-indigo-900 font-extrabold text-xs focus:outline-none cursor-pointer"
-                        >
-                          <option value="DOCUMENT_SCREENING">1. 書類選考</option>
-                          <option value="CASUAL_INTERVIEW">2. カジュアル面談</option>
-                          <option value="FIRST_INTERVIEW">3. 1次面接</option>
-                          <option value="SECOND_INTERVIEW">4. 2次面接</option>
-                          <option value="FINAL_INTERVIEW">5. 最終面接</option>
-                          <option value="OFFER_ISSUED">6. 内定通知</option>
-                          <option value="OFFER_ACCEPTED">7. 内定承諾</option>
-                          <option value="REJECTED">8. 見送り</option>
-                          <option value="DECLINED">9. 選考辞退</option>
-                        </select>
-                      ) : (
-                        <span className="text-xs font-bold text-indigo-900">{PHASE_LABELS[candidate.phase]}</span>
-                      )}
+                      <span className={`text-xs font-extrabold ${
+                        candidate.phase === 'REJECTED'
+                          ? 'text-rose-700'
+                          : candidate.phase === 'DECLINED'
+                          ? 'text-slate-500'
+                          : 'text-indigo-900'
+                      }`}>
+                        {PHASE_LABELS[candidate.phase]}
+                      </span>
                     </div>
+
+                    {userRole !== 'INTERVIEWER' && candidate.phase !== 'REJECTED' && candidate.phase !== 'DECLINED' && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setPendingRejectionPhase('REJECTED')}
+                          className="text-[10px] font-bold text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                        >
+                          見送り
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingRejectionPhase('DECLINED')}
+                          className="text-[10px] font-bold text-slate-500 hover:text-white hover:bg-slate-600 border border-slate-200 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                        >
+                          選考辞退
+                        </button>
+                      </div>
+                    )}
 
                     {/* 総合評価 & LCM */}
                     <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs text-[11px]">
@@ -1623,7 +1628,16 @@ export const CandidateDetailModal: React.FC = () => {
                         >
                           {/* 1. ステップ名 ＆ 進行ステータス (md:col-span-3) */}
                           <div className="md:col-span-3 space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div
+                              className={`flex items-center gap-2 -m-1 p-1 rounded-lg transition-colors ${
+                                !isCurrent && userRole !== 'INTERVIEWER' ? 'cursor-pointer hover:bg-indigo-50 group' : ''
+                              }`}
+                              onClick={() => {
+                                if (isCurrent || userRole === 'INTERVIEWER') return;
+                                updateCandidatePhase(candidate.id, stg.phase);
+                              }}
+                              title={!isCurrent && userRole !== 'INTERVIEWER' ? `クリックで現在地を「${stg.title}」にする` : undefined}
+                            >
                               <span className={`w-5 h-5 rounded-full text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
                                 isCurrent
                                   ? 'bg-indigo-600 text-white'
@@ -1633,13 +1647,35 @@ export const CandidateDetailModal: React.FC = () => {
                               }`}>
                                 {stg.stepNum}
                               </span>
-                              <span className="font-bold text-xs text-slate-900">{stg.title}</span>
+                              <span className={`font-bold text-xs text-slate-900 ${!isCurrent && userRole !== 'INTERVIEWER' ? 'group-hover:text-indigo-700' : ''}`}>
+                                {stg.title}
+                              </span>
                               {isCurrent && (
                                 <span className="bg-indigo-600 text-white text-[9px] font-extrabold px-1.5 py-0.2 rounded-full shrink-0">
                                   現在進行中
                                 </span>
                               )}
+                              {!isCurrent && userRole !== 'INTERVIEWER' && (
+                                <ArrowRight className="w-3 h-3 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                              )}
                             </div>
+
+                            {stg.isOffer && userRole !== 'INTERVIEWER' && (
+                              <button
+                                type="button"
+                                onClick={() => updateCandidatePhase(
+                                  candidate.id,
+                                  candidate.phase === 'OFFER_ACCEPTED' ? 'OFFER_ISSUED' : 'OFFER_ACCEPTED'
+                                )}
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-lg border transition-colors cursor-pointer ${
+                                  candidate.phase === 'OFFER_ACCEPTED'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
+                                }`}
+                              >
+                                {candidate.phase === 'OFFER_ACCEPTED' ? '✓ 内定承諾済み（クリックで戻す）' : '内定承諾にする'}
+                              </button>
+                            )}
 
                             <button
                               type="button"

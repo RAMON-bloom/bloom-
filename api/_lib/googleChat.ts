@@ -92,7 +92,11 @@ export async function sendGoogleChatMessage(
 // something the app can look up on its own — see 担当者マスタ's field help text for how staff find
 // it themselves). Returns '' when there's no staffName at all (group-webhook sends omit it).
 export function formatMention(staffName?: string, mentionId?: string): string {
-  if (mentionId) return `<users/${mentionId}>`;
+  // Google Chatの数値ユーザーIDは64bit精度になり得るため、Number変換は絶対に行わない
+  // (JSのNumberは2^53を超えると桁落ちする)。文字列のまま純粋な数字列かだけ検証し、
+  // "users/12345"のように接頭辞を貼り間違えた値や表示名・メールアドレスが誤って渡された
+  // 場合は本物のメンションを試みず、太字テキストへ安全にフォールバックする。
+  if (mentionId && /^\d+$/.test(mentionId)) return `<users/${mentionId}>`;
   if (staffName) return `*@${staffName}*`;
   return '';
 }

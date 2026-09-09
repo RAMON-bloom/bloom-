@@ -25,9 +25,11 @@ export default async function handler(req: any, res: any) {
     }
 
     const link = appUrl || 'https://bloom-saiyou.vercel.app';
-    // 実メンション(<users/id>)は@マーク無しの平文名表示になるだけで通知もされない既知の制約が
-    // あるため(HANDOFF記載)、この新規アサイン通知は常に太字テキストのメンションで担当者に呼びかける。
-    const mention = formatMention(staffName);
+    // 2026-08-10時点でここだけstaffMentionIdを受け取りながら使わず常に太字メンションにしていた
+    // (「実メンションは通知されない既知の制約がある」という当時のコメント・根拠のHANDOFFは現存せず、
+    // 2026-09-09に裏取りできなかったため撤回。formatMention()の他の呼び出し箇所と同様、
+    // IDがあれば本物のメンションを試す)。
+    const mention = formatMention(staffName, staffMentionId);
     const text =
       (mention ? `📋 ${mention} さん、書類選考の担当になりました\n` : `📋 書類選考の担当になりました\n`) +
       `候補者: ${candidateName} 様 (${candidateId})\n` +

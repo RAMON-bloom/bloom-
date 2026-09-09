@@ -1,4 +1,4 @@
-import { sendGoogleChatMessage } from '../_lib/googleChat.js';
+import { sendGoogleChatMessage, formatMention } from '../_lib/googleChat.js';
 import { isBloomFirmAccessToken } from '../_lib/auth.js';
 
 // Fired from ATSContext's addEvaluationNote when a 書類選考 evaluation is saved as 合格, to every
@@ -9,6 +9,9 @@ import { isBloomFirmAccessToken } from '../_lib/auth.js';
 // (Candidate.chatThreadNames) and pass it back as threadName on later notify calls for this same
 // candidate+webhook — see sendGoogleChatMessage's doc comment for why threadKey alone isn't
 // reliable long-term.
+// mentionedStaff (built by the caller — always includes 平岡, plus the next interviewer and any
+// members picked in the eval save form) is rendered as a leading @mention line so the people who
+// need to act on this thread are actually notified, not just the webhook's own space members.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -26,6 +29,7 @@ export default async function handler(req: any, res: any) {
       nextPhaseLabel,
       nextInterviewerNames,
       interviewFormatLabel,
+      mentionedStaff,
       threadName
     } = req.body || {};
 
@@ -46,7 +50,15 @@ export default async function handler(req: any, res: any) {
     const assignee = Array.isArray(nextInterviewerNames) && nextInterviewerNames.length > 0
       ? nextInterviewerNames.join('、')
       : '未定';
+    const mentionLine = Array.isArray(mentionedStaff)
+      ? mentionedStaff
+          .map((m: { name?: string; mentionId?: string }) => formatMention(m.name, m.mentionId))
+          .filter(Boolean)
+          .join(' ')
+      : '';
+
     const lines = [
+      ...(mentionLine ? [mentionLine] : []),
       `${candidateName} 様（${agencyName || '推薦元不明'}）`,
       `選考ポジション: ${positionLabel || '未設定'}`,
       `次回: ${nextPhaseLabel || '-'}　担当面接官: ${assignee}　面接方式: ${interviewFormatLabel || '未定'}`,

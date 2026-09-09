@@ -1931,6 +1931,28 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           nextInterviewFormat || (nextPhaseForThread ? target.interviewFormatByPhase?.[nextPhaseForThread] : undefined);
         const interviewFormatLabelForThread = resolvedNextInterviewFormat ? interviewFormatLabels[resolvedNextInterviewFormat] : undefined;
 
+        // 書類選考通過スレッドは必ず平岡をメンションする（依頼で固定指定）。加えて、次回面接官が
+        // 決まっていればその人、評価フォームで選んだ任意のメンバー（mentionMemberNames）も
+        // 合わせてメンションする。同一人物が複数の枠に該当しても重複メンションしないよう、
+        // 実在のchatMentionId（無ければ氏名）をキーに一意化する。
+        const hiraokaStaff = staffList.find((s) => s.name.includes('平岡'));
+        const resolveMention = (name: string) => ({
+          name,
+          mentionId: staffList.find((s) => s.name === name)?.chatMentionId
+        });
+        const mentionEntriesForThread = [
+          hiraokaStaff ? { name: hiraokaStaff.name, mentionId: hiraokaStaff.chatMentionId } : { name: '平岡', mentionId: undefined },
+          ...nextInterviewerNamesForThread.map(resolveMention),
+          ...(mentionMemberNames || []).map(resolveMention)
+        ];
+        const seenMentionKeysForThread = new Set<string>();
+        const mentionedStaffForThread = mentionEntriesForThread.filter((entry) => {
+          const key = entry.mentionId || entry.name;
+          if (seenMentionKeysForThread.has(key)) return false;
+          seenMentionKeysForThread.add(key);
+          return true;
+        });
+
         const threadPayloadBase = {
           accessToken: driveAccessToken,
           candidateName: target.name,
@@ -1939,7 +1961,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           positionLabel: target.jobTitle,
           nextPhaseLabel: nextPhaseLabelForThread,
           nextInterviewerNames: nextInterviewerNamesForThread,
-          interviewFormatLabel: interviewFormatLabelForThread
+          interviewFormatLabel: interviewFormatLabelForThread,
+          mentionedStaff: mentionedStaffForThread
         };
 
         const threadWebhookUrls: string[] = [];
@@ -2095,6 +2118,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const currentPhaseLabel = PHASE_LABEL_MAP[target.phase] || target.phase;
     const currentInterviewers = target.interviewersByPhase?.[target.phase] || [];
     const currentFormat = target.interviewFormatByPhase?.[target.phase];
+    const hiraokaStaffForReissue = staffList.find((s) => s.name.includes('平岡'));
+    const mentionedStaffForReissue = [
+      hiraokaStaffForReissue
+        ? { name: hiraokaStaffForReissue.name, mentionId: hiraokaStaffForReissue.chatMentionId }
+        : { name: '平岡', mentionId: undefined },
+      ...currentInterviewers.map((name) => ({ name, mentionId: staffList.find((s) => s.name === name)?.chatMentionId }))
+    ];
     const threadPayload = {
       accessToken: driveAccessToken,
       candidateName: target.name,
@@ -2103,7 +2133,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       positionLabel: target.jobTitle,
       nextPhaseLabel: `${currentPhaseLabel}（IDの重複によりスレッドを作り直しました。旧ID: ${oldId}）`,
       nextInterviewerNames: currentInterviewers,
-      interviewFormatLabel: currentFormat ? INTERVIEW_FORMAT_LABEL_MAP[currentFormat] : undefined
+      interviewFormatLabel: currentFormat ? INTERVIEW_FORMAT_LABEL_MAP[currentFormat] : undefined,
+      mentionedStaff: mentionedStaffForReissue
     };
 
     const notifyWebhookUrls: string[] = [];

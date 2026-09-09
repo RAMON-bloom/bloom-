@@ -185,6 +185,10 @@ export async function notifyDocumentScreeningThread(params: {
   nextPhaseLabel?: string;
   nextInterviewerNames?: string[];
   interviewFormatLabel?: string;
+  // Staff to @mention in the thread-starting message (always includes 平岡, plus the next
+  // interviewer and any members picked in the eval save form) — see formatMention for how a
+  // missing chatMentionId falls back to plain bold text.
+  mentionedStaff?: { name?: string; mentionId?: string }[];
   // Already-known real Chat thread resource name for this candidate+webhook (Candidate.
   // chatThreadNames[webhookUrl]), for the rare case this fires again for the same candidate
   // (e.g. a re-save) after a thread already exists.

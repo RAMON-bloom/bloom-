@@ -1256,11 +1256,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             );
           });
         }
+        // グループ用Webhookにも、CANDIDATE_REGISTEREDのグループ通知と同様に担当者名を含める
+        // （chatMentionId登録済みなら本物の@メンション、未登録なら太字テキストへ自動フォールバック）。
+        // 以前はここだけ担当者名を渡しておらず、共有スペースでは「誰が対応漏れなのか」が
+        // 分からないままだった。
         getGroupWebhooksForKind(latestGroupWebhooks, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
           notifyPromises.push(
             notifyDocScreeningNudgeApi({
               accessToken: driveAccessToken,
               webhookUrl,
+              staffName: assigneeName,
+              staffMentionId: assignee?.chatMentionId,
               candidateName: candidate.name,
               candidateId: candidate.id,
               daysSinceUpdate
@@ -2306,35 +2312,38 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // a Chat webhook in the担当者マスタ yet — this is a convenience notice, not a required step, so
     // it must never block or fail candidate registration itself.
     const docScreeningAssigneeName = newCandidate.documentScreeningAssignee || newCandidate.assignees[0];
+    const docScreeningAssigneeStaff = docScreeningAssigneeName
+      ? staffList.find((s) => s.name === docScreeningAssigneeName)
+      : undefined;
     if (newCandidate.phase === 'DOCUMENT_SCREENING') {
-      if (docScreeningAssigneeName) {
+      if (docScreeningAssigneeName && docScreeningAssigneeStaff) {
         const assigneeName = docScreeningAssigneeName;
-        const assignee = staffList.find((s) => s.name === assigneeName);
-        if (assignee) {
-          getStaffWebhooksForKind(assignee, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
-            notifyCandidateRegisteredApi({
-              accessToken: driveAccessToken,
-              webhookUrl,
-              staffName: assigneeName,
-              staffMentionId: assignee.chatMentionId,
-              candidateName: newCandidate.name,
-              candidateId: newCandidate.id
-            }).catch((err) => {
-              console.error('Candidate-registered Chat notify failed:', err);
-              showToast(`${assigneeName} さんへのChat通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
-            });
+        const assignee = docScreeningAssigneeStaff;
+        getStaffWebhooksForKind(assignee, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
+          notifyCandidateRegisteredApi({
+            accessToken: driveAccessToken,
+            webhookUrl,
+            staffName: assigneeName,
+            staffMentionId: assignee.chatMentionId,
+            candidateName: newCandidate.name,
+            candidateId: newCandidate.id
+          }).catch((err) => {
+            console.error('Candidate-registered Chat notify failed:', err);
+            showToast(`${assigneeName} さんへのChat通知の送信に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
           });
-        }
+        });
       }
 
       // グループ用Webhookはどの担当者の持ち物でもないため担当者が解決できたかどうかに関わらず送るが、
-      // 誰が書類選考担当になったかは本文に太字メンションで書く(共有スペースを見ている全員に、
-      // 誰が対応する想定かひと目で伝わるようにするため)。
+      // 誰が書類選考担当になったかは、担当者がchatMentionIdを登録していれば本物の@メンションで
+      // (未登録なら太字テキストへ自動フォールバック、formatMention参照)、共有スペースを見ている
+      // 全員に誰が対応する想定かひと目で伝わるようにする。
       getGroupWebhooksForKind(groupChatWebhooks, 'CANDIDATE_REGISTERED').forEach((webhookUrl) => {
         notifyCandidateRegisteredApi({
           accessToken: driveAccessToken,
           webhookUrl,
           staffName: docScreeningAssigneeName,
+          staffMentionId: docScreeningAssigneeStaff?.chatMentionId,
           candidateName: newCandidate.name,
           candidateId: newCandidate.id
         }).catch((err) => {

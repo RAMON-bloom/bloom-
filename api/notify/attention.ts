@@ -8,7 +8,8 @@ import { isBloomFirmAccessToken } from '../_lib/auth.js';
 //   - 'digest': sent to every staff Chat webhook that has the ATTENTION_DIGEST kind enabled,
 //     summarizing how many candidates are stalled / how many document-screening cases are overdue.
 //   - 'doc_screening_nudge': sent to the specific document-screening assignee of one overdue
-//     candidate, mirroring the existing candidate-registered notice's `*@name*` bold-text mention.
+//     candidate (and to group webhooks naming that same assignee), mentioning them for real when
+//     their chatMentionId is registered — see formatMention.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });

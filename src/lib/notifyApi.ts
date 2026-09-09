@@ -73,7 +73,8 @@ export function notifyAttentionDigest(params: {
 export function notifyDocScreeningNudge(params: {
   accessToken: string | null;
   webhookUrl: string;
-  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
+  // 個人宛・グループ宛どちらも指定する（グループ宛でも「誰が対応漏れか」を伝えるため）。
+  staffName?: string;
   staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
   candidateName: string;
   candidateId: string;

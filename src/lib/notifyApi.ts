@@ -59,30 +59,6 @@ export async function notifyCandidateRegistered(params: {
   return postJson('/api/notify/candidate-registered', { ...params, appUrl: window.location.origin });
 }
 
-export function notifyAttentionDigest(params: {
-  accessToken: string | null;
-  webhookUrl: string;
-  staffName?: string; // 個人宛の場合のみ指定。グループ用Webhookへの送信時は省略（本文の宛名表記を省く）
-  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
-  stalledCount: number;
-  overdueCount: number;
-}): Promise<void> {
-  return postJson('/api/notify/attention', { kind: 'digest', ...params, appUrl: window.location.origin });
-}
-
-export function notifyDocScreeningNudge(params: {
-  accessToken: string | null;
-  webhookUrl: string;
-  // 個人宛・グループ宛どちらも指定する（グループ宛でも「誰が対応漏れか」を伝えるため）。
-  staffName?: string;
-  staffMentionId?: string; // 設定されていれば本物のメンションに使う（担当者マスタのGoogle ChatメンションID）
-  candidateName: string;
-  candidateId: string;
-  daysSinceUpdate: number;
-}): Promise<void> {
-  return postJson('/api/notify/attention', { kind: 'doc_screening_nudge', ...params, appUrl: window.location.origin });
-}
-
 export async function notifyEvaluationResult(params: {
   accessToken: string | null;
   webhookUrl: string;

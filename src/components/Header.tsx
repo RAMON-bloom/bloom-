@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import { useATS, ActiveTab } from '../context/ATSContext';
 import { UserRole } from '../types';
-import { AttentionPanel } from './AttentionPanel';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { HelpGuideModal } from './HelpGuideModal';
 import { InquiryModal } from './InquiryModal';
@@ -190,8 +189,6 @@ export const Header: React.FC = () => {
                 </div>
               )}
             </div>
-
-            <AttentionPanel />
 
             <button
               onClick={exportCSV}

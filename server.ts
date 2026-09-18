@@ -24,7 +24,6 @@ import driveSaveEvaluationLog from './api/drive/save-evaluation-log';
 import calendarFindMeetingNotes from './api/calendar/find-meeting-notes';
 import gmailFindMeetingNotes from './api/gmail/find-meeting-notes';
 import notifyCandidateRegistered from './api/notify/candidate-registered';
-import notifyAttention from './api/notify/attention';
 import notifyEvaluationResult from './api/notify/evaluation-result';
 import notifyDocumentScreeningThread from './api/notify/document-screening-thread';
 import notifyDeveloperInquiry from './api/notify/developer-inquiry';
@@ -57,7 +56,6 @@ async function startServer() {
   app.post('/api/calendar/find-meeting-notes', calendarFindMeetingNotes);
   app.post('/api/gmail/find-meeting-notes', gmailFindMeetingNotes);
   app.post('/api/notify/candidate-registered', notifyCandidateRegistered);
-  app.post('/api/notify/attention', notifyAttention);
   app.post('/api/notify/evaluation-result', notifyEvaluationResult);
   app.post('/api/notify/document-screening-thread', notifyDocumentScreeningThread);
   app.post('/api/notify/developer-inquiry', notifyDeveloperInquiry);

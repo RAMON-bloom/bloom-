@@ -48,8 +48,8 @@ function formatRejectionBreakdown(rejectedByPhase: RejectionPhaseCounts): string
 }
 
 // Fired manually from the 分析ダッシュボード's two "応募状況を送信" buttons (DAILY_APPLICATIONS_DIGEST /
-// PERIOD_APPLICATIONS_DIGEST) — unlike ATTENTION_DIGEST this is never sent automatically, only on
-// an explicit click, to every staff/group Chat webhook subscribed to the relevant kind. The
+// PERIOD_APPLICATIONS_DIGEST) — sent only on an explicit click, to every staff/group Chat webhook
+// subscribed to the relevant kind. The
 // candidate/agency numbers are computed client-side (ATSContext's sendApplicationsDigest — BCA/AIX/
 // BRE each broken out via computeYieldMetricsByPosition, everything else lumped into 「その他」, then
 // each position's agencies further grouped by the 採用担当者 they're assigned to, with

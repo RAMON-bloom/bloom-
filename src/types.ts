@@ -187,7 +187,6 @@ export interface Candidate {
   aptitudeTestDeadline?: string; // 適性検査 実施期限日時 (datetime-local形式 YYYY-MM-DDTHH:mm)。ステータスバッジの締切表示に使用
   aptitudeTestSentAt?: string; // 適性検査を送付済みとして手動でマークした日時 (ISO)
   aptitudeTestCompletedAt?: string; // 候補者が適性検査を実施済みとして手動でマークした日時 (ISO)。Google Form回答の自動検知はしないため手動運用
-  docScreeningNudgeLastSentDate?: string; // 書類選考対応漏れの個別督促(DOC_SCREENING_NUDGE)を最後に送った日 (YYYY-MM-DD)。毎日連続で督促し続けないためのクールダウン判定に使う
   aptitudeTestVerbalScore?: number; // 適性検査 言語スコア (0〜10点満点)
   aptitudeTestNonVerbalScore?: number; // 適性検査 非言語スコア (0〜10点満点)
   lastUpdated: string;
@@ -227,8 +226,6 @@ export interface Agency {
 // 将来的に通知種別を追加する際はここに追記する。
 export type ChatNotificationKind =
   | 'CANDIDATE_REGISTERED'        // 書類選考担当への新規候補者アサイン通知
-  | 'ATTENTION_DIGEST'            // 進捗停滞・書類選考対応漏れの定期ダイジェスト（採用アシスタント向け）
-  | 'DOC_SCREENING_NUDGE'         // 書類選考の対応が止まっている候補者の個別督促
   | 'EVALUATION_RESULT'           // 選考結果（合格/不採用、書類選考含む）確定の通知
   | 'DOCUMENT_SCREENING_THREAD'   // 書類選考通過時、候補者名＋エージェント名で新規スレッドを作成
   | 'DEVELOPER_INQUIRY'           // アプリ内「お問い合わせ」からのメッセージ送信
@@ -362,17 +359,6 @@ export interface MeetingLog {
   sourceDriveFileName?: string; // 取り込み元のDriveファイル名
   recruiterReports: RecruiterReport[];
   actionItems: MeetingActionItem[];
-}
-
-export interface StalledCandidateInfo {
-  candidate: Candidate;
-  daysSinceUpdate: number;
-}
-
-export interface OverdueDocScreeningInfo {
-  candidate: Candidate;
-  assigneeName: string;
-  daysSinceUpdate: number;
 }
 
 // アプリ内「お問い合わせ」機能。開発者との1スレッド分のやり取りをチャット形式で保持する。

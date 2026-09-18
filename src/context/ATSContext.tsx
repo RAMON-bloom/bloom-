@@ -11,8 +11,6 @@ import {
   PreJoinDinnerStatus,
   ResignationNegotiationStatus,
   MeetingLog,
-  StalledCandidateInfo,
-  OverdueDocScreeningInfo,
   ImportedInterviewLog,
   ChatWebhook,
   RecruitmentPosition,
@@ -43,15 +41,12 @@ import {
 } from '../lib/driveApi';
 import {
   notifyCandidateRegistered as notifyCandidateRegisteredApi,
-  notifyAttentionDigest as notifyAttentionDigestApi,
-  notifyDocScreeningNudge as notifyDocScreeningNudgeApi,
   notifyEvaluationResult as notifyEvaluationResultApi,
   notifyDocumentScreeningThread as notifyDocumentScreeningThreadApi,
   notifyDeveloperInquiry as notifyDeveloperInquiryApi,
   notifyEvaluationSummaryThread as notifyEvaluationSummaryThreadApi,
   notifyApplicationsDigest as notifyApplicationsDigestApi
 } from '../lib/notifyApi';
-import { getStalledCandidates, getOverdueDocScreening, daysSince, STALLED_DOC_SCREENING_DAYS } from '../lib/attentionUtils';
 import { isJoiningScheduled } from '../lib/onboardingUtils';
 import { getNextPhase, migrateLegacyPhase } from '../lib/phaseUtils';
 import { getStaffWebhooksForKind, getGroupWebhooksForKind, getStaffWebhookEntriesForKind, getGroupWebhookEntriesForKind } from '../lib/staffUtils';
@@ -210,7 +205,7 @@ interface ATSContextType {
   // (呼び出し元が対象期間・ポジションで絞り込んだもの)を元に、kindに対応するWebhook1件ごとに
   // BCA/AIX/BRE別＋その他のポジション集計を計算して送信する。Webhookが担当者マスタ／エージェント
   // 設定画面で対象採用担当者(digestTargetStaffNames)を指定していれば、その担当者に紐づくエージェント
-  // だけに絞り込んで集計する(未指定なら全エージェント)。ATTENTION_DIGEST等の自動送信と同じ宛先解決・
+  // だけに絞り込んで集計する(未指定なら全エージェント)。他の自動送信と同じ宛先解決・
   // 失敗時トースト表示のパターンを踏襲するが、こちらは常にユーザーのボタン操作で明示的に発火する。
   sendApplicationsDigest: (
     params: {
@@ -226,8 +221,6 @@ interface ATSContextType {
   filteredCandidates: Candidate[];
   archivedCandidates: Candidate[];
   myStaffRecord: InternalStaff | undefined;
-  stalledCandidates: StalledCandidateInfo[];
-  overdueDocScreening: OverdueDocScreeningInfo[];
   toasts: Toast[];
   showToast: (message: string, type?: 'info' | 'success' | 'warning') => void;
   exportCSV: () => void;
@@ -463,25 +456,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(CANDIDATE_ID_SEQ_KEY, String(value));
   };
 
-  // Last date (YYYY-MM-DD) the once-a-day attention digest (見送り/対応漏れ抜け防止のChat通知)
-  // was sent, shared across the whole team via the Drive backup — same monotonic-max pattern as
-  // candidateIdSeq above (string comparison works because the format sorts lexicographically the
-  // same as chronologically). This used to live only in this browser's localStorage, which meant
-  // every device that opened the app on a given day independently decided "not sent yet today" and
-  // fired its own full batch — so a 5-person team all opening the app the same morning caused the
-  // same digest + per-candidate nudges to hit the shared Chat space 5 times. Reading/writing this
-  // through the shared backup instead means whichever device sends first marks it for everyone.
-  const ATTENTION_DIGEST_DATE_KEY = 'ats_attention_notify_last_run';
-  const attentionDigestDateRef = useRef<string>(
-    typeof window !== 'undefined' ? localStorage.getItem(ATTENTION_DIGEST_DATE_KEY) || '' : ''
-  );
-  const bumpAttentionDigestDate = (value?: string) => {
-    if (!value || value <= attentionDigestDateRef.current) return;
-    attentionDigestDateRef.current = value;
-    localStorage.setItem(ATTENTION_DIGEST_DATE_KEY, value);
-  };
-
-  // 同じ仕組みで「本日の応募状況」自動送信（毎日16時以降、初めて開いたブラウザが送る）の
+  // 「本日の応募状況」自動送信（毎日16時以降、初めて開いたブラウザが送る）の
   // 「今日はもう送信済みか」を管理する。サーバーcron・サービスアカウントが存在しない構成上、
   // 正確に16:00:00に発火することは保証できず、16時以降に誰かがこのアプリを開いた（または
   // 開きっぱなしのタブが次のチェック間隔を迎えた）タイミングでの発火になる — 詳細はこの値を
@@ -748,8 +723,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // A monotonic max, not a merge — see candidateIdSeqRef's declaration — so folding in
         // whatever Drive currently has can only push this device's counter forward, never back.
         bumpCandidateIdSeq(remote.candidateIdSeq);
-        // Same reasoning — see attentionDigestDateRef's declaration.
-        bumpAttentionDigestDate(remote.attentionDigestLastSentDate);
         bumpDailyDigestDate(remote.dailyApplicationsDigestLastSentDate);
       } catch {
         // Nothing backed up yet, or the read failed — fall back to merging against this tab's own
@@ -783,7 +756,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         groupChatWebhooks: mergedGroupChatWebhooks,
         positions: mergedPositions,
         candidateIdSeq: candidateIdSeqRef.current,
-        attentionDigestLastSentDate: attentionDigestDateRef.current,
         dailyApplicationsDigestLastSentDate: dailyDigestDateRef.current
       })
         .then(() => {
@@ -900,7 +872,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     positions?: RecruitmentPosition[];
     inquiries?: Inquiry[];
     candidateIdSeq?: number;
-    attentionDigestLastSentDate?: string;
     dailyApplicationsDigestLastSentDate?: string;
     backedUpAt?: string;
   }) => {
@@ -913,8 +884,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.inquiries) setInquiries(data.inquiries);
     // Monotonic max, not a plain apply — see candidateIdSeqRef's declaration.
     if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
-    // Monotonic max, not a plain apply — see attentionDigestDateRef's declaration.
-    bumpAttentionDigestDate(data.attentionDigestLastSentDate);
     bumpDailyDigestDate(data.dailyApplicationsDigestLastSentDate);
     if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
     // Whatever just arrived from Drive is by definition in sync with Drive — record it as the new
@@ -949,7 +918,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     positions?: RecruitmentPosition[];
     inquiries?: Inquiry[];
     candidateIdSeq?: number;
-    attentionDigestLastSentDate?: string;
     dailyApplicationsDigestLastSentDate?: string;
     backedUpAt?: string;
   }) => {
@@ -985,7 +953,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.inquiries) setInquiries(data.inquiries);
 
     if (data.candidateIdSeq) bumpCandidateIdSeq(data.candidateIdSeq);
-    bumpAttentionDigestDate(data.attentionDigestLastSentDate);
     bumpDailyDigestDate(data.dailyApplicationsDigestLastSentDate);
     if (data.backedUpAt) setLastAppliedBackupAt(data.backedUpAt);
 
@@ -1139,159 +1106,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
 
-  // Always-fresh snapshot for the attention-notify and daily-digest effects below, same reasoning
-  // as latestBackupStateRef — the 8s delay on the attention-notify effect exists so it reads data
-  // *after* auto-restore above has had a chance to replace whatever this browser started with, not
-  // the stale mount-time values. The daily-digest effect needs this for a different reason: its
-  // setInterval callback is created once (deps=[driveAccessToken]) and can run for hours, so
-  // closing over `candidates`/`agencies` directly would freeze them at whatever they were when the
-  // interval was set up instead of picking up same-day edits.
+  // Always-fresh snapshot for the daily-digest effect below, same reasoning as
+  // latestBackupStateRef. Its setInterval callback is created once (deps=[driveAccessToken]) and
+  // can run for hours, so closing over `candidates`/`agencies` directly would freeze them at
+  // whatever they were when the interval was set up instead of picking up same-day edits.
   const latestAttentionStateRef = useRef({ candidates, agencies, staffList, groupChatWebhooks });
   useEffect(() => {
     latestAttentionStateRef.current = { candidates, agencies, staffList, groupChatWebhooks };
   });
-
-  // 抜け防止のGoogle Chat通知（進捗停滞ダイジェスト・書類選考対応漏れの個別督促）を、ログイン後
-  // 1日1回だけこのブラウザから送信する。サーバーcron・サービスアカウントが存在しない構成上、
-  // 実際にアプリを開いている誰かのブラウザから送るしかない。「今日はもう送信済みか」は
-  // attentionDigestDateRef（共有Driveバックアップ経由でチーム全体に同期される、その宣言のコメント
-  // 参照）で判定するため、同じ日に複数人が別々のブラウザでログインしても、最初に送った1台だけが
-  // 送信し、以降にログインした他の全員はスキップする（以前はブラウザローカルのlocalStorageだけで
-  // 判定していたため、開いた人数分だけ同じダイジェスト・督促が重複送信されていた）。送信先は
-  // Webhook URLで決まるため、発火した本人が採用アシスタントである必要はない。
-  const hasCheckedAttentionRef = useRef(false);
-  useEffect(() => {
-    if (!driveAccessToken || hasCheckedAttentionRef.current) return;
-    hasCheckedAttentionRef.current = true;
-
-    const today = new Date().toISOString().split('T')[0];
-    if (attentionDigestDateRef.current === today) return;
-
-    // Intentionally no cleanup/clearTimeout here — hasCheckedAttentionRef already guarantees this
-    // only schedules once per mount, and in dev-only React StrictMode a cleanup would cancel this
-    // timer on the synthetic double-invoke's fake unmount while the ref guard then blocks the
-    // second real invocation from ever rescheduling it, so the notify would never fire in dev.
-    // Same reasoning/pattern as hasAutoRestoredRef above (no cleanup there either). Production
-    // builds don't double-invoke effects, so this never actually leaks a stray timer there.
-    setTimeout(async () => {
-      // One more fresh check against Drive right before sending, on top of the 8s wait for the
-      // initial mount-time auto-restore — narrows (doesn't eliminate; there's no server-side lock)
-      // the window where two devices both load within moments of each other and neither has seen
-      // the other's write yet.
-      try {
-        const remote = await restoreFromDriveApi(driveAccessTokenRef.current || driveAccessToken);
-        bumpAttentionDigestDate(remote.attentionDigestLastSentDate);
-      } catch {
-        // Best-effort — fall through with whatever's already known locally.
-      }
-      if (attentionDigestDateRef.current === today) return;
-
-      // Claim today before doing anything else (not after sending) so a slow send can't leave a
-      // second device's own check above still seeing "not sent yet" and racing in behind it.
-      bumpAttentionDigestDate(today);
-      attemptBackup();
-
-      const { candidates: latestCandidates, staffList: latestStaffList, groupChatWebhooks: latestGroupWebhooks } = latestAttentionStateRef.current;
-      const stalled = getStalledCandidates(latestCandidates);
-      const overdue = getOverdueDocScreening(latestCandidates);
-
-      if (stalled.length === 0 && overdue.length === 0) {
-        return;
-      }
-
-      const notifyPromises: Promise<void>[] = [];
-
-      // 宛先は「このWebhookでこの種類の通知を受け取る」という各リンクのkinds選択だけで決まる
-      // （役職フラグ等での絞り込みは行わない。以前isRecruitingAssistantフラグで絞り込んでいた際、
-      // フラグを立て忘れただけで登録済みWebhookに何も届かなくなる不具合があったため撤廃した）。
-      // 個人用Webhookに加えて、特定の担当者に属さないグループ用Webhookにも同じ条件で送る。
-      latestStaffList.forEach((staff) => {
-        getStaffWebhooksForKind(staff, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
-          notifyPromises.push(
-            notifyAttentionDigestApi({
-              accessToken: driveAccessToken,
-              webhookUrl,
-              staffName: staff.name,
-              staffMentionId: staff.chatMentionId,
-              stalledCount: stalled.length,
-              overdueCount: overdue.length
-            })
-          );
-        });
-      });
-      getGroupWebhooksForKind(latestGroupWebhooks, 'ATTENTION_DIGEST').forEach((webhookUrl) => {
-        notifyPromises.push(
-          notifyAttentionDigestApi({
-            accessToken: driveAccessToken,
-            webhookUrl,
-            stalledCount: stalled.length,
-            overdueCount: overdue.length
-          })
-        );
-      });
-
-      // 同じ候補者を毎日連続で督促し続けないよう、前回この候補者を督促した日から
-      // STALLED_DOC_SCREENING_DAYS(3日)経っていない場合はスキップする（初回は3日経過で発火、
-      // 未対応が続く場合は3日おきに再送信、というエスカレーション頻度にする）。
-      const nudgeable = overdue.filter(
-        ({ candidate }) =>
-          !candidate.docScreeningNudgeLastSentDate ||
-          daysSince(candidate.docScreeningNudgeLastSentDate) >= STALLED_DOC_SCREENING_DAYS
-      );
-
-      nudgeable.forEach(({ candidate, assigneeName, daysSinceUpdate }) => {
-        const assignee = latestStaffList.find((s) => s.name === assigneeName);
-        if (assignee) {
-          getStaffWebhooksForKind(assignee, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
-            notifyPromises.push(
-              notifyDocScreeningNudgeApi({
-                accessToken: driveAccessToken,
-                webhookUrl,
-                staffName: assigneeName,
-                staffMentionId: assignee.chatMentionId,
-                candidateName: candidate.name,
-                candidateId: candidate.id,
-                daysSinceUpdate
-              })
-            );
-          });
-        }
-        // グループ用Webhookにも、CANDIDATE_REGISTEREDのグループ通知と同様に担当者名を含める
-        // （chatMentionId登録済みなら本物の@メンション、未登録なら太字テキストへ自動フォールバック）。
-        // 以前はここだけ担当者名を渡しておらず、共有スペースでは「誰が対応漏れなのか」が
-        // 分からないままだった。
-        getGroupWebhooksForKind(latestGroupWebhooks, 'DOC_SCREENING_NUDGE').forEach((webhookUrl) => {
-          notifyPromises.push(
-            notifyDocScreeningNudgeApi({
-              accessToken: driveAccessToken,
-              webhookUrl,
-              staffName: assigneeName,
-              staffMentionId: assignee?.chatMentionId,
-              candidateName: candidate.name,
-              candidateId: candidate.id,
-              daysSinceUpdate
-            })
-          );
-        });
-      });
-
-      if (nudgeable.length > 0) {
-        const nudgedIds = new Set(nudgeable.map(({ candidate }) => candidate.id));
-        setCandidates((prev) =>
-          prev.map((c) => (nudgedIds.has(c.id) ? { ...c, docScreeningNudgeLastSentDate: today } : c))
-        );
-      }
-
-      Promise.allSettled(notifyPromises).then((results) => {
-        const failedCount = results.filter((r) => r.status === 'rejected').length;
-        if (failedCount > 0) {
-          console.error(`Attention Chat notify: ${failedCount}件の送信に失敗しました`);
-          showToast(`抜け防止通知の送信に${failedCount}件失敗しました（Webhook設定をご確認ください）`, 'warning');
-        }
-      });
-    }, 8000);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [driveAccessToken]);
 
   // 「本日の応募状況」ダイジェストを毎日16時以降に自動送信する。DashboardViewの手動ボタン
   // （sendApplicationsDigest呼び出し）と全く同じ計算・送信経路を使い、silent:trueで成功/警告の
@@ -1299,8 +1121,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 方がよい）。サーバーcron・サービスアカウントが存在しない構成上、正確に16:00:00には発火
   // できない — 16時以降に誰かがこのアプリを開いている（または開きっぱなしのタブが次のチェック
   // 間隔を迎える）タイミングでの発火になる。「今日はもう送信済みか」はdailyDigestDateRefで
-  // 判定し、これはattentionDigestDateRefと同じくDrive共有バックアップ経由でチーム全体に同期
-  // されるため、複数人が16時以降に別々にログインしても重複送信されない。
+  // 判定し、これはDrive共有バックアップ経由でチーム全体に同期されるため、複数人が16時以降に
+  // 別々にログインしても重複送信されない。
   const DAILY_DIGEST_HOUR = 16;
   const DAILY_DIGEST_CHECK_INTERVAL_MS = 60000;
   useEffect(() => {
@@ -1314,8 +1136,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dailyDigestDateRef.current === today) return;
 
       // 送信前にDriveの最新値を確認し、他のブラウザが既に今日分を送っていないか再確認する
-      // （attentionDigestDateRefの初回チェックと同じ理由 — 完全な排他ロックではないが、ほぼ
-      // 同時に複数ブラウザが16時を迎えた場合の重複リスクを縮小する）。
+      // （完全な排他ロックではないが、ほぼ同時に複数ブラウザが16時を迎えた場合の重複リスクを
+      // 縮小する）。
       try {
         const remote = await restoreFromDriveApi(driveAccessTokenRef.current || driveAccessToken);
         bumpDailyDigestDate(remote.dailyApplicationsDigestLastSentDate);
@@ -2748,7 +2570,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         positions: mergedPositions,
         inquiries,
         candidateIdSeq: candidateIdSeqRef.current,
-        attentionDigestLastSentDate: attentionDigestDateRef.current,
         dailyApplicationsDigestLastSentDate: dailyDigestDateRef.current
       });
       // Same reasoning as the auto-backup effect: stamped after the write completes, so the
@@ -3562,12 +3383,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // 抜け防止: 進捗が止まっている候補者 / 書類選考の対応が止まっている候補者。毎レンダー
-  // candidatesから再計算する軽量な派生値（filteredCandidates等と同じ扱い）。しきい値は
-  // attentionUtils.tsで定義。
-  const stalledCandidates = getStalledCandidates(candidates);
-  const overdueDocScreening = getOverdueDocScreening(candidates);
-
   // Yield Metrics Computation per Agency (all-time, unfiltered — DashboardView computes its own
   // period/position-scoped version from the same shared function when it needs to match its filters).
   const yieldMetrics: YieldMetrics[] = computeYieldMetrics(agencies, candidates);
@@ -3679,8 +3494,6 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         filteredCandidates,
         archivedCandidates,
         myStaffRecord,
-        stalledCandidates,
-        overdueDocScreening,
         toasts,
         showToast,
         exportCSV,

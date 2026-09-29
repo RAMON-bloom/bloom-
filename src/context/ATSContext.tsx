@@ -32,6 +32,7 @@ import { HISTORICAL_MEETING_LOGS } from '../data/historicalMeetingLogs';
 import { useAuth } from './AuthContext';
 import {
   backupToDrive as backupToDriveApi,
+  saveOfferLedger,
   restoreFromDrive as restoreFromDriveApi,
   moveResumeToPhaseFolder as moveResumeToPhaseFolderApi,
   scanDriveResumes as scanDriveResumesApi,
@@ -61,6 +62,7 @@ import {
   mergeTombstones,
   stampLocalChanges
 } from '../lib/syncMerge';
+import { buildOfferLedgerRows } from '../lib/offerLedger';
 import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
 
 // localStorage.setItem can throw (most commonly QuotaExceededError, likely here given candidates
@@ -164,6 +166,7 @@ interface ATSContextType {
       signOnBonusAmount?: number;
     }
   ) => void;
+  updateOnboardingChecklistItem: (candidateId: string, itemId: string, patch: { checked?: boolean; note?: string }) => void;
   addEvaluationNote: (
     candidateId: string,
     note: Omit<EvaluationNote, 'id' | 'createdAt'>,
@@ -942,6 +945,27 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries, driveAccessToken]);
 
+  // 内定者台帳（Drive「内定者台帳」フォルダ）への自動蓄積。内定者の氏名・年齢・現職・オファー金額・
+  // 手数料の行が変わったら、最後の変更の5秒後に送る。台帳側は追記・更新のみで削除せず、空値で既存の
+  // 金額を上書きもしないので、アプリ側のデータが消えても台帳には最後の値が残る。最初のDrive読込が
+  // 終わるまで送らない（古いローカルの値を先に書かないため）。失敗しても黙って次の変更時に再送する。
+  const lastLedgerJsonRef = useRef('');
+  useEffect(() => {
+    if (!driveAccessToken || isBootstrapping) return;
+    const rows = buildOfferLedgerRows(candidates, agencies);
+    if (rows.length === 0) return;
+    const json = JSON.stringify(rows);
+    if (json === lastLedgerJsonRef.current) return;
+    const timer = setTimeout(() => {
+      saveOfferLedger(driveAccessToken, rows)
+        .then(() => {
+          lastLedgerJsonRef.current = json;
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [candidates, agencies, driveAccessToken, isBootstrapping]);
+
   // Applies a Drive snapshot (login restore, background poll, manual 復元) by merging it into this
   // tab's state — never by overwriting, so edits Drive doesn't have yet survive. If the merge shows
   // this tab holds something Drive lacks, a write is scheduled to put it back.
@@ -1653,6 +1677,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           };
         }
         return c;
+      })
+    );
+  };
+
+  // チェックのON/OFFや備考の入力ごとに自動保存する（保存ボタン不要・トースト無し）。最新のstateに
+  // 対する関数型更新なので、他の項目・他の人の同時編集を巻き戻さない。
+  const updateOnboardingChecklistItem = (candidateId: string, itemId: string, patch: { checked?: boolean; note?: string }) => {
+    setCandidates((prev) =>
+      prev.map((c) => {
+        if (c.id !== candidateId) return c;
+        const list = c.onboardingChecklist || [];
+        const cur = list.find((e) => e.id === itemId) || { id: itemId, checked: false, note: '' };
+        const next = { ...cur, ...patch };
+        const nextList = list.some((e) => e.id === itemId)
+          ? list.map((e) => (e.id === itemId ? next : e))
+          : [...list, next];
+        return { ...c, onboardingChecklist: nextList, lastUpdated: new Date().toISOString().split('T')[0] };
       })
     );
   };
@@ -3401,6 +3442,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateInterviewLogForPhase,
         updateAptitudeTestStatus,
         updateOnboardingInfo,
+        updateOnboardingChecklistItem,
         addEvaluationNote,
         updateEvaluationNote,
         deleteEvaluationNote,

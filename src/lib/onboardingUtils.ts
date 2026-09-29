@@ -8,3 +8,29 @@ export function isJoiningScheduled(candidate: Candidate): boolean {
   if (candidate.phase === 'REJECTED' || candidate.phase === 'DECLINED') return false;
   return !!(candidate.joiningDate || candidate.phase === 'OFFER_ACCEPTED' || candidate.phase === 'OFFER_ISSUED');
 }
+
+// 入社手続きチェックリストの項目定義（表示順）。項目を増やす/並べ替える場合はここだけ直せばよい。
+// idは保存データ(Candidate.onboardingChecklist)のキーなので、既存項目のidは変更しないこと。
+export const ONBOARDING_CHECKLIST_ITEMS: { id: string; label: string; notePlaceholder?: string }[] = [
+  { id: 'employment_contract', label: '雇用契約書' },
+  { id: 'pledge', label: '誓約書' },
+  { id: 'guarantor', label: '身元保証書' },
+  { id: 'relative_email_checking', label: '親族アドレス確認中' },
+  { id: 'relative_email_confirmed', label: '親族アドレス確認済み' },
+  { id: 'report_to_chat', label: '契約書締結後入社チャットへ報告' },
+  { id: 'joining_form_sent', label: '入社フォーム送付', notePlaceholder: '期限 ●/●' },
+  { id: 'onboarding_account_request', label: 'オンボーディングアカウント作成依頼' },
+  { id: 'onboarding_sent', label: 'オンボーディング送付' },
+  { id: 'joining_form_checked', label: '入社フォーム確認' },
+  { id: 'health_check', label: '健康診断書' },
+  { id: 'residence_certificate', label: '住民票(引っ越しのある方)' }
+];
+
+export function getChecklistEntry(candidate: Candidate, itemId: string): { checked: boolean; note: string } {
+  const e = candidate.onboardingChecklist?.find((x) => x.id === itemId);
+  return { checked: !!e?.checked, note: e?.note || '' };
+}
+
+export function countCheckedOnboardingItems(candidate: Candidate): number {
+  return ONBOARDING_CHECKLIST_ITEMS.filter((i) => getChecklistEntry(candidate, i.id).checked).length;
+}

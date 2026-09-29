@@ -2,6 +2,8 @@
 // All requests are scoped to the single shared recruitment Drive folder
 // (VITE_RECRUITMENT_DRIVE_FOLDER_ID), using the signed-in user's Drive OAuth token.
 
+import type { OfferLedgerRow } from './offerLedger';
+
 export const RECRUITMENT_DRIVE_FOLDER_ID: string =
   (import.meta as any).env?.VITE_RECRUITMENT_DRIVE_FOLDER_ID || '';
 
@@ -114,6 +116,15 @@ export async function backupToDrive(
     expectedVersion
   });
   return { backedUpAt: res.backedUpAt, version: res.version };
+}
+
+// 内定者台帳（Drive上の「内定者台帳」フォルダ）へ内定者の行を追記・更新する。台帳側は削除せず蓄積
+// するだけなので、渡す行が一部でも問題ない。csvUrlは閲覧用CSV（スプレッドシートで開ける）のリンク。
+export async function saveOfferLedger(
+  accessToken: string,
+  rows: OfferLedgerRow[]
+): Promise<{ changed: boolean; count: number; csvUrl?: string }> {
+  return postJson('/api/drive/offer-ledger', { accessToken, folderId: RECRUITMENT_DRIVE_FOLDER_ID, rows });
 }
 
 // The backup JSON plus `driveFileVersion` — the Drive version of the file this content came from,

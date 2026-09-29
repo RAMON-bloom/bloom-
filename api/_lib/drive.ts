@@ -59,7 +59,7 @@ export async function listFilesInFolder(
     clauses.push(`name contains '${opts.nameContains.replace(/'/g, "\\'")}'`);
   }
   const q = encodeURIComponent(clauses.join(' and '));
-  const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)');
+  const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink,version)');
 
   // A folder can outgrow one page (e.g. 01_書類選考 accumulating 50+ candidate subfolders over
   // months of use) — without paging through every nextPageToken, a file dropped straight into

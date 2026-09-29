@@ -8,8 +8,10 @@ import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, s
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { getNextPhase, PHASE_SEQUENCE, SKIPPABLE_PHASES } from '../lib/phaseUtils';
+import { OnboardingChecklist } from './OnboardingChecklist';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
+import { sumBonusGuaranteeAmount } from '../lib/agencyPayment';
 import { computeAnnualSalaryText } from '../lib/salaryUtils';
 import { 
   X, 
@@ -407,6 +409,21 @@ export const CandidateDetailModal: React.FC = () => {
   const handleSaveOnboarding = (e: React.FormEvent) => {
     e.preventDefault();
     if (!candidate) return;
+    // 年収に関わる金額は、保存済みの値を入力欄の空欄で誤って消してしまわないよう確認を挟む。
+    // （内定者台帳のDrive蓄積には消える前の値が残るが、アプリ上の値は消えるため）
+    const clearing: string[] = [];
+    if (candidate.baseMonthlySalary && !onboardingBaseMonthlySalary) clearing.push('基本月給');
+    if (candidate.hasSignOnBonus && candidate.signOnBonusAmount && (!onboardingHasSignOnBonus || !onboardingSignOnBonusAmount)) clearing.push('サインオンボーナス');
+    if (
+      candidate.hasBonusGuarantee &&
+      sumBonusGuaranteeAmount(candidate) > 0 &&
+      (!onboardingHasBonusGuarantee || !onboardingBonusGuaranteeInstallments.some((i) => i.amount))
+    ) {
+      clearing.push('賞与保証');
+    }
+    if (clearing.length > 0 && !window.confirm(`保存済みの「${clearing.join('・')}」が空欄（またはなし）になります。本当に消してよろしいですか？`)) {
+      return;
+    }
     updateOnboardingInfo(candidate.id, {
       joiningDate: onboardingJoiningDate || undefined,
       preJoinDinnerStatus: onboardingDinnerStatus,
@@ -3160,6 +3177,8 @@ export const CandidateDetailModal: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              <OnboardingChecklist candidate={candidate} />
 
             </div>
           )}

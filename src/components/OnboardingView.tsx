@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useATS } from '../context/ATSContext';
 import { Candidate, SelectionPhase } from '../types';
-import { isJoiningScheduled } from '../lib/onboardingUtils';
+import { isJoiningScheduled, countCheckedOnboardingItems, ONBOARDING_CHECKLIST_ITEMS } from '../lib/onboardingUtils';
+import { buildOfferLedgerRows } from '../lib/offerLedger';
+import { saveOfferLedger } from '../lib/driveApi';
 import { computeAgencyPaymentAmount, sumBonusGuaranteeAmount } from '../lib/agencyPayment';
 import { 
   Sparkles, 
@@ -46,7 +48,26 @@ interface CalendarEvent {
 }
 
 export const OnboardingView: React.FC = () => {
-  const { candidates, agencies, setSelectedCandidateId, showToast } = useATS();
+  const { candidates, agencies, setSelectedCandidateId, showToast, driveAccessToken } = useATS();
+  const [isSavingLedger, setIsSavingLedger] = useState(false);
+
+  // 内定者台帳（Drive）へ今すぐ保存し、閲覧用CSVを開く。通常は変更の数秒後に自動で保存される。
+  const openOfferLedger = async () => {
+    if (!driveAccessToken) {
+      showToast('Googleでログインするとドライブの内定者台帳に保存できます', 'warning');
+      return;
+    }
+    setIsSavingLedger(true);
+    try {
+      const res = await saveOfferLedger(driveAccessToken, buildOfferLedgerRows(candidates, agencies));
+      showToast(`内定者台帳をDriveに保存しました（累計${res.count}名）`, 'success');
+      if (res.csvUrl) window.open(res.csvUrl, '_blank', 'noopener');
+    } catch (err: any) {
+      showToast(err?.message || '内定者台帳の保存に失敗しました', 'warning');
+    } finally {
+      setIsSavingLedger(false);
+    }
+  };
 
   // View Mode: 'cards' | 'calendar' | 'table'（デフォルトはテーブル表示 — 一覧性が高くユーザーの主な用途）
   const [viewMode, setViewMode] = useState<'cards' | 'calendar' | 'table'>('table');
@@ -383,6 +404,15 @@ export const OnboardingView: React.FC = () => {
           >
             <Download className="w-3.5 h-3.5" />
             CSVエクスポート
+          </button>
+          <button
+            onClick={openOfferLedger}
+            disabled={isSavingLedger}
+            title="内定者の氏名・年齢・現職・オファー金額・手数料をDriveの「内定者台帳」に蓄積して開く（通常は自動保存）"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {isSavingLedger ? '保存中…' : '内定者台帳(Drive)'}
           </button>
         </div>
       </div>
@@ -909,6 +939,7 @@ export const OnboardingView: React.FC = () => {
                     <th className="py-2.5 px-2.5">エージェント支払額</th>
                     <th className="py-2.5 px-2.5">退職交渉</th>
                     <th className="py-2.5 px-2.5">入社前会食</th>
+                    <th className="py-2.5 px-2.5">入社手続き</th>
                     <th className="py-2.5 px-2.5">社内担当者</th>
                     <th className="py-2.5 px-2.5 text-right">操作</th>
                   </tr>
@@ -916,7 +947,7 @@ export const OnboardingView: React.FC = () => {
                 <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                   {filteredJoiningCandidates.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-slate-400">
+                      <td colSpan={12} className="py-8 text-center text-slate-400">
                         該当する入社予定者が見つかりません。
                       </td>
                     </tr>
@@ -1007,6 +1038,19 @@ export const OnboardingView: React.FC = () => {
                                 c.preJoinDinnerStatus === 'NOT_REQUIRED' ? '不要' : '未定'
                               }
                             </span>
+                          </td>
+                          <td className="py-2 px-2.5 whitespace-nowrap">
+                            {(() => {
+                              const done = countCheckedOnboardingItems(c);
+                              const total = ONBOARDING_CHECKLIST_ITEMS.length;
+                              return (
+                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold font-mono ${
+                                  done === total ? 'bg-emerald-100 text-emerald-800' : done === 0 ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {done}/{total}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="py-2 px-2.5 max-w-[140px] truncate">{c.assignees.join(', ')}</td>
                           <td className="py-2 px-2.5 text-right whitespace-nowrap">

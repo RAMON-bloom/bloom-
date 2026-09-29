@@ -120,6 +120,14 @@ export interface BonusGuaranteeInstallment {
   paymentMonth: string; // 支給年月 (YYYY-MM)
 }
 
+// 入社手続きチェックリストの1項目分の入力状態。idはONBOARDING_CHECKLIST_ITEMSのid。
+// id付き配列なので同期マージ(syncMerge)で項目単位にマージされ、別々の項目を同時に触っても互いを消さない。
+export interface OnboardingChecklistEntry {
+  id: string;
+  checked: boolean;
+  note: string;
+}
+
 export interface Candidate {
   id: string; // e.g. CAND-0001
   name: string;
@@ -181,6 +189,7 @@ export interface Candidate {
   preJoinDinnerDate?: string; // 会食予定日/実施日
   resignationNegotiationStatus?: ResignationNegotiationStatus; // 退職交渉状況
   onboardingNotes?: string; // 入社準備・オンボーディングメモ
+  onboardingChecklist?: OnboardingChecklistEntry[]; // 入社手続きチェックリスト（項目定義はsrc/lib/onboardingUtils.tsのONBOARDING_CHECKLIST_ITEMS。チェック済み/備考が入力された項目だけ保持）
   notes?: string;
   isArchived?: boolean; // 削除・過去アーカイブ済みフラグ
   deletedAt?: string;  // 削除・アーカイブ日時

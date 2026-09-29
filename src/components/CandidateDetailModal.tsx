@@ -129,7 +129,9 @@ export const CandidateDetailModal: React.FC = () => {
     driveAccessToken,
     connectDrive,
     updateInterviewLogForPhase,
-    positionOptions
+    positionOptions,
+    getLatestCandidate,
+    runCandidateDriveTask
   } = useATS();
 
   const [activeSubTab, setActiveSubTab] = useState<'evaluation' | 'resume' | 'onboarding'>('evaluation');
@@ -571,36 +573,52 @@ export const CandidateDetailModal: React.FC = () => {
       // existing folder if there is one, otherwise creates one (legacy candidates registered
       // before Drive integration, or ones registered without Drive connected at the time).
       if (driveAccessToken) {
-        let folderId = candidate.resumeDriveFolderId;
-        let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
-        const allUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>>[] = [];
-        let uploadedCount = 0;
+        type UploadResult = Awaited<ReturnType<typeof uploadResumeToDrive>>;
+        // Runs in the candidate's shared Drive queue (see runCandidateDriveTask in ATSContext): the
+        // folder id it gets is the one that exists when the upload actually starts, and anything
+        // queued behind it (e.g. an evaluation-log save) reuses the folder this creates. Reading
+        // `candidate.resumeDriveFolderId` from this render's snapshot instead used to create a
+        // second folder whenever another save created one first.
+        const { folderId, primaryUploaded, allUploaded, uploadedCount } = await runCandidateDriveTask(
+          candidate.id,
+          async (currentFolderId) => {
+            let folderId = currentFolderId;
+            let primaryUploaded: UploadResult | null = null;
+            const allUploaded: UploadResult[] = [];
+            let uploadedCount = 0;
+            const latest = getLatestCandidate(candidate.id) || candidate;
 
-        for (const file of files) {
-          if (file.size > MAX_UPLOAD_FILE_BYTES) {
-            showToast(
-              `${file.name} は圧縮後も${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
-              'warning'
-            );
-            continue;
+            for (const file of files) {
+              if (file.size > MAX_UPLOAD_FILE_BYTES) {
+                showToast(
+                  `${file.name} は圧縮後も${(file.size / 1024 / 1024).toFixed(1)}MBあり、Drive保存の上限（3MB）を超えているためスキップしました。`,
+                  'warning'
+                );
+                continue;
+              }
+              try {
+                const base64 = file === primaryFile && primaryBase64 ? primaryBase64 : await readFileAsDataUrl(file);
+                const uploaded = await uploadResumeToDrive(
+                  driveAccessToken,
+                  { name: file.name, type: file.type || 'application/pdf', base64 },
+                  { candidateName: latest.name, agencyName: latest.agencyName, phase: latest.phase, candidateFolderId: folderId }
+                );
+                folderId = folderId || uploaded.folderId;
+                if (!primaryUploaded) primaryUploaded = uploaded;
+                allUploaded.push(uploaded);
+                uploadedCount++;
+              } catch (driveErr: any) {
+                showToast(`${file.name} のDrive保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
+              }
+            }
+            return { value: { folderId, primaryUploaded, allUploaded, uploadedCount }, folderId };
           }
-          try {
-            const base64 = file === primaryFile && primaryBase64 ? primaryBase64 : await readFileAsDataUrl(file);
-            const uploaded = await uploadResumeToDrive(
-              driveAccessToken,
-              { name: file.name, type: file.type || 'application/pdf', base64 },
-              { candidateName: candidate.name, agencyName: candidate.agencyName, phase: candidate.phase, candidateFolderId: folderId }
-            );
-            folderId = folderId || uploaded.folderId;
-            if (!primaryUploaded) primaryUploaded = uploaded;
-            allUploaded.push(uploaded);
-            uploadedCount++;
-          } catch (driveErr: any) {
-            showToast(`${file.name} のDrive保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
-          }
-        }
+        );
 
         if (uploadedCount > 0) {
+          // Freshest record, not this render's snapshot: the upload above can take a while, and
+          // the documents list / legacy file below must be built on top of what's current.
+          const current = getLatestCandidate(candidate.id) || candidate;
           // If this candidate's resumeDriveFileId still points at a legacy flat file (uploaded
           // before the per-candidate folder existed, or before resumeDocuments was tracked at
           // all) and we just created/reused a folder for these new uploads, that old file id is
@@ -609,11 +627,11 @@ export const CandidateDetailModal: React.FC = () => {
           // could still open or clean it up (this is how leftover files end up stranded in a
           // phase folder even after the candidate is later deleted for good). Fold it into
           // resumeDocuments first so it stays visible and reachable going forward.
-          const priorDocIds = new Set((candidate.resumeDocuments || []).map((d) => d.driveFileId));
-          const legacyFileId = candidate.resumeDriveFileId;
+          const priorDocIds = new Set((current.resumeDocuments || []).map((d) => d.driveFileId));
+          const legacyFileId = current.resumeDriveFileId;
           const preservedLegacyDoc =
             legacyFileId && legacyFileId !== primaryUploaded?.file.id && !priorDocIds.has(legacyFileId)
-              ? [{ name: candidate.resumeFileName || '旧履歴書ファイル', driveUrl: candidate.resumeDriveUrl || '', driveFileId: legacyFileId }]
+              ? [{ name: current.resumeFileName || '旧履歴書ファイル', driveUrl: current.resumeDriveUrl || '', driveFileId: legacyFileId }]
               : [];
 
           // Recording the legacy file in resumeDocuments isn't enough on its own — it physically
@@ -633,9 +651,9 @@ export const CandidateDetailModal: React.FC = () => {
             }
           }
 
-          patch.resumeDriveFolderId = folderId || candidate.resumeDriveFolderId;
-          patch.resumeDriveFileId = primaryUploaded?.file.id || candidate.resumeDriveFileId;
-          patch.resumeDriveUrl = primaryUploaded?.file.webViewLink || candidate.resumeDriveUrl;
+          patch.resumeDriveFolderId = folderId || current.resumeDriveFolderId;
+          patch.resumeDriveFileId = primaryUploaded?.file.id || current.resumeDriveFileId;
+          patch.resumeDriveUrl = primaryUploaded?.file.webViewLink || current.resumeDriveUrl;
           // Appended (not replaced) — earlier uploads (from registration or a previous document
           // drop) stay selectable alongside whatever's newly added here. Merged by filename (a Map
           // keyed by name, later entries overwriting earlier ones on collision) rather than just
@@ -646,7 +664,7 @@ export const CandidateDetailModal: React.FC = () => {
           const docMap = new Map<string, { name: string; driveUrl: string; driveFileId: string }>();
           [
             ...preservedLegacyDoc,
-            ...(candidate.resumeDocuments || []),
+            ...(current.resumeDocuments || []),
             ...allUploaded.map((u) => ({ name: u.file.name, driveUrl: u.file.webViewLink || '', driveFileId: u.file.id }))
           ].forEach((d) => {
             const key = d.name?.trim() ? `name:${d.name.trim()}` : d.driveFileId ? `id:${d.driveFileId}` : `url:${d.driveUrl}`;

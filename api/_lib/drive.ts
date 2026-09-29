@@ -10,7 +10,9 @@ export interface DriveFile {
   name: string;
   mimeType: string;
   modifiedTime?: string;
+  createdTime?: string;
   webViewLink?: string;
+  version?: string;
 }
 
 // Files living in a Shared Drive (rather than someone's My Drive) are invisible to the Drive API
@@ -57,7 +59,7 @@ export async function listFilesInFolder(
     clauses.push(`name contains '${opts.nameContains.replace(/'/g, "\\'")}'`);
   }
   const q = encodeURIComponent(clauses.join(' and '));
-  const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)');
+  const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)');
 
   // A folder can outgrow one page (e.g. 01_書類選考 accumulating 50+ candidate subfolders over
   // months of use) — without paging through every nextPageToken, a file dropped straight into
@@ -79,6 +81,22 @@ export async function listFilesInFolder(
   return allFiles;
 }
 
+// When the same-named folder exists more than once under one parent (two tabs/users hitting
+// ensureSubfolder for a brand-new phase folder at the same moment both see "none yet" and both
+// create one), every caller must still agree on the SAME one — otherwise candidate folders get
+// scattered across twin "01_書類選考" folders and some of them look missing. listFilesInFolder
+// returns newest-modified first, which changes over time; the oldest-created folder (ties broken
+// by id) is stable forever, so it is the canonical choice.
+function pickCanonical(files: DriveFile[]): DriveFile | null {
+  if (files.length === 0) return null;
+  return [...files].sort((a, b) => {
+    const ta = a.createdTime || '';
+    const tb = b.createdTime || '';
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  })[0];
+}
+
 export async function findFolderByName(
   accessToken: string,
   parentId: string,
@@ -88,7 +106,7 @@ export async function findFolderByName(
     mimeTypes: ['application/vnd.google-apps.folder'],
     nameContains: name
   });
-  return files.find((f) => f.name === name) || null;
+  return pickCanonical(files.filter((f) => f.name === name));
 }
 
 export async function ensureSubfolder(
@@ -109,6 +127,19 @@ export async function ensureSubfolder(
     })
   });
   const created = await res.json();
+
+  // Lost a creation race? Re-check which folder is canonical now that ours exists too. If another
+  // request's folder wins, ours is still empty (nothing has been put in it yet) — remove it and
+  // hand back the canonical one so this caller writes to the same place everyone else does.
+  try {
+    const canonical = await findFolderByName(accessToken, parentId, name);
+    if (canonical && canonical.id !== created.id) {
+      await driveFetch(accessToken, `${DRIVE_API}/files/${created.id}`, { method: 'DELETE' }).catch(() => {});
+      return canonical.id;
+    }
+  } catch {
+    // Listing failed right after a successful create — our folder is still valid, use it.
+  }
   return created.id;
 }
 
@@ -162,14 +193,31 @@ function buildMultipartBody(metadata: object, mimeType: string, content: string,
 }
 
 // Creates the file if it doesn't exist in the folder, otherwise overwrites its content.
+//
+// `expectedVersion` turns this into a compare-and-swap: Drive bumps a file's `version` on every
+// change, so if the caller read the file at version N and it is no longer N right before we write,
+// someone else wrote in between and our payload (merged against version N) would silently erase
+// their change. In that case nothing is written and a 409 is thrown so the caller can re-read,
+// re-merge and try again. (Drive v3 has no atomic If-Match on content updates, so a sub-second
+// window remains between this check and the PATCH — the client-side merge is designed to heal
+// that rare leftover case on the next sync rather than lose data.)
 export async function upsertTextFile(
   accessToken: string,
   folderId: string,
   name: string,
   mimeType: string,
-  content: string
+  content: string,
+  opts: { expectedVersion?: string } = {}
 ): Promise<DriveFile> {
   const existing = await findFileByName(accessToken, folderId, name);
+  if (existing && opts.expectedVersion) {
+    const fresh = await getFileMetadata(accessToken, existing.id);
+    if (fresh.version && fresh.version !== opts.expectedVersion) {
+      const err: any = new Error(`Drive file changed since it was read (expected version ${opts.expectedVersion}, now ${fresh.version})`);
+      err.status = 409;
+      throw err;
+    }
+  }
   const boundary = 'bloom_ats_boundary_' + Math.random().toString(36).slice(2);
   const body = buildMultipartBody(
     existing ? { name } : { name, parents: [folderId] },
@@ -179,8 +227,8 @@ export async function upsertTextFile(
   );
 
   const url = existing
-    ? `${DRIVE_UPLOAD_API}/files/${existing.id}?uploadType=multipart&fields=id,name,mimeType,modifiedTime,webViewLink`
-    : `${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id,name,mimeType,modifiedTime,webViewLink`;
+    ? `${DRIVE_UPLOAD_API}/files/${existing.id}?uploadType=multipart&fields=id,name,mimeType,modifiedTime,webViewLink,version`
+    : `${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id,name,mimeType,modifiedTime,webViewLink,version`;
 
   const res = await driveFetch(accessToken, url, {
     method: existing ? 'PATCH' : 'POST',
@@ -207,7 +255,7 @@ export async function getFileParents(accessToken: string, fileId: string): Promi
 export async function getFileMetadata(accessToken: string, fileId: string): Promise<DriveFile> {
   const res = await driveFetch(
     accessToken,
-    `${DRIVE_API}/files/${fileId}?fields=id,name,mimeType,modifiedTime,webViewLink`
+    `${DRIVE_API}/files/${fileId}?fields=id,name,mimeType,modifiedTime,webViewLink,version`
   );
   return await res.json();
 }

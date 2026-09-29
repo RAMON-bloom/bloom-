@@ -99,20 +99,31 @@ export async function findGmailMeetingNotes(
   return postJson('/api/gmail/find-meeting-notes', { accessToken, date: dateStr, titleKeyword });
 }
 
-export async function backupToDrive(accessToken: string, data: object): Promise<void> {
-  await postJson('/api/drive/backup', {
+// `expectedVersion` is the Drive file version this payload was merged against (from the
+// restoreFromDrive read just before). The server refuses the write with a 409 if anyone else has
+// written since, so the caller can re-read and re-merge instead of overwriting their change.
+export async function backupToDrive(
+  accessToken: string,
+  data: object,
+  expectedVersion?: string
+): Promise<{ backedUpAt?: string; version?: string }> {
+  const res = await postJson<{ backedUpAt?: string; version?: string }>('/api/drive/backup', {
     accessToken,
     folderId: RECRUITMENT_DRIVE_FOLDER_ID,
-    data
+    data,
+    expectedVersion
   });
+  return { backedUpAt: res.backedUpAt, version: res.version };
 }
 
-export async function restoreFromDrive<T = any>(accessToken: string): Promise<T> {
-  const res = await postJson<{ data: T }>('/api/drive/restore', {
+// The backup JSON plus `driveFileVersion` — the Drive version of the file this content came from,
+// to hand back to backupToDrive as its expectedVersion.
+export async function restoreFromDrive<T = any>(accessToken: string): Promise<T & { driveFileVersion?: string }> {
+  const res = await postJson<{ data: T; version?: string }>('/api/drive/restore', {
     accessToken,
     folderId: RECRUITMENT_DRIVE_FOLDER_ID
   });
-  return res.data;
+  return { ...(res.data as any), driveFileVersion: res.version };
 }
 
 export interface DriveResumeFile {

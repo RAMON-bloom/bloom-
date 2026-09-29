@@ -22,7 +22,19 @@ const PHASE_LABELS: Record<SelectionPhase, string> = {
 };
 
 export const CandidateFormModal: React.FC = () => {
-  const { isAddModalOpen, setIsAddModalOpen, addCandidate, candidates, agencies, staffList, positionOptions, showToast, driveAccessToken } = useATS();
+  const {
+    isAddModalOpen,
+    setIsAddModalOpen,
+    addCandidate,
+    candidates,
+    agencies,
+    staffList,
+    positionOptions,
+    showToast,
+    driveAccessToken,
+    trackDraftDriveFolder,
+    discardDraftDriveFolder
+  } = useATS();
 
   const getInitialFormData = useCallback(() => ({
     name: '',
@@ -77,11 +89,36 @@ export const CandidateFormModal: React.FC = () => {
   const [salaryCalcMonthly, setSalaryCalcMonthly] = useState('');
   const [salaryCalcMonths, setSalaryCalcMonths] = useState('12');
 
+  // Drive folder the document drop created for this not-yet-registered candidate. Dropping files
+  // uploads them right away (so AI parsing / photo detection can run), which means closing the
+  // form without registering used to leave that folder — résumé included — behind in the phase
+  // folder, later resurfacing in 「Driveと同期」 as an unregistered résumé or turning into a
+  // duplicate folder when the person was registered again. Each open of the form is its own
+  // session; an upload that finishes after its session was closed discards its own folder.
+  const modalSessionRef = useRef(0);
+  const draftFolderIdRef = useRef<string | null>(null);
+  const submittedRef = useRef(false);
+  const wasOpenRef = useRef(false);
+
   // The modal component stays mounted (App always renders it, it just returns null while
   // closed), so without this the form kept whatever the previous candidate had typed in.
   // Reset on every open rather than only on submit, so it's also clean after Cancel/X.
   useEffect(() => {
+    if (!isAddModalOpen && wasOpenRef.current) {
+      // Closed (X, キャンセル, or anything else that closes it) without registering.
+      if (draftFolderIdRef.current && !submittedRef.current) {
+        const folderId = draftFolderIdRef.current;
+        discardDraftDriveFolder(folderId);
+        showToast('登録せずに閉じたため、アップロード済みの書類はDriveの「99_完全削除済み」フォルダへ移動しました', 'info');
+      }
+      draftFolderIdRef.current = null;
+      modalSessionRef.current++;
+    }
+    wasOpenRef.current = isAddModalOpen;
     if (isAddModalOpen) {
+      modalSessionRef.current++;
+      draftFolderIdRef.current = null;
+      submittedRef.current = false;
       setFormData(getInitialFormData());
       setIsDragging(false);
       setIsCompressing(false);
@@ -122,6 +159,7 @@ export const CandidateFormModal: React.FC = () => {
   // successful upload (and the photo-crop that depends on it) down with it.
   const processResumeFiles = async (rawFiles: globalThis.File[]) => {
     if (!rawFiles || rawFiles.length === 0) return;
+    const session = modalSessionRef.current;
 
     // Without this, dropping a second batch while the first is still uploading raced two
     // independent folderId trackers below and could create two separate Drive folders for the
@@ -274,6 +312,7 @@ export const CandidateFormModal: React.FC = () => {
       // the previous batch's folder and files (resumeDriveFolderId/resumeDocuments below only
       // ever pointed at the most recent batch).
       let folderId: string | undefined = formData.resumeDriveFolderId || undefined;
+      const createdFolderHere = !folderId;
       let primaryUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>> | null = null;
       const allUploaded: Awaited<ReturnType<typeof uploadResumeToDrive>>[] = [];
       let uploadedCount = 0;
@@ -302,6 +341,11 @@ export const CandidateFormModal: React.FC = () => {
               candidateFolderId: folderId
             }
           );
+          if (!folderId && uploaded.folderId) {
+            // Recorded before anything else can go wrong, so even a closed tab gets it cleaned up.
+            trackDraftDriveFolder(uploaded.folderId);
+            if (session === modalSessionRef.current) draftFolderIdRef.current = uploaded.folderId;
+          }
           folderId = folderId || uploaded.folderId;
           if (!primaryUploaded) primaryUploaded = uploaded;
           allUploaded.push(uploaded);
@@ -309,6 +353,14 @@ export const CandidateFormModal: React.FC = () => {
         } catch (driveErr: any) {
           showToast(`${file.name} のDrive保存に失敗しました: ${driveErr.message || '不明なエラー'}`, 'warning');
         }
+      }
+
+      if (session !== modalSessionRef.current) {
+        // The form was closed (or closed and reopened for someone else) while this was uploading:
+        // don't write into the new form, and discard a folder this upload created. A folder from
+        // an earlier drop in that session was already discarded when the form closed.
+        if (createdFolderHere && folderId) discardDraftDriveFolder(folderId);
+        return;
       }
 
       if (uploadedCount > 0) {
@@ -415,6 +467,7 @@ export const CandidateFormModal: React.FC = () => {
   const isBusy = isCompressing || isParsing || isUploadingToDrive || isDetectingPhoto;
 
   const submitCandidate = () => {
+    submittedRef.current = true;
     const selectedAgency = agencies.find((a) => a.id === formData.agencyId);
 
     addCandidate({

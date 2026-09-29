@@ -56,10 +56,15 @@ export default async function handler(req: any, res: any) {
       return res.status(404).json({ error: 'Drive上にバックアップファイルが見つかりませんでした。' });
     }
 
+    // Version is read *before* the content: if a write lands between the two calls, the client ends
+    // up holding newer content under an older version, so its next write merely gets a harmless
+    // 409 and re-reads — the reverse order could pair old content with the new version and let a
+    // write based on stale content through the version check.
+    const meta = await getFileMetadata(accessToken, backupFile.id);
     const content = await readFileContent(accessToken, backupFile);
     const data = JSON.parse(content);
 
-    return res.json({ success: true, data });
+    return res.json({ success: true, data, version: meta.version });
   } catch (err: any) {
     console.error('Drive restore error:', err);
     if (err.status === 401) {

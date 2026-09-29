@@ -10,6 +10,7 @@ import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } fro
 import { getNextPhase, PHASE_SEQUENCE, SKIPPABLE_PHASES } from '../lib/phaseUtils';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
+import { computeAnnualSalaryText } from '../lib/salaryUtils';
 import { 
   X, 
   Calendar, 
@@ -141,6 +142,9 @@ export const CandidateDetailModal: React.FC = () => {
     }
   }, [activeSubTab]);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  // 希望年収を「月給(万円)×か月数」から逆算して反映するための補助入力（保存はしない）
+  const [salaryCalcMonthly, setSalaryCalcMonthly] = useState('');
+  const [salaryCalcMonths, setSalaryCalcMonths] = useState('12');
   const [docCategory, setDocCategory] = useState<'cv' | 'resume'>('cv');
   const [isDetailDragging, setIsDetailDragging] = useState(false);
   const [isDetailParsing, setIsDetailParsing] = useState(false);
@@ -1249,7 +1253,7 @@ export const CandidateDetailModal: React.FC = () => {
                     <input
                       type="number"
                       value={candidate.age || ''}
-                      onChange={(e) => updateCandidate({ ...candidate, age: e.target.value ? Number(e.target.value) : undefined })}
+                      onChange={(e) => patchCandidate(candidate.id, { age: e.target.value ? Number(e.target.value) : undefined })}
                       className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
@@ -1259,7 +1263,7 @@ export const CandidateDetailModal: React.FC = () => {
                     <input
                       type="number"
                       value={candidate.companyCount || ''}
-                      onChange={(e) => updateCandidate({ ...candidate, companyCount: e.target.value ? Number(e.target.value) : undefined })}
+                      onChange={(e) => patchCandidate(candidate.id, { companyCount: e.target.value ? Number(e.target.value) : undefined })}
                       className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
@@ -1269,10 +1273,41 @@ export const CandidateDetailModal: React.FC = () => {
                     <input
                       type="text"
                       value={candidate.salaryExpectation || ''}
-                      onChange={(e) => updateCandidate({ ...candidate, salaryExpectation: e.target.value })}
+                      onChange={(e) => patchCandidate(candidate.id, { salaryExpectation: e.target.value })}
                       placeholder="例: 600万円"
                       className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
+                    <div className="flex items-center gap-1 mt-1 text-[11px] text-slate-500">
+                      <span>月給</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="50"
+                        value={salaryCalcMonthly}
+                        onChange={(e) => setSalaryCalcMonthly(e.target.value)}
+                        className="w-14 bg-white border border-slate-300 text-slate-900 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <span>万円 ×</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="12"
+                        value={salaryCalcMonths}
+                        onChange={(e) => setSalaryCalcMonths(e.target.value)}
+                        className="w-11 bg-white border border-slate-300 text-slate-900 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <span>か月分</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const computed = computeAnnualSalaryText(Number(salaryCalcMonthly), Number(salaryCalcMonths));
+                          if (computed) patchCandidate(candidate.id, { salaryExpectation: computed });
+                        }}
+                        className="ml-auto text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+                      >
+                        →反映
+                      </button>
+                    </div>
                   </div>
 
                   <div className="sm:col-span-2">
@@ -1280,7 +1315,7 @@ export const CandidateDetailModal: React.FC = () => {
                     <input
                       type="text"
                       value={candidate.currentCompany || ''}
-                      onChange={(e) => updateCandidate({ ...candidate, currentCompany: e.target.value })}
+                      onChange={(e) => patchCandidate(candidate.id, { currentCompany: e.target.value })}
                       className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
@@ -1290,7 +1325,7 @@ export const CandidateDetailModal: React.FC = () => {
                     <input
                       type="text"
                       value={candidate.education || ''}
-                      onChange={(e) => updateCandidate({ ...candidate, education: e.target.value })}
+                      onChange={(e) => patchCandidate(candidate.id, { education: e.target.value })}
                       className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
@@ -1332,7 +1367,7 @@ export const CandidateDetailModal: React.FC = () => {
                             <span>{staffName}</span>
                             <button
                               type="button"
-                              onClick={() => updateCandidate({ ...candidate, assignees: candidate.assignees.filter((a) => a !== staffName) })}
+                              onClick={() => patchCandidate(candidate.id, { assignees: candidate.assignees.filter((a) => a !== staffName) })}
                               title={`${staffName} を担当から外す`}
                               className="ml-0.5 text-indigo-400 hover:text-rose-600 cursor-pointer"
                             >
@@ -1348,7 +1383,7 @@ export const CandidateDetailModal: React.FC = () => {
                         onChange={(e) => {
                           const val = e.target.value;
                           if (!val || candidate.assignees.includes(val)) return;
-                          updateCandidate({ ...candidate, assignees: [...candidate.assignees, val] });
+                          patchCandidate(candidate.id, { assignees: [...candidate.assignees, val] });
                         }}
                         className="bg-transparent text-slate-500 text-[11px] rounded px-1 py-0.5 font-semibold cursor-pointer focus:outline-none"
                       >
@@ -1368,7 +1403,7 @@ export const CandidateDetailModal: React.FC = () => {
                     <label className="block text-slate-500 font-semibold mb-1 text-[11px]">書類選考担当者</label>
                     <select
                       value={candidate.documentScreeningAssignee || ''}
-                      onChange={(e) => updateCandidate({ ...candidate, documentScreeningAssignee: e.target.value || undefined })}
+                      onChange={(e) => patchCandidate(candidate.id, { documentScreeningAssignee: e.target.value || undefined })}
                       className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                     >
                       <option value="">主担当者と同じ（{candidate.assignees[0] || '未設定'}）</option>
@@ -2814,7 +2849,7 @@ export const CandidateDetailModal: React.FC = () => {
                           type="datetime-local"
                           value={candidate.aptitudeTestDeadline || ''}
                           onChange={(e) => {
-                            updateCandidate({ ...candidate, aptitudeTestDeadline: e.target.value || undefined });
+                            patchCandidate(candidate.id, { aptitudeTestDeadline: e.target.value || undefined });
                           }}
                           className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
                         />
@@ -2833,7 +2868,7 @@ export const CandidateDetailModal: React.FC = () => {
                           onChange={(e) => {
                             const raw = e.target.value;
                             const score = raw === '' ? undefined : Math.min(10, Math.max(0, Number(raw)));
-                            updateCandidate({ ...candidate, aptitudeTestVerbalScore: score });
+                            patchCandidate(candidate.id, { aptitudeTestVerbalScore: score });
                           }}
                           className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
                         />
@@ -2849,7 +2884,7 @@ export const CandidateDetailModal: React.FC = () => {
                           onChange={(e) => {
                             const raw = e.target.value;
                             const score = raw === '' ? undefined : Math.min(10, Math.max(0, Number(raw)));
-                            updateCandidate({ ...candidate, aptitudeTestNonVerbalScore: score });
+                            patchCandidate(candidate.id, { aptitudeTestNonVerbalScore: score });
                           }}
                           className="w-full bg-white border border-slate-300 text-slate-900 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
                         />
@@ -3175,7 +3210,7 @@ export const CandidateDetailModal: React.FC = () => {
                       {candidate.avatarUrl && (
                         <button
                           onClick={() => {
-                            updateCandidate({ ...candidate, avatarUrl: undefined });
+                            patchCandidate(candidate.id, { avatarUrl: undefined });
                             showToast('顔写真を削除しました', 'info');
                           }}
                           className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"

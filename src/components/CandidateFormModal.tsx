@@ -6,6 +6,7 @@ import { uploadResumeToDrive, detectResumePhotoCrop } from '../lib/driveApi';
 import { renderAndCrop } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { findDuplicateCandidates } from '../lib/duplicateUtils';
+import { computeAnnualSalaryText } from '../lib/salaryUtils';
 import { isBcaPosition } from './KanbanView';
 
 const PHASE_LABELS: Record<SelectionPhase, string> = {
@@ -72,6 +73,9 @@ export const CandidateFormModal: React.FC = () => {
   // 氏名・メール・電話番号のいずれかが完全一致した既存候補者。非空の間、通常のフォームの
   // 代わりに重複確認パネルを表示する(handleSubmitが本登録の前にここへ入れる)。
   const [duplicateMatches, setDuplicateMatches] = useState<Candidate[]>([]);
+  // 希望年収を「月給(万円)×か月数」から逆算して上の欄に反映するための補助入力（保存はしない）
+  const [salaryCalcMonthly, setSalaryCalcMonthly] = useState('');
+  const [salaryCalcMonths, setSalaryCalcMonths] = useState('12');
 
   // The modal component stays mounted (App always renders it, it just returns null while
   // closed), so without this the form kept whatever the previous candidate had typed in.
@@ -87,6 +91,8 @@ export const CandidateFormModal: React.FC = () => {
       setIsDetectingPhoto(false);
       setExtraFileNames([]);
       setDuplicateMatches([]);
+      setSalaryCalcMonthly('');
+      setSalaryCalcMonths('12');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -904,6 +910,37 @@ export const CandidateFormModal: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, salaryExpectation: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-3 py-2 focus:outline-none focus:bg-white focus:border-indigo-500"
               />
+              <div className="flex items-center gap-1 mt-1 text-[11px] text-slate-500">
+                <span>月給</span>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="50"
+                  value={salaryCalcMonthly}
+                  onChange={(e) => setSalaryCalcMonthly(e.target.value)}
+                  className="w-16 bg-slate-50 border border-slate-300 text-slate-900 rounded px-1.5 py-0.5 focus:outline-none focus:bg-white focus:border-indigo-500"
+                />
+                <span>万円 ×</span>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="12"
+                  value={salaryCalcMonths}
+                  onChange={(e) => setSalaryCalcMonths(e.target.value)}
+                  className="w-12 bg-slate-50 border border-slate-300 text-slate-900 rounded px-1.5 py-0.5 focus:outline-none focus:bg-white focus:border-indigo-500"
+                />
+                <span>か月分</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const computed = computeAnnualSalaryText(Number(salaryCalcMonthly), Number(salaryCalcMonths));
+                    if (computed) setFormData((prev) => ({ ...prev, salaryExpectation: computed }));
+                  }}
+                  className="ml-auto text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+                >
+                  →反映
+                </button>
+              </div>
             </div>
 
             <div>

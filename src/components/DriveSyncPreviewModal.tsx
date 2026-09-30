@@ -19,7 +19,29 @@ const PHASE_LABELS: Record<SelectionPhase, string> = {
 // phase folders: the one the app already links to wins (no Drive change needed at all), then the
 // one sitting in the folder matching the candidate's current phase, then whichever option came
 // first — always a folder id in options, never left unset.
-const defaultKeepFolderId = (group: DriveSyncDuplicateFolder): string => {
+type ImportDetail = { jobTitle?: string; assignee?: string; agencyId?: string };
+type ImportDetails = Record<string, ImportDetail>;
+
+const BulkButtons: React.FC<{ onChange: (on: boolean) => void }> = ({ onChange }) => (
+  <span className="ml-auto flex items-center gap-1 text-[11px] font-semibold">
+    <button
+      type="button"
+      onClick={() => onChange(true)}
+      className="px-2 py-0.5 rounded-md border border-slate-200 bg-white text-indigo-700 hover:border-indigo-300 cursor-pointer"
+    >
+      すべて選択
+    </button>
+    <button
+      type="button"
+      onClick={() => onChange(false)}
+      className="px-2 py-0.5 rounded-md border border-slate-200 bg-white text-slate-600 hover:border-slate-300 cursor-pointer"
+    >
+      すべて解除
+    </button>
+  </span>
+);
+
+const defaultKeepFolderId =(group: DriveSyncDuplicateFolder): string => {
   const current = group.options.find((o) => o.isCurrent);
   if (current) return current.folderId;
   const phaseMatch = group.options.find((o) => o.phase === group.candidatePhase);
@@ -36,7 +58,7 @@ const defaultKeepFolderId = (group: DriveSyncDuplicateFolder): string => {
 // silently, even though the discard itself only moves data into 99_完全削除済み rather than
 // deleting it outright.
 export const DriveSyncPreviewModal: React.FC = () => {
-  const { driveSyncPreview, applyDriveSync, cancelDriveSyncPreview, isApplyingDriveSync } = useATS();
+  const { driveSyncPreview, applyDriveSync, cancelDriveSyncPreview, isApplyingDriveSync, positionOptions, staffList, agencies } = useATS();
 
   const [checkedMoves, setCheckedMoves] = useState<Set<string>>(new Set());
   // Per phase-mismatch row: which side wins. Seeded from previewDriveSync's suggestedDirection
@@ -47,23 +69,26 @@ export const DriveSyncPreviewModal: React.FC = () => {
   const [checkedDuplicates, setCheckedDuplicates] = useState<Set<string>>(new Set());
   const [duplicateKeepSelections, setDuplicateKeepSelections] = useState<Map<string, string>>(new Map());
   const [ignoredKeys, setIgnoredKeys] = useState<Set<string>>(new Set());
+  // Per new-import row: 選考ポジション / 主担当 / エージェント. Drive holds none of this, so without
+  // picking here an imported candidate lands with a blank position and the first staff member.
+  const [importDetails, setImportDetails] = useState<ImportDetails>({});
 
   // driveSyncPreview gets a fresh object identity every time previewDriveSync runs, so this
-  // re-initializes selection state (all phase moves pre-checked, all imports/ignores empty) each
+  // re-initializes selection state (every checkbox starts unchecked) each
   // time a new review opens, without needing the modal to unmount/remount.
   useEffect(() => {
     if (driveSyncPreview) {
-      setCheckedMoves(new Set(driveSyncPreview.phaseMoves.map((m) => m.candidateId)));
+      setCheckedMoves(new Set());
       setMoveDirections(new Map(driveSyncPreview.phaseMoves.map((m) => [m.candidateId, m.suggestedDirection])));
-      // Doc updates default checked too — they only add files already sitting in that candidate's
-      // own Drive folder to resumeDocuments, nothing moves or changes in Drive itself.
-      setCheckedDocUpdates(new Set(driveSyncPreview.docUpdates.map((d) => d.candidateId)));
+      // Everything starts unchecked: each item needs an explicit opt-in (一括選択 is available).
+      setCheckedDocUpdates(new Set());
       setCheckedImports(new Set());
       setCheckedDuplicates(new Set());
       setDuplicateKeepSelections(
         new Map(driveSyncPreview.duplicateFolders.map((g) => [g.candidateId, defaultKeepFolderId(g)]))
       );
       setIgnoredKeys(new Set());
+      setImportDetails({});
     }
   }, [driveSyncPreview]);
 
@@ -119,6 +144,34 @@ export const DriveSyncPreviewModal: React.FC = () => {
   };
 
   const visibleImports = driveSyncPreview.newImports.filter((e) => !ignoredKeys.has(e.key));
+
+  const setDetail = (key: string, patch: ImportDetail) =>
+    setImportDetails((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  // Applies one value to every checked import (all visible ones when none are checked yet).
+  const setDetailForAll = (patch: ImportDetail) =>
+    setImportDetails((prev) => {
+      const next = { ...prev };
+      const checked = visibleImports.filter((e) => checkedImports.has(e.key));
+      (checked.length > 0 ? checked : visibleImports).forEach((e) => {
+        next[e.key] = { ...next[e.key], ...patch };
+      });
+      return next;
+    });
+
+  const selectAllMoves = (on: boolean) =>
+    setCheckedMoves(on ? new Set(driveSyncPreview.phaseMoves.map((m) => m.candidateId)) : new Set());
+  const selectAllDocUpdates = (on: boolean) =>
+    setCheckedDocUpdates(on ? new Set(driveSyncPreview.docUpdates.map((d) => d.candidateId)) : new Set());
+  const selectAllImports = (on: boolean) =>
+    setCheckedImports(on ? new Set(visibleImports.map((e) => e.key)) : new Set());
+  const selectAllDuplicates = (on: boolean) =>
+    setCheckedDuplicates(on ? new Set(driveSyncPreview.duplicateFolders.map((g) => g.candidateId)) : new Set());
+  const selectEverything = (on: boolean) => {
+    selectAllMoves(on);
+    selectAllDocUpdates(on);
+    selectAllImports(on);
+    selectAllDuplicates(on);
+  };
   const selectedTotal = checkedMoves.size + checkedDocUpdates.size + checkedImports.size + checkedDuplicates.size;
 
   const setMoveDirection = (candidateId: string, direction: DriveSyncPhaseMoveDirection) => {
@@ -136,6 +189,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
       driveFolderMoveCandidateIds: checkedMoveIds.filter((id) => directionOf(id) === 'APP_TO_DRIVE'),
       importKeys: Array.from(checkedImports),
       ignoreKeys: Array.from(ignoredKeys),
+      importDetails,
       docUpdateCandidateIds: Array.from(checkedDocUpdates),
       duplicateResolutions: Array.from(checkedDuplicates)
         .map((candidateId) => ({ candidateId, keepFolderId: duplicateKeepSelections.get(candidateId) || '' }))
@@ -161,6 +215,24 @@ export const DriveSyncPreviewModal: React.FC = () => {
           </button>
         </div>
 
+        <div className="flex items-center gap-2 px-5 py-2 border-b border-slate-100 text-[11px] text-slate-500 shrink-0">
+          <span>全セクションまとめて:</span>
+          <button
+            type="button"
+            onClick={() => selectEverything(true)}
+            className="px-2 py-0.5 rounded-md border border-slate-200 bg-white font-semibold text-indigo-700 hover:border-indigo-300 cursor-pointer"
+          >
+            一括選択
+          </button>
+          <button
+            type="button"
+            onClick={() => selectEverything(false)}
+            className="px-2 py-0.5 rounded-md border border-slate-200 bg-white font-semibold text-slate-600 hover:border-slate-300 cursor-pointer"
+          >
+            一括選択解除
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
           {driveSyncPreview.phaseMoves.length === 0 &&
             driveSyncPreview.docUpdates.length === 0 &&
@@ -174,6 +246,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
               <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
                 <Copy className="w-4 h-4 text-rose-600" />
                 <span>重複フォルダ（{driveSyncPreview.duplicateFolders.length}件）</span>
+                <BulkButtons onChange={selectAllDuplicates} />
               </h4>
               <p className="text-[11px] text-slate-500 mb-2">
                 同じ候補者のフォルダが複数のフェーズにまたがって残っています。残すフォルダを選んでください。選ばなかったフォルダは「99_完全削除済み」へ移動します（完全な削除ではありません）。
@@ -238,6 +311,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
               <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
                 <FolderSync className="w-4 h-4 text-indigo-600" />
                 <span>フェーズの食い違い（{driveSyncPreview.phaseMoves.length}件）</span>
+                <BulkButtons onChange={selectAllMoves} />
               </h4>
               <p className="text-[11px] text-slate-500 mb-2">
                 アプリ上の選考フェーズと、Drive上でフォルダが置かれているフェーズが一致していない登録済み候補者です。行ごとに、どちらを正とするか選んでください。
@@ -312,6 +386,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
               <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
                 <FilePlus className="w-4 h-4 text-indigo-600" />
                 <span>登録済み候補者への書類追加（{driveSyncPreview.docUpdates.length}件）</span>
+                <BulkButtons onChange={selectAllDocUpdates} />
               </h4>
               <p className="text-[11px] text-slate-500 mb-2">
                 既に登録済みの候補者のDriveフォルダに、アプリがまだ把握していないファイルが増えています。原本の選択肢に追加するだけで、Drive側のファイルは移動しません。
@@ -343,15 +418,39 @@ export const DriveSyncPreviewModal: React.FC = () => {
               <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
                 <UserPlus className="w-4 h-4 text-indigo-600" />
                 <span>新規インポート候補（{visibleImports.length}件）</span>
+                <BulkButtons onChange={selectAllImports} />
               </h4>
               <p className="text-[11px] text-slate-500 mb-2">
                 Driveにあるが未登録のレジュメです。取り込まないものは「無視する」を押してください。以後の同期で検知されなくなります。
               </p>
+              <div className="flex flex-wrap items-center gap-1.5 mb-2 text-[11px] text-slate-600">
+                <span className="font-semibold">一括設定（チェック済み、なければ全件）:</span>
+                <select
+                  value=""
+                  onChange={(ev) => ev.target.value && setDetailForAll({ jobTitle: ev.target.value })}
+                  className="border border-slate-300 rounded-md px-1.5 py-1 bg-white"
+                >
+                  <option value="">選考ポジション…</option>
+                  {positionOptions.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <select
+                  value=""
+                  onChange={(ev) => ev.target.value && setDetailForAll({ assignee: ev.target.value })}
+                  className="border border-slate-300 rounded-md px-1.5 py-1 bg-white"
+                >
+                  <option value="">主担当…</option>
+                  {staffList.map((st) => (
+                    <option key={st.name} value={st.name}>{st.name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="space-y-1.5">
                 {visibleImports.map((e) => (
                   <div
                     key={e.key}
-                    className="flex items-center gap-2.5 bg-slate-50/80 border border-slate-200 rounded-lg px-3 py-2"
+                    className="flex flex-wrap items-center gap-2.5 bg-slate-50/80 border border-slate-200 rounded-lg px-3 py-2"
                   >
                     <input
                       type="checkbox"
@@ -363,6 +462,39 @@ export const DriveSyncPreviewModal: React.FC = () => {
                       {e.displayName}
                     </span>
                     <span className="text-[11px] text-slate-500 shrink-0">{PHASE_LABELS[e.phase]}</span>
+                    <select
+                      value={importDetails[e.key]?.jobTitle || ''}
+                      onChange={(ev) => setDetail(e.key, { jobTitle: ev.target.value })}
+                      title="選考ポジション"
+                      className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0"
+                    >
+                      <option value="">ポジション未設定</option>
+                      {positionOptions.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={importDetails[e.key]?.assignee || ''}
+                      onChange={(ev) => setDetail(e.key, { assignee: ev.target.value })}
+                      title="主担当"
+                      className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0"
+                    >
+                      <option value="">主担当（既定）</option>
+                      {staffList.map((st) => (
+                        <option key={st.name} value={st.name}>{st.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={importDetails[e.key]?.agencyId || ''}
+                      onChange={(ev) => setDetail(e.key, { agencyId: ev.target.value })}
+                      title="エージェント"
+                      className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[140px]"
+                    >
+                      <option value="">エージェント（フォルダ名から推定）</option>
+                      {agencies.map((ag) => (
+                        <option key={ag.id} value={ag.id}>{ag.name}</option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={() => ignoreImport(e.key)}

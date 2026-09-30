@@ -264,6 +264,8 @@ interface ATSContextType {
     ignoreKeys: string[];
     docUpdateCandidateIds?: string[];
     duplicateResolutions?: { candidateId: string; keepFolderId: string }[];
+    // 新規インポートごとに確認画面で指定した選考ポジション・主担当・エージェント（キー=importKeysのkey）
+    importDetails?: Record<string, { jobTitle?: string; assignee?: string; agencyId?: string }>;
   }) => Promise<void>;
 }
 
@@ -2846,6 +2848,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ignoreKeys: string[];
     docUpdateCandidateIds?: string[];
     duplicateResolutions?: { candidateId: string; keepFolderId: string }[];
+    importDetails?: Record<string, { jobTitle?: string; assignee?: string; agencyId?: string }>;
   }) => {
     if (!driveAccessToken || !driveSyncPreview) return;
     setIsApplyingDriveSync(true);
@@ -2932,6 +2935,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             continue;
           }
           if (nameNorm) importedThisBatch.add(nameNorm);
+          const detail = selection.importDetails?.[entry.key];
+          // Drive folders are named "氏名" or "氏名_エージェント名" (buildCandidateFolderName), so the
+          // agency can be recovered from the name when the review modal didn't set one explicitly.
+          const folderAgencyName = entry.displayName.includes('_') ? entry.displayName.split('_').slice(1).join('_').trim() : '';
+          const agency =
+            agencies.find((a) => a.id === detail?.agencyId) ||
+            (folderAgencyName ? agencies.find((a) => a.name === folderAgencyName) : undefined);
+          const agencyAssignees = agency?.assignedStaffNames && agency.assignedStaffNames.length > 0 ? agency.assignedStaffNames : null;
           addCandidate({
             name: parsed.name,
             nameKana: parsed.nameKana,
@@ -2946,11 +2957,13 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             // position code that jobTitle actually means everywhere else in this app. Left blank
             // here for the recruiter to set from the candidate detail view, same as a fresh
             // Drive-import candidate always has no assignee-specific info decided yet.
-            jobTitle: '',
+            jobTitle: detail?.jobTitle || '',
             appliedDate: new Date().toISOString().split('T')[0],
-            agencyId: 'ag-direct',
-            agencyName: '直接応募 (自社採用HP)',
-            assignees: [staffList[0]?.name || '山田 太郎'],
+            agencyId: agency?.id || 'ag-direct',
+            agencyName: agency?.name || '直接応募 (自社採用HP)',
+            assignees: detail?.assignee
+              ? [detail.assignee]
+              : agencyAssignees || [staffList[0]?.name || '山田 太郎'],
             phase: entry.phase,
             scheduleStatus: 'UNARRANGED',
             resumeSummary: parsed.resumeSummary,

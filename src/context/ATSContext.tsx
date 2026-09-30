@@ -254,7 +254,7 @@ interface ATSContextType {
   restoreFromDrive: () => Promise<void>;
   isSyncingDrive: boolean;
   driveSyncPreview: DriveSyncPreview | null;
-  previewDriveSync: () => Promise<void>;
+  previewDriveSync: (options?: { notifyOnly?: boolean }) => Promise<void>;
   cancelDriveSyncPreview: () => void;
   isApplyingDriveSync: boolean;
   applyDriveSync: (selection: {
@@ -2626,12 +2626,15 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // (applyDriveSync) driven by what the user selects in the review modal this opens, so a stray
   // old resume left sitting in a Drive phase folder can no longer silently become a brand-new
   // active-pipeline candidate just because someone clicked "Driveと同期".
-  const previewDriveSync = async () => {
+  // notifyOnly: the silent login-time check — computes the same diff but, instead of opening the
+  // review modal, only tells the user how many Drive folders have no candidate in the app.
+  const previewDriveSync = async (options: { notifyOnly?: boolean } = {}) => {
+    const notifyOnly = !!options.notifyOnly;
     if (!driveAccessToken) {
-      showToast('先にGoogle Driveへログインしてください', 'warning');
+      if (!notifyOnly) showToast('先にGoogle Driveへログインしてください', 'warning');
       return;
     }
-    setIsSyncingDrive(true);
+    if (!notifyOnly) setIsSyncingDrive(true);
     try {
       const entries = await scanDriveResumesApi(driveAccessToken);
       // A candidate folder normally holds several files (resume, CV, ...) — key by folder for
@@ -2823,17 +2826,43 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         newImports.push(group);
       });
 
+      if (notifyOnly) {
+        if (newImports.length > 0) {
+          showToast(
+            `Driveにアプリ未登録のフォルダが${newImports.length}件あります。右上の「Drive連携」→「Driveと同期」で確認してください`,
+            'warning'
+          );
+        }
+        return;
+      }
       if (phaseMoves.length === 0 && newImports.length === 0 && docUpdates.length === 0 && duplicateFolders.length === 0) {
         showToast('Drive同期: 差分はありませんでした', 'info');
       } else {
         setDriveSyncPreview({ phaseMoves, newImports, docUpdates, duplicateFolders });
       }
     } catch (err: any) {
-      showToast(`Drive同期の確認に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      if (!notifyOnly) showToast(`Drive同期の確認に失敗しました: ${err.message || '不明なエラー'}`, 'warning');
+      else console.error('Unregistered-folder check failed:', err);
     } finally {
-      setIsSyncingDrive(false);
+      if (!notifyOnly) setIsSyncingDrive(false);
     }
   };
+
+  // Once per login, after the Drive restore has filled in every registered candidate (same
+  // startup delay as the draft-folder sweep above), warn when Drive holds candidate folders the
+  // app doesn't know — the "saved to Drive but missing in the app" situation must never go
+  // unnoticed. The latest previewDriveSync is read through a ref because this timer fires long
+  // after the render whose closure (candidates, deletedDriveItemIds) it would otherwise capture.
+  const previewDriveSyncRef = useRef(previewDriveSync);
+  previewDriveSyncRef.current = previewDriveSync;
+  const hasCheckedUnregisteredRef = useRef(false);
+  useEffect(() => {
+    if (!driveAccessToken || isBootstrapping || hasCheckedUnregisteredRef.current) return;
+    hasCheckedUnregisteredRef.current = true;
+    // Deliberately not cleared on cleanup: the once-per-login ref is already set, so a token refresh
+    // re-running this effect inside the delay would otherwise cancel the check for good.
+    setTimeout(() => previewDriveSyncRef.current({ notifyOnly: true }), 15_000);
+  }, [driveAccessToken, isBootstrapping]);
 
   const cancelDriveSyncPreview = () => setDriveSyncPreview(null);
 

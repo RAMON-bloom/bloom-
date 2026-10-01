@@ -12,7 +12,10 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { accessToken, fileId } = req.body || {};
+    const { accessToken, fileId, omitFile } = req.body || {};
+    // omitFile: the client fetches the file itself straight from Drive. Echoing it back made any
+    // resume over ~3.3MB exceed Vercel's 4.5MB response limit, so photo detection always failed.
+    const fileField = (b64: string) => (omitFile ? {} : { fileBase64: b64 });
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
     }
@@ -65,7 +68,7 @@ JSON形式のみで出力してください:
     const parsed = JSON.parse(response.text || '{"found":false}');
 
     if (!parsed.found) {
-      return res.json({ found: false, fileBase64, mimeType });
+      return res.json({ found: false, ...fileField(fileBase64), mimeType });
     }
 
     const box = {
@@ -83,14 +86,14 @@ JSON形式のみで出力してください:
     const height = box.yMax - box.yMin;
     const area = width * height;
     if (!(width > 0) || !(height > 0) || area > 0.35 || area < 0.005) {
-      return res.json({ found: false, fileBase64, mimeType });
+      return res.json({ found: false, ...fileField(fileBase64), mimeType });
     }
 
     return res.json({
       found: true,
       box,
       page: Number.isFinite(parsed.page) && parsed.page > 0 ? Math.round(parsed.page) : 1,
-      fileBase64,
+      ...fileField(fileBase64),
       mimeType
     });
   } catch (err: any) {

@@ -64,7 +64,7 @@ import {
   stampLocalChanges
 } from '../lib/syncMerge';
 import { buildOfferLedgerRows } from '../lib/offerLedger';
-import { shrinkAvatarDataUrl } from '../lib/photoCrop';
+import { shrinkAvatarDataUrl, extractAvatarFromDriveFiles } from '../lib/photoCrop';
 import { agencyNameFromFolderName, findAgencyByLooseName } from '../lib/agencyMatch';
 import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
 
@@ -3028,7 +3028,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             // Prefer a real master entry for direct applications over the off-master 'ag-direct' id.
             agencies.find((a) => a.name.includes('直接応募'));
           const agencyAssignees = agency?.assignedStaffNames && agency.assignedStaffNames.length > 0 ? agency.assignedStaffNames : null;
+          // Same automatic face-photo extraction the registration form does on upload; a miss or
+          // failure just leaves the photo empty (it can still be cropped by hand later).
+          const { avatarUrl } = await extractAvatarFromDriveFiles(driveAccessToken, entry.files).catch(() => ({ avatarUrl: null }));
           addCandidate({
+            avatarUrl: avatarUrl || undefined,
             name: parsed.name,
             nameKana: parsed.nameKana,
             age: parsed.age,

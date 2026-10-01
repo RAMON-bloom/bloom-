@@ -411,9 +411,23 @@ export interface DetectedPhotoCrop {
 
 // Downloads the resume file from Drive and asks Gemini to locate the photo box on page 1,
 // returning both the raw file bytes (for client-side rendering) and a normalized bounding box.
+// The server only returns where the photo is; the file itself is downloaded here straight from
+// Drive (in parallel), since passing it back through the function hit Vercel's 4.5MB limit.
 export async function detectResumePhotoCrop(accessToken: string, fileId: string): Promise<DetectedPhotoCrop> {
-  return postJson<DetectedPhotoCrop>('/api/drive/detect-photo-crop', {
-    accessToken,
-    fileId
+  const [detected, fileBase64] = await Promise.all([
+    postJson<DetectedPhotoCrop>('/api/drive/detect-photo-crop', { accessToken, fileId, omitFile: true }),
+    downloadDriveFileBase64(accessToken, fileId)
+  ]);
+  return { ...detected, fileBase64 };
+}
+
+async function downloadDriveFileBase64(accessToken: string, fileId: string): Promise<string> {
+  const res = await driveDirect(accessToken, `${DRIVE_API}/files/${fileId}?alt=media`);
+  const blob = await res.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+    reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました'));
+    reader.readAsDataURL(blob);
   });
 }

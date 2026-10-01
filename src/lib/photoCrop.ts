@@ -1,4 +1,4 @@
-import { PhotoCropBox } from './driveApi';
+import { PhotoCropBox, detectResumePhotoCrop } from './driveApi';
 
 // Avatars are only ever shown as small thumbnails (a few rem across), but every candidate's photo is
 // stored inline in the shared Drive backup that every member downloads. Full-resolution crops at
@@ -141,4 +141,29 @@ export async function shrinkAvatarDataUrl(dataUrl: string): Promise<string | nul
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   const shrunk = canvas.toDataURL('image/jpeg', AVATAR_JPEG_QUALITY);
   return shrunk.length < dataUrl.length * 0.8 ? shrunk : null;
+}
+
+// Tries each Drive file in turn (履歴書 first — that's where the ID photo usually is) and returns the
+// first face photo found, cropped and sized like a manual crop. Used where no one is around to drop
+// files into the registration form: Drive-sync imports, and backfilling candidates imported before
+// imports extracted photos. `error` is the last failure, for callers that want to report it.
+export async function extractAvatarFromDriveFiles(
+  accessToken: string,
+  files: { id?: string; name?: string }[]
+): Promise<{ avatarUrl: string | null; error: string | null }> {
+  const ordered = files
+    .filter((f): f is { id: string; name?: string } => !!f.id)
+    .sort((a, b) => Number((b.name || '').includes('履歴書')) - Number((a.name || '').includes('履歴書')));
+  let error: string | null = null;
+  for (const f of ordered) {
+    try {
+      const detected = await detectResumePhotoCrop(accessToken, f.id);
+      if (detected.found && detected.box) {
+        return { avatarUrl: await renderAndCrop(detected.fileBase64, detected.mimeType, detected.box, detected.page), error: null };
+      }
+    } catch (err: any) {
+      error = err?.message || '不明なエラー';
+    }
+  }
+  return { avatarUrl: null, error };
 }

@@ -5,7 +5,7 @@ import { isFirstInterviewOrAbove, isBcaPosition } from './KanbanView';
 import { ResumePhotoCropperModal } from './ResumePhotoCropperModal';
 import { RejectionReasonModal } from './RejectionReasonModal';
 import { uploadResumeToDrive, detectResumePhotoCrop, findCalendarMeetingNotes, summarizeDriveMeetingLog, moveFileIntoFolder, listFolderFiles } from '../lib/driveApi';
-import { renderAndCrop } from '../lib/photoCrop';
+import { renderAndCrop, extractAvatarFromDriveFiles } from '../lib/photoCrop';
 import { MAX_UPLOAD_FILE_BYTES, readFileAsDataUrl, compressFileIfOversized } from '../lib/fileUpload';
 import { getNextPhase, PHASE_SEQUENCE, SKIPPABLE_PHASES } from '../lib/phaseUtils';
 import { OnboardingChecklist } from './OnboardingChecklist';
@@ -402,6 +402,48 @@ export const CandidateDetailModal: React.FC = () => {
       });
     return () => {
       cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCandidateId, driveAccessToken]);
+
+  // Candidates imported via「Driveと同期」before imports extracted face photos have none. Try once
+  // per candidate per browser when their detail opens (each attempt is an AI call, so a resume that
+  // genuinely has no photo isn't retried on every open). Never replaces an existing photo.
+  useEffect(() => {
+    if (!selectedCandidateId || !driveAccessToken) return;
+    const c = candidates.find((cand) => cand.id === selectedCandidateId);
+    const docs = (c?.resumeDocuments || []).map((d) => ({ id: d.driveFileId, name: d.name }));
+    if (!c || c.avatarUrl || (docs.length === 0 && !c.resumeDriveFileId)) return;
+    const TRIED_KEY = 'ats_avatar_backfill_tried';
+    let tried: string[] = [];
+    try {
+      tried = JSON.parse(localStorage.getItem(TRIED_KEY) || '[]');
+    } catch {}
+    if (tried.includes(c.id)) return;
+    let cancelled = false;
+    setIsDetailDetectingPhoto(true);
+    extractAvatarFromDriveFiles(driveAccessToken, docs.length > 0 ? docs : [{ id: c.resumeDriveFileId, name: c.resumeFileName }])
+      .then(({ avatarUrl, error }) => {
+        if (cancelled) return; // closed mid-way: try again next time it's opened
+        if (avatarUrl) {
+          patchCandidate(c.id, { avatarUrl });
+          showToast('履歴書から顔写真を自動抽出しました', 'success');
+        }
+        // Only a clean "found / no photo in these files" result counts as tried; a failure (expired
+        // login, network, AI error) is retried on a later open.
+        if (avatarUrl || !error) {
+          try {
+            localStorage.setItem(TRIED_KEY, JSON.stringify([...tried, c.id].slice(-500)));
+          } catch {}
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsDetailDetectingPhoto(false);
+      });
+    return () => {
+      cancelled = true;
+      setIsDetailDetectingPhoto(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCandidateId, driveAccessToken]);

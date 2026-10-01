@@ -72,6 +72,10 @@ export const DriveSyncPreviewModal: React.FC = () => {
   // Per new-import row: 選考ポジション / 主担当 / エージェント. Drive holds none of this, so without
   // picking here an imported candidate lands with a blank position and the first staff member.
   const [importDetails, setImportDetails] = useState<ImportDetails>({});
+  const [showPastImports, setShowPastImports] = useState(false);
+  const [showIgnoredImports, setShowIgnoredImports] = useState(false);
+  // Rows from the 無視中 list taken off the ignore list in this review (applied on 反映).
+  const [unignoredKeys, setUnignoredKeys] = useState<Set<string>>(new Set());
 
   // driveSyncPreview gets a fresh object identity every time previewDriveSync runs, so this
   // re-initializes selection state (every checkbox starts unchecked) each
@@ -88,6 +92,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
         new Map(driveSyncPreview.duplicateFolders.map((g) => [g.candidateId, defaultKeepFolderId(g)]))
       );
       setIgnoredKeys(new Set());
+      setUnignoredKeys(new Set());
       setImportDetails({});
     }
   }, [driveSyncPreview]);
@@ -143,7 +148,20 @@ export const DriveSyncPreviewModal: React.FC = () => {
     setDuplicateKeepSelections((prev) => new Map(prev).set(candidateId, folderId));
   };
 
-  const visibleImports = driveSyncPreview.newImports.filter((e) => !ignoredKeys.has(e.key));
+  const isStillIgnored = (e: (typeof driveSyncPreview.newImports)[number]) => !!e.isIgnored && !unignoredKeys.has(e.key);
+  const allVisibleImports = driveSyncPreview.newImports.filter((e) => !isStillIgnored(e) && !ignoredKeys.has(e.key));
+  // Folders someone chose 無視する earlier. Hidden unless opened; each can be imported directly
+  // (checkbox) or put back into the normal lists (無視を解除).
+  const ignoredImports = driveSyncPreview.newImports.filter(isStillIgnored);
+  const unignoreImport = (key: string) => setUnignoredKeys((prev) => new Set(prev).add(key));
+  // Past data (見送り・選考辞退 folders, or nothing in the folder touched for 10+ days) is listed
+  // separately, collapsed, so the actionable imports aren't buried under history.
+  const visibleImports = allVisibleImports.filter((e) => !e.isPast);
+  const pastImports = allVisibleImports.filter((e) => e.isPast);
+  const ignoreAllPast = () => {
+    setIgnoredKeys((prev) => new Set([...prev, ...pastImports.map((e) => e.key)]));
+    setCheckedImports((prev) => new Set([...prev].filter((k) => !pastImports.some((e) => e.key === k))));
+  };
 
   const setDetail = (key: string, patch: ImportDetail) =>
     setImportDetails((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
@@ -189,6 +207,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
       driveFolderMoveCandidateIds: checkedMoveIds.filter((id) => directionOf(id) === 'APP_TO_DRIVE'),
       importKeys: Array.from(checkedImports),
       ignoreKeys: Array.from(ignoredKeys),
+      unignoreKeys: Array.from(unignoredKeys),
       importDetails,
       docUpdateCandidateIds: Array.from(checkedDocUpdates),
       duplicateResolutions: Array.from(checkedDuplicates)
@@ -196,6 +215,77 @@ export const DriveSyncPreviewModal: React.FC = () => {
         .filter((r) => r.keepFolderId)
     });
   };
+
+  const renderImportRow = (e: (typeof allVisibleImports)[number]) => (
+    <div
+      key={e.key}
+      className="flex flex-wrap items-center gap-2.5 bg-slate-50/80 border border-slate-200 rounded-lg px-3 py-2"
+    >
+      <input
+        type="checkbox"
+        checked={checkedImports.has(e.key)}
+        onChange={() => toggleImport(e.key)}
+        className="accent-indigo-600 shrink-0"
+      />
+      <span className="text-xs font-medium text-slate-800 flex-1 min-w-[10rem] truncate" title={e.displayName}>
+        {e.displayName}
+      </span>
+      <span className="text-[11px] text-slate-500 shrink-0">{PHASE_LABELS[e.phase]}</span>
+      <select
+        value={importDetails[e.key]?.jobTitle || ''}
+        onChange={(ev) => setDetail(e.key, { jobTitle: ev.target.value })}
+        title="選考ポジション"
+        className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0"
+      >
+        <option value="">ポジション未設定</option>
+        {positionOptions.map((p) => (
+          <option key={p} value={p}>{p}</option>
+        ))}
+      </select>
+      <select
+        value={importDetails[e.key]?.assignee || ''}
+        onChange={(ev) => setDetail(e.key, { assignee: ev.target.value })}
+        title="主担当"
+        className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0"
+      >
+        <option value="">主担当（既定）</option>
+        {staffList.map((st) => (
+          <option key={st.name} value={st.name}>{st.name}</option>
+        ))}
+      </select>
+      <select
+        value={importDetails[e.key]?.agencyId || ''}
+        onChange={(ev) => setDetail(e.key, { agencyId: ev.target.value })}
+        title="エージェント"
+        className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[140px]"
+      >
+        <option value="">エージェント（フォルダ名から推定）</option>
+        {agencies.map((ag) => (
+          <option key={ag.id} value={ag.id}>{ag.name}</option>
+        ))}
+      </select>
+      {isStillIgnored(e) ? (
+        <button
+          type="button"
+          onClick={() => unignoreImport(e.key)}
+          title="無視リストから外し、通常の一覧に戻す"
+          className="flex items-center gap-1 text-[11px] font-semibold text-indigo-500 hover:text-indigo-700 cursor-pointer shrink-0"
+        >
+          <span>無視を解除</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => ignoreImport(e.key)}
+          title="今後この項目を検知対象から除外する"
+          className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+        >
+          <EyeOff className="w-3.5 h-3.5" />
+          <span>無視する</span>
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
@@ -237,7 +327,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
           {driveSyncPreview.phaseMoves.length === 0 &&
             driveSyncPreview.docUpdates.length === 0 &&
             driveSyncPreview.duplicateFolders.length === 0 &&
-            visibleImports.length === 0 && (
+            allVisibleImports.length === 0 && (
               <p className="text-sm text-slate-400 text-center py-8">確認する差分はありません。</p>
             )}
 
@@ -447,67 +537,59 @@ export const DriveSyncPreviewModal: React.FC = () => {
                 </select>
               </div>
               <div className="space-y-1.5">
-                {visibleImports.map((e) => (
-                  <div
-                    key={e.key}
-                    className="flex flex-wrap items-center gap-2.5 bg-slate-50/80 border border-slate-200 rounded-lg px-3 py-2"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checkedImports.has(e.key)}
-                      onChange={() => toggleImport(e.key)}
-                      className="accent-indigo-600 shrink-0"
-                    />
-                    <span className="text-xs font-medium text-slate-800 flex-1 truncate" title={e.displayName}>
-                      {e.displayName}
-                    </span>
-                    <span className="text-[11px] text-slate-500 shrink-0">{PHASE_LABELS[e.phase]}</span>
-                    <select
-                      value={importDetails[e.key]?.jobTitle || ''}
-                      onChange={(ev) => setDetail(e.key, { jobTitle: ev.target.value })}
-                      title="選考ポジション"
-                      className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0"
-                    >
-                      <option value="">ポジション未設定</option>
-                      {positionOptions.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={importDetails[e.key]?.assignee || ''}
-                      onChange={(ev) => setDetail(e.key, { assignee: ev.target.value })}
-                      title="主担当"
-                      className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0"
-                    >
-                      <option value="">主担当（既定）</option>
-                      {staffList.map((st) => (
-                        <option key={st.name} value={st.name}>{st.name}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={importDetails[e.key]?.agencyId || ''}
-                      onChange={(ev) => setDetail(e.key, { agencyId: ev.target.value })}
-                      title="エージェント"
-                      className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[140px]"
-                    >
-                      <option value="">エージェント（フォルダ名から推定）</option>
-                      {agencies.map((ag) => (
-                        <option key={ag.id} value={ag.id}>{ag.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => ignoreImport(e.key)}
-                      title="今後この項目を検知対象から除外する"
-                      className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
-                    >
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>無視する</span>
-                    </button>
-                  </div>
-                ))}
+                {visibleImports.map(renderImportRow)}
               </div>
             </div>
+          )}
+
+          {pastImports.length > 0 && (
+            <div className="border border-slate-200 rounded-xl bg-slate-50/60">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowPastImports((v) => !v)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
+                >
+                  <span>{showPastImports ? '▼' : '▶'}</span>
+                  <span>過去データ（{pastImports.length}件）</span>
+                </button>
+                <span className="text-[11px] text-slate-400">見送り・選考辞退フォルダ、または10日以上更新のないフォルダ</span>
+                <button
+                  type="button"
+                  onClick={ignoreAllPast}
+                  className="ml-auto flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-[11px] font-semibold text-slate-600 hover:text-rose-600 hover:border-rose-200 cursor-pointer"
+                  title="今後の同期でこれらを表示しない（「反映する」実行時に確定）"
+                >
+                  <EyeOff className="w-3.5 h-3.5" />
+                  <span>すべて無視して今後表示しない</span>
+                </button>
+              </div>
+              {showPastImports && <div className="space-y-1.5 px-3 pb-3">{pastImports.map(renderImportRow)}</div>}
+            </div>
+          )}
+
+          {ignoredImports.length > 0 && (
+            <div className="border border-dashed border-slate-200 rounded-xl">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowIgnoredImports((v) => !v)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+                >
+                  <span>{showIgnoredImports ? '▼' : '▶'}</span>
+                  <EyeOff className="w-3.5 h-3.5" />
+                  <span>無視中（{ignoredImports.length}件）</span>
+                </button>
+                <span className="text-[11px] text-slate-400">以前「無視する」にしたフォルダ。チェックで取り込み、または無視を解除できます</span>
+              </div>
+              {showIgnoredImports && <div className="space-y-1.5 px-3 pb-3">{ignoredImports.map(renderImportRow)}</div>}
+            </div>
+          )}
+
+          {unignoredKeys.size > 0 && (
+            <p className="text-[11px] text-slate-400">
+              {unignoredKeys.size}件の無視を解除します（「反映する」実行時に確定します）。
+            </p>
           )}
 
           {ignoredKeys.size > 0 && (
@@ -529,7 +611,7 @@ export const DriveSyncPreviewModal: React.FC = () => {
           <button
             type="button"
             onClick={handleApply}
-            disabled={isApplyingDriveSync || (selectedTotal === 0 && ignoredKeys.size === 0)}
+            disabled={isApplyingDriveSync || (selectedTotal === 0 && ignoredKeys.size === 0 && unignoredKeys.size === 0)}
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold px-4 py-2 rounded-lg shadow-2xs transition-all cursor-pointer"
           >
             {isApplyingDriveSync ? '反映中...' : `選択した内容を反映する（${selectedTotal}件）`}

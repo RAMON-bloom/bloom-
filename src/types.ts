@@ -410,6 +410,14 @@ export interface DriveSyncPhaseMove {
   suggestedDirection: DriveSyncPhaseMoveDirection; // 既定の解消方向（最終的にはモーダルでユーザーが選ぶ）
 }
 
+// Drive上のフォルダ／ファイルのうち、「Driveと同期」で取り込み候補に出さないもの（「無視する」を
+// 選んだもの、アプリで完全削除した候補者のもの）。共有Driveバックアップで全員に同期される。
+// 無視の解除＝レコード削除（トゥームストーンで全員に反映）。
+export interface DriveIgnoreEntry {
+  id: string; // Driveのフォルダ／ファイルID
+  syncUpdatedAt?: number;
+}
+
 export interface DriveSyncNewImport {
   key: string; // folderId、フォルダが無い場合はfile.id
   displayName: string;
@@ -417,6 +425,13 @@ export interface DriveSyncNewImport {
   folderId: string | null;
   file: { id: string; name: string; mimeType: string; webViewLink?: string }; // 代表ファイル（AI解析対象）。filesの1件目と同じ
   files: { id: string; name: string; mimeType: string; webViewLink?: string }[]; // フォルダ内の全ファイル（履歴書・職務経歴書など複数保存時も取りこぼさないため）
+  // 過去データ（見送り・選考辞退フォルダにある、またはフォルダ内のファイルが長期間更新されていない）。
+  // 同期確認画面では折りたたんで表示し、ログイン時の未登録フォルダ通知の件数にも含めない。
+  isPast?: boolean;
+  // 以前「無視する」を選んだ（無視リスト＝deletedDriveItemIdsにある）フォルダ。普段は表示しないが、
+  // 同期確認画面の「無視中」欄から取り込み・無視の解除ができる。
+  isIgnored?: boolean;
+  lastModified?: string; // フォルダ内ファイルの最終更新日時（最新のもの）
 }
 
 // 既に登録済みの候補者のDriveフォルダに、アプリ側がまだ知らないファイル（履歴書に後から

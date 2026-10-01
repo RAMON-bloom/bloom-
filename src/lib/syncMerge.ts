@@ -23,10 +23,10 @@
 //  - A side whose stamp is older than base's is a stale copy, not an edit (e.g. a backup written
 //    by someone who read Drive just before our write landed), so it can't revert newer data.
 //  - A tombstone only removes a record whose last edit is not newer than the deletion.
-export type SyncCollectionKey = 'candidates' | 'agencies' | 'staffList' | 'meetingLogs' | 'groupChatWebhooks' | 'positions';
+export type SyncCollectionKey = 'candidates' | 'agencies' | 'staffList' | 'meetingLogs' | 'groupChatWebhooks' | 'positions' | 'driveIgnores';
 export type TombstoneMap = Record<string, number>; // record id -> deletedAt (epoch ms)
 export type SyncTombstones = Partial<Record<SyncCollectionKey, TombstoneMap>>;
-export const SYNC_COLLECTION_KEYS: SyncCollectionKey[] = ['candidates', 'agencies', 'staffList', 'meetingLogs', 'groupChatWebhooks', 'positions'];
+export const SYNC_COLLECTION_KEYS: SyncCollectionKey[] = ['candidates', 'agencies', 'staffList', 'meetingLogs', 'groupChatWebhooks', 'positions', 'driveIgnores'];
 
 export const syncStampOf = (x: unknown): number => {
   const v = (x as { syncUpdatedAt?: unknown } | undefined)?.syncUpdatedAt;

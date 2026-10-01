@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Candidate, 
   SelectionPhase, 
@@ -23,6 +23,7 @@ import {
   DriveSyncPhaseMove,
   DriveSyncPhaseMoveDirection,
   DriveSyncNewImport,
+  DriveIgnoreEntry,
   DriveSyncDocUpdate,
   DriveSyncDuplicateFolder,
   DriveSyncDuplicateFolderOption,
@@ -266,6 +267,7 @@ interface ATSContextType {
     driveFolderMoveCandidateIds?: string[]; // アプリ → Drive: Driveフォルダをアプリの現在フェーズのフォルダへ移動する
     importKeys: string[];
     ignoreKeys: string[];
+    unignoreKeys?: string[]; // 無視リストから外す（「無視中」欄で解除・取り込みしたもの）
     docUpdateCandidateIds?: string[];
     duplicateResolutions?: { candidateId: string; keepFolderId: string }[];
     // 新規インポートごとに確認画面で指定した選考ポジション・主担当・エージェント（キー=importKeysのkey）
@@ -453,10 +455,33 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // app's control — either way, "I explicitly deleted this" should always win over "sync found
   // an orphan," regardless of why the orphan is still there. Grows without pruning; at realistic
   // candidate volumes this stays tiny (a few KB of ids) for years.
-  const [deletedDriveItemIds, setDeletedDriveItemIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem('ats_deleted_drive_item_ids');
-    return saved ? JSON.parse(saved) : [];
+  //
+  // Shared with the whole team through the Drive backup (driveIgnores collection) since 2026-10-01 —
+  // it used to live only in each browser, so one person's「無視する」didn't hide anything for anyone
+  // else. The old per-browser list ('ats_deleted_drive_item_ids') is folded in once; un-ignoring
+  // removes the entry, which propagates as a tombstone like any other deletion.
+  const [driveIgnores, setDriveIgnoresRaw] = useState<DriveIgnoreEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('ats_drive_ignores');
+      if (saved) return JSON.parse(saved);
+      const legacy: string[] = JSON.parse(localStorage.getItem('ats_deleted_drive_item_ids') || '[]');
+      const now = Date.now();
+      return Array.from(new Set(legacy)).map((id) => ({ id, syncUpdatedAt: now }));
+    } catch {
+      return [];
+    }
   });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const setDriveIgnores = useCallback(makeTrackedSetter<DriveIgnoreEntry>('driveIgnores', setDriveIgnoresRaw), []);
+  const deletedDriveItemIds = useMemo(() => driveIgnores.map((x) => x.id), [driveIgnores]);
+  // Same call shape as the old string[] state setter, so every existing caller keeps working.
+  const setDeletedDriveItemIds = (action: string[] | ((prev: string[]) => string[])) =>
+    setDriveIgnores((prev) => {
+      const prevIds = prev.map((x) => x.id);
+      const nextIds = Array.from(new Set(typeof action === 'function' ? action(prevIds) : action));
+      const byId = new Map(prev.map((x) => [x.id, x]));
+      return nextIds.map((id) => byId.get(id) || { id });
+    });
 
   // AuthGate already requires a signed-in bloom-firm.com Google account (Drive-scoped) before
   // this provider ever renders, so the Drive token/email are sourced straight from that session
@@ -571,17 +596,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
 
   useEffect(() => {
-    if (!safeSetLocalStorage('ats_deleted_drive_item_ids', deletedDriveItemIds)) warnLocalStorageFailure();
-  }, [deletedDriveItemIds]);
+    if (!safeSetLocalStorage('ats_drive_ignores', driveIgnores)) warnLocalStorageFailure();
+  }, [driveIgnores]);
 
   // Always-fresh snapshot of everything backupToDrive bundles together, read from inside the
   // debounced timeout below rather than captured in its closure — by the time the timeout fires,
   // candidates/agencies/staffList may have moved on from whatever they were when the meetingLogs
   // change that scheduled it happened, and the Drive backup should reflect the latest, not a
   // slightly-stale snapshot from several seconds earlier.
-  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries });
+  const latestBackupStateRef = useRef({ candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, driveIgnores, inquiries });
   useEffect(() => {
-    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries };
+    latestBackupStateRef.current = { candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, driveIgnores, inquiries };
   });
 
   // The merge base for mergeCollection (above): each collection as of the last time this tab
@@ -597,7 +622,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     staffList: 'ats_sync_base_staff_list',
     meetingLogs: 'ats_sync_base_meeting_logs',
     groupChatWebhooks: 'ats_sync_base_group_chat_webhooks',
-    positions: 'ats_sync_base_positions'
+    positions: 'ats_sync_base_positions',
+    driveIgnores: 'ats_sync_base_drive_ignores'
   } as const;
   const syncBaseRef = useRef<{
     candidates: Candidate[];
@@ -606,6 +632,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     meetingLogs: MeetingLog[];
     groupChatWebhooks: ChatWebhook[];
     positions: RecruitmentPosition[];
+    driveIgnores: DriveIgnoreEntry[];
   }>({
     candidates: (() => {
       const saved = localStorage.getItem(SYNC_BASE_KEYS.candidates);
@@ -630,6 +657,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     positions: (() => {
       const saved = localStorage.getItem(SYNC_BASE_KEYS.positions);
       return saved ? JSON.parse(saved) : positions;
+    })(),
+    // Empty (not the local list) when never synced: everything this browser had ignored on its own
+    // then counts as unsynced and gets shared on the next write.
+    driveIgnores: (() => {
+      const saved = localStorage.getItem(SYNC_BASE_KEYS.driveIgnores);
+      return saved ? JSON.parse(saved) : [];
     })()
   });
   const updateSyncBase = (partial: Partial<typeof syncBaseRef.current>) => {
@@ -732,6 +765,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     meetingLogs: MeetingLog[];
     groupChatWebhooks: ChatWebhook[];
     positions: RecruitmentPosition[];
+    driveIgnores: DriveIgnoreEntry[];
   };
 
   // JSON of the inquiries list as last written to / read from Drive (inquiries are not id-merged,
@@ -745,7 +779,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ...(Array.isArray(data?.staffList) ? { staffList: data.staffList as InternalStaff[] } : {}),
     ...(Array.isArray(data?.meetingLogs) ? { meetingLogs: data.meetingLogs as MeetingLog[] } : {}),
     ...(Array.isArray(data?.groupChatWebhooks) ? { groupChatWebhooks: data.groupChatWebhooks as ChatWebhook[] } : {}),
-    ...(Array.isArray(data?.positions) ? { positions: migrateLegacyPositions(data.positions) } : {})
+    ...(Array.isArray(data?.positions) ? { positions: migrateLegacyPositions(data.positions) } : {}),
+    ...(Array.isArray(data?.driveIgnores) ? { driveIgnores: data.driveIgnores as DriveIgnoreEntry[] } : {})
   });
 
   // A collection missing from the remote payload (older backup format) merges as "remote agrees
@@ -769,7 +804,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       remote.groupChatWebhooks ?? local.groupChatWebhooks,
       tomb.groupChatWebhooks
     ),
-    positions: mergeCollection(base.positions, local.positions, remote.positions ?? local.positions, tomb.positions)
+    positions: mergeCollection(base.positions, local.positions, remote.positions ?? local.positions, tomb.positions),
+    driveIgnores: mergeCollection(base.driveIgnores, local.driveIgnores, remote.driveIgnores ?? local.driveIgnores, tomb.driveIgnores)
   });
 
   // Folds a merge result into live state without clobbering anything edited while the merge's
@@ -796,6 +832,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     apply(setMeetingLogsRaw, snapshot.meetingLogs, merged.meetingLogs, tomb.meetingLogs);
     apply(setGroupChatWebhooksRaw, snapshot.groupChatWebhooks, merged.groupChatWebhooks, tomb.groupChatWebhooks);
     apply(setPositionsRaw, snapshot.positions, merged.positions, tomb.positions);
+    apply(setDriveIgnoresRaw, snapshot.driveIgnores, merged.driveIgnores, tomb.driveIgnores);
   };
 
   const hasUnsyncedLocalChanges = (): boolean => {
@@ -948,7 +985,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (autoBackupTimerRef.current) clearTimeout(autoBackupTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, inquiries, driveAccessToken]);
+  }, [candidates, agencies, staffList, meetingLogs, groupChatWebhooks, positions, driveIgnores, inquiries, driveAccessToken]);
 
   // 内定者台帳（Drive「内定者台帳」フォルダ）への自動蓄積。内定者の氏名・年齢・現職・オファー金額・
   // 手数料の行が変わったら、最後の変更の5秒後に送る。台帳側は追記・更新のみで削除せず、空値で既存の
@@ -2844,10 +2881,11 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // folders already captured above as part of a duplicateFolders group are excluded too —
       // they're reviewed (and resolved: keep-or-discard) there instead of resurfacing here as an
       // unrelated "new candidate".
-      const isKnown = (e: (typeof entries)[number]) =>
+      const isRegistered = (e: (typeof entries)[number]) =>
         e.folderId
-          ? knownFolderIds.has(e.folderId) || deletedIds.has(e.folderId) || duplicateOrphanFolderIds.has(e.folderId)
-          : knownFileIds.has(e.file.id) || deletedIds.has(e.file.id);
+          ? knownFolderIds.has(e.folderId) || duplicateOrphanFolderIds.has(e.folderId)
+          : knownFileIds.has(e.file.id);
+      const isIgnoredEntry = (e: (typeof entries)[number]) => deletedIds.has(e.folderId || e.file.id);
 
       // Several files can sit in one unregistered candidate folder (履歴書 + 職務経歴書, etc.) —
       // surface it once per folder rather than once per file, but keep every file in `files` so
@@ -2856,10 +2894,14 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // even referenced again — the source of "履歴書か職務経歴書のどちらかしか見られない").
       const folderGroups = new Map<string, DriveSyncNewImport>();
       const newImports: DriveSyncNewImport[] = [];
+      // Ignored folders are still collected (flagged isIgnored) so the review modal can list them on
+      // request and let someone import one after all — they're never shown or counted by default.
       entries.forEach((entry) => {
-        if (isKnown(entry)) return;
+        if (isRegistered(entry)) return;
+        const isIgnored = isIgnoredEntry(entry);
         if (!entry.folderId) {
           newImports.push({
+            isIgnored,
             key: entry.file.id,
             displayName: entry.folderName || entry.file.name,
             phase: (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase,
@@ -2881,6 +2923,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         }
         const group: DriveSyncNewImport = {
+          isIgnored,
           key: entry.folderId,
           displayName: entry.folderName || entry.file.name,
           phase: (entry.phase in PHASE_ORDER ? entry.phase : 'DOCUMENT_SCREENING') as SelectionPhase,
@@ -2892,15 +2935,29 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         newImports.push(group);
       });
 
+      // Unregistered folders that are just history — rejected/declined candidates, or folders nothing
+      // has touched in a while — are kept out of the way: collapsed in the review modal and left out
+      // of the login notice, so the list only leads with what might actually need registering.
+      const PAST_AGE_MS = 10 * 24 * 60 * 60 * 1000;
+      const nowMs = Date.now();
+      newImports.forEach((imp) => {
+        const latest = imp.files.reduce<string>((acc, f: any) => [f.modifiedTime, f.createdTime, acc].filter(Boolean).sort().pop() || '', '');
+        imp.lastModified = latest || undefined;
+        const stale = !!latest && nowMs - new Date(latest).getTime() > PAST_AGE_MS;
+        imp.isPast = imp.phase === 'REJECTED' || imp.phase === 'DECLINED' || stale;
+      });
+      const activeImportCount = newImports.filter((imp) => !imp.isPast && !imp.isIgnored).length;
+
       if (notifyOnly) {
-        if (newImports.length > 0) {
+        if (activeImportCount > 0) {
           showToast(
-            `Driveにアプリ未登録のフォルダが${newImports.length}件あります。右上の「Drive連携」→「Driveと同期」で確認してください`,
+            `Driveにアプリ未登録のフォルダが${activeImportCount}件あります。右上の「Drive連携」→「Driveと同期」で確認してください`,
             'warning'
           );
         }
         return;
       }
+      // Ignored folders alone still open the review, so they can be pulled in when needed.
       if (phaseMoves.length === 0 && newImports.length === 0 && docUpdates.length === 0 && duplicateFolders.length === 0) {
         showToast('Drive同期: 差分はありませんでした', 'info');
       } else {
@@ -2941,6 +2998,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     driveFolderMoveCandidateIds?: string[]; // アプリ → Drive: Driveフォルダをアプリの現在フェーズのフォルダへ移動する
     importKeys: string[];
     ignoreKeys: string[];
+    unignoreKeys?: string[]; // 無視リストから外す（「無視中」欄で解除・取り込みしたもの）
     docUpdateCandidateIds?: string[];
     duplicateResolutions?: { candidateId: string; keepFolderId: string }[];
     importDetails?: Record<string, { jobTitle?: string; assignee?: string; agencyId?: string }>;
@@ -3095,6 +3153,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (selection.ignoreKeys.length > 0) {
         setDeletedDriveItemIds((prev) => Array.from(new Set([...prev, ...selection.ignoreKeys])));
       }
+      // Taken off the ignore list: explicitly un-ignored rows, and ignored rows imported just now
+      // (imported or not — choosing to import one means it's no longer meant to be ignored).
+      const unignore = new Set([...(selection.unignoreKeys || []), ...toImport.filter((e) => e.isIgnored).map((e) => e.key)]);
+      if (unignore.size > 0) {
+        setDeletedDriveItemIds((prev) => prev.filter((id) => !unignore.has(id)));
+      }
 
       // Each resolution says which of a candidate's several Drive folders (across phase folders)
       // to keep — the rest get moved into 99_完全削除済み (not hard-deleted, same precedent as
@@ -3178,7 +3242,8 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         duplicateDiscardFailedCount > 0
           ? `重複フォルダの削除に失敗 ${duplicateDiscardFailedCount}件（時間を置いて再度お試しください）`
           : null,
-        selection.ignoreKeys.length > 0 ? `無視リストに追加 ${selection.ignoreKeys.length}件` : null
+        selection.ignoreKeys.length > 0 ? `無視リストに追加 ${selection.ignoreKeys.length}件` : null,
+        (selection.unignoreKeys || []).length > 0 ? `無視を解除 ${(selection.unignoreKeys || []).length}件` : null
       ].filter(Boolean);
 
       showToast(

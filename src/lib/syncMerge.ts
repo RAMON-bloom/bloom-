@@ -34,15 +34,66 @@ export const syncStampOf = (x: unknown): number => {
 };
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const isIdArray = (v: unknown): v is { id: string }[] =>
-  Array.isArray(v) && v.length > 0 && v.every((x) => x && typeof x === 'object' && typeof (x as any).id === 'string');
+
+// Arrays nested inside a record whose items can be told apart: items with an `id` (evaluation
+// notes, action items) or, for an MTG's per-recruiter reports, a `recruiterName`. Such arrays are
+// merged item by item instead of one side's whole array winning — otherwise two recruiters typing
+// their own reports into the same MTG at the same time erased each other's text.
+type ItemKeyFn = (x: any) => string;
+const ITEM_KEYS: ItemKeyFn[] = [(x) => x.id, (x) => x.recruiterName];
+function itemKeyFnFor(...arrays: unknown[]): ItemKeyFn | null {
+  const nonEmpty = arrays.filter((a): a is unknown[] => Array.isArray(a) && a.length > 0);
+  if (nonEmpty.length === 0 || arrays.some((a) => a !== undefined && !Array.isArray(a))) return null;
+  for (const keyOf of ITEM_KEYS) {
+    const ok = nonEmpty.every((arr) => {
+      if (!arr.every((x) => x && typeof x === 'object' && typeof keyOf(x) === 'string')) return false;
+      return new Set(arr.map(keyOf)).size === arr.length;
+    });
+    if (ok) return keyOf;
+  }
+  return null;
+}
+
+function mergeKeyedArray(base: any[], local: any[], remote: any[], keyOf: ItemKeyFn, preferLocal: boolean): any[] {
+  const baseMap = new Map(base.map((x) => [keyOf(x), x]));
+  const localMap = new Map(local.map((x) => [keyOf(x), x]));
+  const remoteMap = new Map(remote.map((x) => [keyOf(x), x]));
+  const keys = [...local.map(keyOf).filter((k) => !remoteMap.has(k)), ...remote.map(keyOf)];
+  const result: any[] = [];
+  for (const key of new Set(keys)) {
+    const b = baseMap.get(key);
+    const l = localMap.get(key);
+    const r = remoteMap.get(key);
+    // Within one record an item missing on one side while the other side still has it unchanged
+    // from base was removed on purpose (e.g. a deleted action item) — the record-level stale-copy
+    // check in mergeRecord already keeps an outdated writer from getting this far.
+    if (!l) {
+      if (b && sameJson(r, b)) continue;
+      result.push(r);
+    } else if (!r) {
+      if (b && sameJson(l, b)) continue;
+      result.push(l);
+    } else if (sameJson(l, r)) {
+      result.push(l);
+    } else {
+      const merged: Record<string, unknown> = {};
+      for (const field of new Set([...Object.keys(l), ...Object.keys(r)])) {
+        const value = mergeField(b?.[field], l[field], r[field], preferLocal);
+        if (value !== undefined) merged[field] = value;
+      }
+      result.push(merged);
+    }
+  }
+  return result;
+}
 
 function mergeField(baseValue: unknown, localValue: unknown, remoteValue: unknown, preferLocal: boolean): unknown {
   if (sameJson(localValue, remoteValue)) return localValue;
   if (sameJson(localValue, baseValue)) return remoteValue;
   if (sameJson(remoteValue, baseValue)) return localValue;
-  if (isIdArray(localValue) && isIdArray(remoteValue)) {
-    return mergeCollection(isIdArray(baseValue) ? baseValue : [], localValue, remoteValue);
+  const keyOf = itemKeyFnFor(baseValue, localValue, remoteValue);
+  if (keyOf) {
+    return mergeKeyedArray(Array.isArray(baseValue) ? baseValue : [], (localValue as any[]) || [], (remoteValue as any[]) || [], keyOf, preferLocal);
   }
   return preferLocal ? localValue : remoteValue;
 }

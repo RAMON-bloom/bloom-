@@ -35,7 +35,7 @@ export const RecruitmentMeetingView: React.FC = () => {
   const {
     meetingLogs,
     addMeetingLog,
-    updateMeetingLog,
+    patchMeetingLog,
     deleteMeetingLog,
     importHistoricalMeetingLogs,
     staffList,
@@ -76,6 +76,24 @@ export const RecruitmentMeetingView: React.FC = () => {
     yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, meetingDateISO.slice(0, 7))
   });
 
+  // Changes one recruiter's report inside the *latest* copy of the log (see patchMeetingLog), adding
+  // an empty report for them first if the log has none yet.
+  const patchRecruiterReport = (
+    meetingId: string,
+    recruiterName: string,
+    change: (report: RecruiterReport) => RecruiterReport
+  ) => {
+    patchMeetingLog(meetingId, (latest) => {
+      const reports = latest.recruiterReports || [];
+      const index = reports.findIndex((r) => r.recruiterName === recruiterName);
+      const current = index >= 0 ? reports[index] : buildEmptyRecruiterReport(recruiterName, latest.date);
+      const updated = change(current);
+      return {
+        recruiterReports: index >= 0 ? reports.map((r, i) => (i === index ? updated : r)) : [...reports, updated]
+      };
+    });
+  };
+
   // Newest MTG first in the picker, regardless of the order logs were created/synced in.
   const sortedMeetingLogs = [...meetingLogs].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
@@ -109,7 +127,12 @@ export const RecruitmentMeetingView: React.FC = () => {
   const [isNewMeetingModalOpen, setIsNewMeetingModalOpen] = useState(false);
 
   // New Meeting Form
-  const [newMtgDate, setNewMtgDate] = useState(new Date().toISOString().slice(0, 10));
+  // Local date (toISOString() is UTC, which before 9:00 JST defaulted the form to yesterday).
+  const todayLocal = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const [newMtgDate, setNewMtgDate] = useState(todayLocal);
 
   // Initiative Input
   const [newInitiativeInput, setNewInitiativeInput] = useState('');
@@ -173,35 +196,33 @@ export const RecruitmentMeetingView: React.FC = () => {
     const existingSnapshot = reportIndex >= 0 ? existingReports[reportIndex].yieldSnapshot : undefined;
     if (existingSnapshot?.pipelineCandidates && !isLatestMeeting) return;
 
-    let updatedReport: RecruiterReport;
-    if (reportIndex < 0) {
-      updatedReport = buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
-    } else if (!existingSnapshot) {
-      updatedReport = {
-        ...existingReports[reportIndex],
-        yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
-      };
-    } else {
+    if (existingSnapshot) {
       const freshPipeline = computeRecruiterPipelineSnapshot(recruiterName, candidates);
       if (isLatestMeeting && JSON.stringify(freshPipeline) === JSON.stringify(existingSnapshot.pipelineCandidates)) return;
-      updatedReport = {
-        ...existingReports[reportIndex],
-        yieldSnapshot: { ...existingSnapshot, pipelineCandidates: freshPipeline }
-      };
     }
 
-    const newReportsList = reportIndex >= 0
-      ? existingReports.map((r, i) => (i === reportIndex ? updatedReport : r))
-      : [...existingReports, updatedReport];
-
-    updateMeetingLog({ ...activeMeeting, recruiterReports: newReportsList }, { silent: true });
+    // Only the snapshot is touched, on the latest copy of the report — never the text people type.
+    patchRecruiterReport(activeMeeting.id, recruiterName, (report) => {
+      if (!report.yieldSnapshot) {
+        return {
+          ...report,
+          yieldSnapshot: computeRecruiterYieldSnapshot(recruiterName, candidates, agencies, activeMeeting.date.slice(0, 7))
+        };
+      }
+      return {
+        ...report,
+        yieldSnapshot: { ...report.yieldSnapshot, pipelineCandidates: computeRecruiterPipelineSnapshot(recruiterName, candidates) }
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMeeting?.id, selectedRecruiter, candidates]);
 
   const handleSaveNotes = (label?: string) => {
     if (!activeMeeting) return;
     setIsSaving(true);
-    updateMeetingLog(activeMeeting, { silent: true });
+    // Every edit is already saved as it is typed (and synced to Drive a couple of seconds later);
+    // this button only confirms that. It used to write the on-screen copy of the whole log back,
+    // which could undo changes merged in from other members since the screen last rendered.
     setTimeout(() => {
       setIsSaving(false);
       const now = new Date();
@@ -216,13 +237,9 @@ export const RecruitmentMeetingView: React.FC = () => {
 
   // Handle Action Item Toggle
   const handleToggleActionItem = (actionId: string) => {
-    const updatedActionItems = activeMeeting.actionItems.map(item => 
-      item.id === actionId ? { ...item, done: !item.done } : item
-    );
-    updateMeetingLog({
-      ...activeMeeting,
-      actionItems: updatedActionItems
-    });
+    patchMeetingLog(activeMeeting.id, (latest) => ({
+      actionItems: (latest.actionItems || []).map((item) => (item.id === actionId ? { ...item, done: !item.done } : item))
+    }));
   };
 
   // Handle Add New Action Item
@@ -237,10 +254,7 @@ export const RecruitmentMeetingView: React.FC = () => {
       done: false
     };
 
-    updateMeetingLog({
-      ...activeMeeting,
-      actionItems: [...activeMeeting.actionItems, newItem]
-    }, { silent: true });
+    patchMeetingLog(activeMeeting.id, (latest) => ({ actionItems: [...(latest.actionItems || []), newItem] }));
 
     setNewActionItemText('');
     showToast(`アクションアイテムを追加しました`, 'success');
@@ -251,7 +265,18 @@ export const RecruitmentMeetingView: React.FC = () => {
     e.preventDefault();
     if (!newMtgDate.trim()) return;
 
-    const dateObj = new Date(newMtgDate);
+    // One log per MTG date. If that day's log already exists (someone else created it, or it was
+    // created earlier), open it instead of making a second one that only its creator writes into.
+    const existing = meetingLogs.find((m) => (m.date || '').slice(0, 10) === newMtgDate);
+    if (existing) {
+      setSelectedMeetingId(existing.id);
+      setIsNewMeetingModalOpen(false);
+      showToast(`${existing.title} の採用MTGログは作成済みのため、そちらを開きました`, 'info');
+      return;
+    }
+
+    const [y, mo, d] = newMtgDate.split('-').map(Number);
+    const dateObj = new Date(y, mo - 1, d);
     const formattedTitle = `${dateObj.getFullYear()}年${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
 
     // Frozen here (creation time) rather than left to compute live on every future render, so
@@ -266,6 +291,8 @@ export const RecruitmentMeetingView: React.FC = () => {
       yieldSnapshot: computeRecruiterYieldSnapshot(s.name, candidates, agencies, newMtgDate.slice(0, 7))
     }));
 
+    // Deterministic per date: if two people create the same day's MTG before either has synced,
+    // both copies carry the same id and are merged into one log instead of becoming two.
     const newId = addMeetingLog({
       title: formattedTitle,
       date: `${newMtgDate}T10:00`,
@@ -274,11 +301,10 @@ export const RecruitmentMeetingView: React.FC = () => {
       overallSummary: '',
       recruiterReports: initialReports,
       actionItems: []
-    });
+    }, { id: `mtg-${newMtgDate}` });
 
     setSelectedMeetingId(newId);
     setIsNewMeetingModalOpen(false);
-    showToast(`新しい採用MTGログ（${formattedTitle}）を作成しました`, 'success');
   };
 
   // Shared between the normal view and the "no MTG logs yet" empty state below — both need a way
@@ -355,7 +381,7 @@ export const RecruitmentMeetingView: React.FC = () => {
         <div className="flex items-center justify-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => setIsNewMeetingModalOpen(true)}
+            onClick={() => { setNewMtgDate(todayLocal()); setIsNewMeetingModalOpen(true); }}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -382,6 +408,8 @@ export const RecruitmentMeetingView: React.FC = () => {
   // recurring series' Meet code has already changed a few times) and imports its auto-generated
   // "Gemini によるメモ" doc directly.
   const handleImportFromCalendar = async () => {
+    // Captured now: the result belongs to this MTG even if another one is selected meanwhile.
+    const meetingId = activeMeeting.id;
     if (!driveAccessToken) {
       showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
       await connectDrive();
@@ -421,19 +449,18 @@ export const RecruitmentMeetingView: React.FC = () => {
       const file = { id: match.fileId, name: match.fileName || 'Gemini によるメモ', mimeType: 'application/vnd.google-apps.document' };
       const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
 
-      const updatedReports = (activeMeeting.recruiterReports || []).map((r) => ({
-        ...r,
-        progressLog: `【カレンダー抽出ログ】議事録「${file.name}」より ${r.recruiterName} 担当分の協議内容ログを取り込み完了`
-      }));
-
-      updateMeetingLog({
-        ...activeMeeting,
+      // Patched onto the latest log: the AI summary takes a while, and anything typed into this MTG
+      // by anyone in the meantime must survive it.
+      patchMeetingLog(meetingId, (latest) => ({
         rawTranscript: rawContent,
         fetchedOverallLog: summary.summaryMarkdown,
-        recruiterReports: updatedReports,
+        recruiterReports: (latest.recruiterReports || []).map((r) => ({
+          ...r,
+          progressLog: `【カレンダー抽出ログ】議事録「${file.name}」より ${r.recruiterName} 担当分の協議内容ログを取り込み完了`
+        })),
         sourceDriveFileId: file.id,
         sourceDriveFileName: file.name
-      }, { silent: true });
+      }));
 
       showToast(`カレンダーの予定「${match.eventSummary}」から議事録を取り込み、AI要約しました`, 'success');
     } catch (err: any) {
@@ -454,6 +481,8 @@ export const RecruitmentMeetingView: React.FC = () => {
   // メールを送るため、その本文中のDocsリンクからfileIdを取り出し、以降はカレンダー取込と全く同じ
   // summarizeDriveMeetingLogに渡す（取り込み先の処理は共通）。
   const handleImportFromGmail = async () => {
+    // Captured now: the result belongs to this MTG even if another one is selected meanwhile.
+    const meetingId = activeMeeting.id;
     if (!driveAccessToken) {
       showToast('先にヘッダー右上の「Drive連携」からGoogleにログインしてください', 'warning');
       await connectDrive();
@@ -491,19 +520,18 @@ export const RecruitmentMeetingView: React.FC = () => {
       const file = { id: match.fileId, name: match.fileName || 'Gmail議事録', mimeType: 'application/vnd.google-apps.document' };
       const { rawContent, summary } = await summarizeDriveMeetingLog(driveAccessToken, file);
 
-      const updatedReports = (activeMeeting.recruiterReports || []).map((r) => ({
-        ...r,
-        progressLog: `【Gmail抽出ログ】議事録「${file.name}」より ${r.recruiterName} 担当分の協議内容ログを取り込み完了`
-      }));
-
-      updateMeetingLog({
-        ...activeMeeting,
+      // Patched onto the latest log: the AI summary takes a while, and anything typed into this MTG
+      // by anyone in the meantime must survive it.
+      patchMeetingLog(meetingId, (latest) => ({
         rawTranscript: rawContent,
         fetchedOverallLog: summary.summaryMarkdown,
-        recruiterReports: updatedReports,
+        recruiterReports: (latest.recruiterReports || []).map((r) => ({
+          ...r,
+          progressLog: `【Gmail抽出ログ】議事録「${file.name}」より ${r.recruiterName} 担当分の協議内容ログを取り込み完了`
+        })),
         sourceDriveFileId: file.id,
         sourceDriveFileName: file.name
-      }, { silent: true });
+      }));
 
       showToast(`Gmailのメール「${match.eventSummary}」から議事録を取り込み、AI要約しました`, 'success');
     } catch (err: any) {
@@ -525,51 +553,23 @@ export const RecruitmentMeetingView: React.FC = () => {
     field: 'progressNotes' | 'recommendationNotes' | 'yieldNotes', 
     value: string
   ) => {
-    const existingReports = activeMeeting.recruiterReports || [];
-    const reportIndex = existingReports.findIndex(r => r.recruiterName === recruiterName);
-
-    const targetReport = existingReports[reportIndex] || buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
-
-    const updatedReport = { ...targetReport, [field]: value };
-    let newReportsList = [...existingReports];
-    if (reportIndex >= 0) {
-      newReportsList[reportIndex] = updatedReport;
-    } else {
-      newReportsList.push(updatedReport);
-    }
 
     // キー入力のたびに呼ばれるため、他の通知種別と違い保存トースト無し(silent)。「保存しました」
     // が1文字ごとに出続けるとむしろ入力の妨げになる。updateMeetingLog自体はここでも即座に
     // setMeetingLogsを呼んでおり、ローカル状態への反映・自動バックアップの予約は他の変更と同じ
     // タイミングで行われる。
-    updateMeetingLog({
-      ...activeMeeting,
-      recruiterReports: newReportsList
-    }, { silent: true });
+    patchRecruiterReport(activeMeeting.id, recruiterName, (report) => ({ ...report, [field]: value }));
   };
 
   // Add Initiative Item to Recruiter Report
   const handleAddInitiative = (recruiterName: string) => {
     if (!newInitiativeInput.trim()) return;
 
-    const existingReports = activeMeeting.recruiterReports || [];
-    const reportIndex = existingReports.findIndex(r => r.recruiterName === recruiterName);
-    const targetReport = existingReports[reportIndex] || buildEmptyRecruiterReport(recruiterName, activeMeeting.date);
-
-    const updatedInitiatives = [...(targetReport.upcomingInitiatives || []), newInitiativeInput.trim()];
-    const updatedReport = { ...targetReport, upcomingInitiatives: updatedInitiatives };
-
-    let newReportsList = [...existingReports];
-    if (reportIndex >= 0) {
-      newReportsList[reportIndex] = updatedReport;
-    } else {
-      newReportsList.push(updatedReport);
-    }
-
-    updateMeetingLog({
-      ...activeMeeting,
-      recruiterReports: newReportsList
-    }, { silent: true });
+    const text = newInitiativeInput.trim();
+    patchRecruiterReport(activeMeeting.id, recruiterName, (report) => ({
+      ...report,
+      upcomingInitiatives: [...(report.upcomingInitiatives || []), text]
+    }));
 
     setNewInitiativeInput('');
     showToast('取り組み項目を追加しました', 'success');
@@ -577,21 +577,15 @@ export const RecruitmentMeetingView: React.FC = () => {
 
   // Delete Initiative Item
   const handleDeleteInitiative = (recruiterName: string, index: number) => {
-    const existingReports = activeMeeting.recruiterReports || [];
-    const reportIndex = existingReports.findIndex(r => r.recruiterName === recruiterName);
-    if (reportIndex < 0) return;
-
-    const targetReport = existingReports[reportIndex];
-    const updatedInitiatives = (targetReport.upcomingInitiatives || []).filter((_, i) => i !== index);
-    const updatedReport = { ...targetReport, upcomingInitiatives: updatedInitiatives };
-
-    let newReportsList = [...existingReports];
-    newReportsList[reportIndex] = updatedReport;
-
-    updateMeetingLog({
-      ...activeMeeting,
-      recruiterReports: newReportsList
-    }, { silent: true });
+    // Removed by the text shown on screen, not only its position: if someone else's initiative was
+    // merged in meanwhile, the index alone could point at a different item.
+    const shownText = (activeMeeting.recruiterReports || []).find((r) => r.recruiterName === recruiterName)?.upcomingInitiatives?.[index];
+    if (shownText === undefined) return;
+    patchRecruiterReport(activeMeeting.id, recruiterName, (report) => {
+      const list = report.upcomingInitiatives || [];
+      const target = list[index] === shownText ? index : list.indexOf(shownText);
+      return target < 0 ? report : { ...report, upcomingInitiatives: list.filter((_, i) => i !== target) };
+    });
     showToast('取り組み項目を削除しました', 'info');
   };
 
@@ -840,7 +834,7 @@ export const RecruitmentMeetingView: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setIsNewMeetingModalOpen(true)}
+            onClick={() => { setNewMtgDate(todayLocal()); setIsNewMeetingModalOpen(true); }}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -1230,7 +1224,10 @@ export const RecruitmentMeetingView: React.FC = () => {
 
                 <textarea
                   value={activeMeeting.overallSummary || ''}
-                  onChange={(e) => updateMeetingLog({ ...activeMeeting, overallSummary: e.target.value }, { silent: true })}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    patchMeetingLog(activeMeeting.id, () => ({ overallSummary: value }));
+                  }}
                   rows={5}
                   className="w-full p-3 bg-slate-50/50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed transition-colors"
                   placeholder="定例MTG全体の決定事項、会社方針の変更点や共有事項を入力..."

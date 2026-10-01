@@ -135,8 +135,9 @@ interface ATSContextType {
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
   meetingLogs: MeetingLog[];
-  addMeetingLog: (log: Omit<MeetingLog, 'id'>) => string;
+  addMeetingLog: (log: Omit<MeetingLog, 'id'>, opts?: { id?: string }) => string;
   updateMeetingLog: (log: MeetingLog, opts?: { silent?: boolean }) => void;
+  patchMeetingLog: (id: string, patch: (latest: MeetingLog) => Partial<MeetingLog>) => void;
   deleteMeetingLog: (id: string) => void;
   importHistoricalMeetingLogs: () => number;
   
@@ -1147,12 +1148,23 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveAccessToken]);
 
-  const addMeetingLog = (newLogData: Omit<MeetingLog, 'id'>) => {
-    const id = `mtg-${Date.now()}`;
+  // `opts.id` lets the caller use a deterministic id (one per MTG date, see RecruitmentMeetingView)
+  // so two people creating the same day's MTG at once end up merged into one log on sync instead
+  // of each typing into their own copy. If that id is already present locally, nothing is added.
+  const addMeetingLog = (newLogData: Omit<MeetingLog, 'id'>, opts?: { id?: string }) => {
+    const id = opts?.id || `mtg-${Date.now()}`;
     const newLog: MeetingLog = { ...newLogData, id };
-    setMeetingLogs((prev) => [newLog, ...prev]);
-    showToast(`MTGログ 「${newLog.title}」 を保存・追加しました`, 'success');
+    setMeetingLogs((prev) => (prev.some((m) => m.id === id) ? prev : [newLog, ...prev]));
+    showToast(`MTGログ 「${newLog.title}」 を作成しました`, 'success');
     return id;
+  };
+
+  // Applies only the fields `patch` returns, computed from the *latest* state of that log — not
+  // from a copy captured at render time. updateMeetingLog({...activeMeeting, x}) wrote the whole
+  // log back, so anything merged in from another member between that render and the write (their
+  // report text, an action item) was silently overwritten.
+  const patchMeetingLog = (id: string, patch: (latest: MeetingLog) => Partial<MeetingLog>) => {
+    setMeetingLogs((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch(m) } : m)));
   };
 
   const updateMeetingLog = (updatedLog: MeetingLog, opts?: { silent?: boolean }) => {
@@ -3533,6 +3545,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         meetingLogs,
         addMeetingLog,
         updateMeetingLog,
+        patchMeetingLog,
         deleteMeetingLog,
         importHistoricalMeetingLogs,
         updateCandidatePhase,

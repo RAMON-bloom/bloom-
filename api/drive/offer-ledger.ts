@@ -1,4 +1,4 @@
-import { ensureSubfolder, findFileByName, readFileContent, upsertTextFile } from '../_lib/drive.js';
+import { ensureSubfolder, findFileByName, findFolderByName, readFileContent, upsertTextFile } from '../_lib/drive.js';
 
 // 内定者台帳: 内定者の氏名・年齢・現職・オファー金額・手数料を、アプリ本体のバックアップ
 // (bloom_ats_backup.json)とは別に、Drive上へ「追記・更新のみ・削除しない」で蓄積する。
@@ -24,6 +24,13 @@ interface Row {
   signOnBonusAmount?: number;
   commissionRate?: number;
   commissionAmount?: number;
+  salaryMonths?: number;
+  bonusGuaranteeInstallments?: { amount: number; paymentMonth: string }[];
+  preJoinDinnerStatus?: string;
+  preJoinDinnerDate?: string;
+  resignationNegotiationStatus?: string;
+  onboardingNotes?: string;
+  onboardingChecklist?: { id: string; checked: boolean; note: string }[];
 }
 
 interface StoredRow extends Row {
@@ -39,11 +46,16 @@ interface Ledger {
 // 空・未入力の値では、台帳に既にある値を上書きしない（アプリ側で誤って消えても台帳には残す）。
 const KEEP_IF_EMPTY: (keyof Row)[] = [
   'age', 'currentCompany', 'jobTitle', 'agencyName', 'joiningDate', 'baseMonthlySalary', 'annualSalary',
-  'bonusGuaranteeAmount', 'signOnBonusAmount', 'commissionRate', 'commissionAmount'
+  'bonusGuaranteeAmount', 'signOnBonusAmount', 'commissionRate', 'commissionAmount',
+  'salaryMonths', 'bonusGuaranteeInstallments', 'preJoinDinnerStatus', 'preJoinDinnerDate',
+  'resignationNegotiationStatus', 'onboardingNotes', 'onboardingChecklist'
 ];
-const TRACKED: (keyof Row)[] = ['phaseLabel', 'joiningDate', 'baseMonthlySalary', 'annualSalary', 'bonusGuaranteeAmount', 'signOnBonusAmount', 'commissionRate', 'commissionAmount'];
+const TRACKED: (keyof Row)[] = [
+  'phaseLabel', 'joiningDate', 'baseMonthlySalary', 'salaryMonths', 'annualSalary', 'bonusGuaranteeAmount', 'signOnBonusAmount',
+  'commissionRate', 'commissionAmount', 'preJoinDinnerStatus', 'resignationNegotiationStatus'
+];
 
-const isEmpty = (v: unknown) => v === undefined || v === null || v === '' || v === 0;
+const isEmpty = (v: unknown) => v === undefined || v === null || v === '' || v === 0 || (Array.isArray(v) && v.length === 0);
 
 function mergeLedger(ledger: Ledger, incoming: Row[], now: string): boolean {
   let changed = false;
@@ -77,9 +89,14 @@ function mergeLedger(ledger: Ledger, incoming: Row[], now: string): boolean {
 
 const CSV_HEADERS = [
   '候補者ID', '氏名', '年齢', '現職', '応募職種', 'エージェント', '状況', '入社予定日',
-  '基本月給(円)', 'オファー年収(月給×支給月数・円)', '賞与保証(円)', 'サインオンボーナス(円)',
-  '紹介手数料率(%)', '紹介手数料(円)', '初回記録日', '最終更新日'
+  '基本月給(円)', '支給月数', 'オファー年収(月給×支給月数・円)', '賞与保証(円)', 'サインオンボーナス(円)',
+  '紹介手数料率(%)', '紹介手数料(円)', '退職交渉状況', '入社前会食', '会食日', '特記事項', '初回記録日', '最終更新日'
 ];
+
+const DINNER_LABELS: Record<string, string> = { UNPLANNED: '未定', SCHEDULED: '予定あり', COMPLETED: '実施済み', NOT_REQUIRED: '不要・不参加' };
+const RESIGNATION_LABELS: Record<string, string> = {
+  NOT_STARTED: '未着手', IN_PROGRESS: '交渉中', NOTICE_SUBMITTED: '退職願提出済', COMPLETED: '交渉完了', DIFFICULT: '難航・調整中'
+};
 
 const csvCell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
@@ -88,8 +105,12 @@ function ledgerToCsv(ledger: Ledger): string {
   const lines = rows.map((r) =>
     [
       r.candidateId, r.name, r.age, r.currentCompany, r.jobTitle, r.agencyName, r.phaseLabel, r.joiningDate,
-      r.baseMonthlySalary, r.annualSalary, r.bonusGuaranteeAmount, r.signOnBonusAmount,
-      r.commissionRate, r.commissionAmount, r.firstRecordedAt.slice(0, 10), r.updatedAt.slice(0, 10)
+      r.baseMonthlySalary, r.salaryMonths, r.annualSalary, r.bonusGuaranteeAmount, r.signOnBonusAmount,
+      r.commissionRate, r.commissionAmount,
+      r.resignationNegotiationStatus ? RESIGNATION_LABELS[r.resignationNegotiationStatus] || r.resignationNegotiationStatus : '',
+      r.preJoinDinnerStatus ? DINNER_LABELS[r.preJoinDinnerStatus] || r.preJoinDinnerStatus : '',
+      r.preJoinDinnerDate, r.onboardingNotes,
+      r.firstRecordedAt.slice(0, 10), r.updatedAt.slice(0, 10)
     ].map(csvCell).join(',')
   );
   // 先頭のBOMはExcelで文字化けしないため。
@@ -102,13 +123,24 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { accessToken, folderId, rows } = req.body || {};
+    const { accessToken, folderId, rows, action } = req.body || {};
     if (!accessToken) {
       return res.status(400).json({ error: 'OAuthアクセストークンが必要です。Googleでログインしてください。' });
     }
     if (!folderId) {
       return res.status(400).json({ error: 'Drive連携フォルダIDが設定されていません。' });
     }
+    // action: 'read' — returns the ledger's rows (without change history) so the app can restore
+    // 入社・フォロー管理 fields from it (OnboardingView「内定者台帳から復元」). Never writes.
+    if (action === 'read') {
+      const folder = await findFolderByName(accessToken, folderId, LEDGER_SUBFOLDER);
+      const file = folder ? await findFileByName(accessToken, folder.id, LEDGER_JSON) : null;
+      if (!file) return res.json({ success: true, rows: [] });
+      const parsed = JSON.parse(await readFileContent(accessToken, file));
+      const ledgerRows = Object.values((parsed?.rows || {}) as Record<string, StoredRow>).map(({ history, ...rest }) => rest);
+      return res.json({ success: true, rows: ledgerRows });
+    }
+
     if (!Array.isArray(rows)) {
       return res.status(400).json({ error: '台帳に記録する行がありません。' });
     }

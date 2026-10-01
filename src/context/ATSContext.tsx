@@ -173,6 +173,8 @@ interface ATSContextType {
     }
   ) => void;
   updateOnboardingChecklistItem: (candidateId: string, itemId: string, patch: { checked?: boolean; note?: string }) => void;
+  // 候補者ごとの差分を最新の状態に一括で重ねる（内定者台帳からの復元用）。
+  applyCandidatePatches: (patches: Record<string, Partial<Candidate>>) => void;
   addEvaluationNote: (
     candidateId: string,
     note: Omit<EvaluationNote, 'id' | 'createdAt'>,
@@ -1750,19 +1752,19 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       signOnBonusAmount?: number;
     }
   ) => {
+    // `info` holds only the fields being changed; applied onto the latest record so concurrent
+    // edits to the other onboarding fields (another member, a Drive sync) are kept.
     setCandidates((prev) =>
-      prev.map((c) => {
-        if (c.id === candidateId) {
-          showToast(`${c.name} さんの入社予定・フォロー情報を更新しました`, 'success');
-          return {
-            ...c,
-            ...info,
-            lastUpdated: new Date().toISOString().split('T')[0]
-          };
-        }
-        return c;
-      })
+      prev.map((c) => (c.id === candidateId ? { ...c, ...info, lastUpdated: new Date().toISOString().split('T')[0] } : c))
     );
+    const name = latestBackupStateRef.current.candidates.find((c) => c.id === candidateId)?.name;
+    if (name) showToast(`${name} さんの入社予定・フォロー情報を更新しました`, 'success');
+  };
+
+  const applyCandidatePatches = (patches: Record<string, Partial<Candidate>>) => {
+    if (Object.keys(patches).length === 0) return;
+    const today = new Date().toISOString().split('T')[0];
+    setCandidates((prev) => prev.map((c) => (patches[c.id] ? { ...c, ...patches[c.id], lastUpdated: today } : c)));
   };
 
   // チェックのON/OFFや備考の入力ごとに自動保存する（保存ボタン不要・トースト無し）。最新のstateに
@@ -3625,6 +3627,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateAptitudeTestStatus,
         updateOnboardingInfo,
         updateOnboardingChecklistItem,
+        applyCandidatePatches,
         addEvaluationNote,
         updateEvaluationNote,
         deleteEvaluationNote,

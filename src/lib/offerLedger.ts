@@ -1,6 +1,6 @@
-import { Agency, Candidate } from '../types';
+import { Agency, BonusGuaranteeInstallment, Candidate, OnboardingChecklistEntry } from '../types';
 import { isJoiningScheduled } from './onboardingUtils';
-import { annualBaseSalary, computeAgencyPaymentAmount, sumBonusGuaranteeAmount } from './agencyPayment';
+import { annualBaseSalary, computeAgencyPaymentAmount, salaryMonthsOf, sumBonusGuaranteeAmount } from './agencyPayment';
 
 // Driveの「内定者台帳」に蓄積する1人分の行。api/drive/offer-ledger.ts と同じ形（api/とsrc/は別
 // デプロイターゲットなので型は複製している。項目を変える時は両方直すこと）。
@@ -19,6 +19,15 @@ export interface OfferLedgerRow {
   signOnBonusAmount?: number;
   commissionRate?: number;
   commissionAmount?: number;
+  // 入社・フォロー管理の入力内容（アプリ側で消えたときに「内定者台帳から復元」で戻せるよう保存）。
+  // 既定値（未定・未着手など）や空欄は送らない＝台帳側の最後の値を上書きしない。
+  salaryMonths?: number;
+  bonusGuaranteeInstallments?: BonusGuaranteeInstallment[];
+  preJoinDinnerStatus?: string;
+  preJoinDinnerDate?: string;
+  resignationNegotiationStatus?: string;
+  onboardingNotes?: string;
+  onboardingChecklist?: OnboardingChecklistEntry[];
 }
 
 const PHASE_LABEL: Record<string, string> = {
@@ -50,7 +59,19 @@ export function buildOfferLedgerRows(candidates: Candidate[], agencies: Agency[]
         bonusGuaranteeAmount: bonus || undefined,
         signOnBonusAmount: c.hasSignOnBonus && c.signOnBonusAmount ? c.signOnBonusAmount : undefined,
         commissionRate: agency?.commissionRate,
-        commissionAmount: computeAgencyPaymentAmount(c, agency) || undefined
+        commissionAmount: computeAgencyPaymentAmount(c, agency) || undefined,
+        salaryMonths: c.baseMonthlySalary ? salaryMonthsOf(c) : undefined,
+        bonusGuaranteeInstallments:
+          c.hasBonusGuarantee && (c.bonusGuaranteeInstallments || []).length > 0 ? c.bonusGuaranteeInstallments : undefined,
+        preJoinDinnerStatus: c.preJoinDinnerStatus && c.preJoinDinnerStatus !== 'UNPLANNED' ? c.preJoinDinnerStatus : undefined,
+        preJoinDinnerDate: c.preJoinDinnerDate || undefined,
+        resignationNegotiationStatus:
+          c.resignationNegotiationStatus && c.resignationNegotiationStatus !== 'NOT_STARTED' ? c.resignationNegotiationStatus : undefined,
+        onboardingNotes: c.onboardingNotes?.trim() ? c.onboardingNotes : undefined,
+        onboardingChecklist: (() => {
+          const used = (c.onboardingChecklist || []).filter((e) => e.checked || e.note?.trim());
+          return used.length > 0 ? used : undefined;
+        })()
       };
     });
 }

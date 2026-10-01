@@ -202,6 +202,17 @@ export async function backupToDrive(
   return { backedUpAt, version: file.version };
 }
 
+// 内定者台帳の現在の内容（変更履歴なし）。アプリ側の入社・フォロー管理情報を台帳から戻すときに使う。
+export type StoredOfferLedgerRow = OfferLedgerRow & { firstRecordedAt: string; updatedAt: string };
+export async function readOfferLedger(accessToken: string): Promise<StoredOfferLedgerRow[]> {
+  const res = await postJson<{ rows: StoredOfferLedgerRow[] }>('/api/drive/offer-ledger', {
+    accessToken,
+    folderId: RECRUITMENT_DRIVE_FOLDER_ID,
+    action: 'read'
+  });
+  return res.rows || [];
+}
+
 // 内定者台帳（Drive上の「内定者台帳」フォルダ）へ内定者の行を追記・更新する。台帳側は削除せず蓄積
 // するだけなので、渡す行が一部でも問題ない。csvUrlは閲覧用CSV（スプレッドシートで開ける）のリンク。
 export async function saveOfferLedger(

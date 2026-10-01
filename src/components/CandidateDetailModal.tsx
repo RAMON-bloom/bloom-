@@ -333,6 +333,69 @@ export const CandidateDetailModal: React.FC = () => {
   const [onboardingSignOnBonusAmount, setOnboardingSignOnBonusAmount] = useState<string>('');
   const [customInterviewerInput, setCustomInterviewerInput] = useState<string>('');
 
+  // The onboarding form as one comparable value. `onboardingBaselineRef` holds what the form was last
+  // loaded from (or saved as): saving writes only the fields that differ from it, and fields the
+  // user hasn't touched follow later changes to the candidate (Drive sync, another member's save).
+  // The form used to be filled once on open and every field written back on save, so values that
+  // arrived after opening (e.g. the login-time Drive restore, or a colleague's edit) were wiped
+  // with the stale/empty values still sitting in the form.
+  type OnboardingForm = {
+    joiningDate: string;
+    dinnerStatus: PreJoinDinnerStatus;
+    dinnerDate: string;
+    resignationStatus: ResignationNegotiationStatus;
+    notes: string;
+    baseSalary: string;
+    salaryMonths: string;
+    hasBonus: boolean;
+    bonusRows: { amount: string; paymentMonth: string }[];
+    hasSignOn: boolean;
+    signOnAmount: string;
+  };
+  const onboardingFormFromCandidate = (c: Candidate): OnboardingForm => ({
+    joiningDate: c.joiningDate || '',
+    dinnerStatus: c.preJoinDinnerStatus || 'UNPLANNED',
+    dinnerDate: c.preJoinDinnerDate || '',
+    resignationStatus: c.resignationNegotiationStatus || 'NOT_STARTED',
+    notes: c.onboardingNotes || '',
+    baseSalary: c.baseMonthlySalary != null ? String(c.baseMonthlySalary) : '',
+    salaryMonths: String(salaryMonthsOf(c)),
+    hasBonus: !!c.hasBonusGuarantee,
+    bonusRows: (c.bonusGuaranteeInstallments || []).map((i) => ({ amount: String(i.amount), paymentMonth: i.paymentMonth })),
+    hasSignOn: !!c.hasSignOnBonus,
+    signOnAmount: c.signOnBonusAmount != null ? String(c.signOnBonusAmount) : ''
+  });
+  const currentOnboardingForm = (): OnboardingForm => ({
+    joiningDate: onboardingJoiningDate,
+    dinnerStatus: onboardingDinnerStatus,
+    dinnerDate: onboardingDinnerDate,
+    resignationStatus: onboardingResignationStatus,
+    notes: onboardingNotesText,
+    baseSalary: onboardingBaseMonthlySalary,
+    salaryMonths: onboardingSalaryMonths,
+    hasBonus: onboardingHasBonusGuarantee,
+    bonusRows: onboardingBonusGuaranteeInstallments,
+    hasSignOn: onboardingHasSignOnBonus,
+    signOnAmount: onboardingSignOnBonusAmount
+  });
+  const applyOnboardingForm = (f: OnboardingForm, keys: (keyof OnboardingForm)[] = Object.keys(f) as (keyof OnboardingForm)[]) => {
+    keys.forEach((k) => {
+      if (k === 'joiningDate') setOnboardingJoiningDate(f.joiningDate);
+      else if (k === 'dinnerStatus') setOnboardingDinnerStatus(f.dinnerStatus);
+      else if (k === 'dinnerDate') setOnboardingDinnerDate(f.dinnerDate);
+      else if (k === 'resignationStatus') setOnboardingResignationStatus(f.resignationStatus);
+      else if (k === 'notes') setOnboardingNotesText(f.notes);
+      else if (k === 'baseSalary') setOnboardingBaseMonthlySalary(f.baseSalary);
+      else if (k === 'salaryMonths') setOnboardingSalaryMonths(f.salaryMonths);
+      else if (k === 'hasBonus') setOnboardingHasBonusGuarantee(f.hasBonus);
+      else if (k === 'bonusRows') setOnboardingBonusGuaranteeInstallments(f.bonusRows);
+      else if (k === 'hasSignOn') setOnboardingHasSignOnBonus(f.hasSignOn);
+      else if (k === 'signOnAmount') setOnboardingSignOnBonusAmount(f.signOnAmount);
+    });
+  };
+  const onboardingBaselineRef = useRef<OnboardingForm | null>(null);
+  const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
   // Runs only when the open candidate changes (not on every `candidates` update) — this used to
   // depend on `candidates` too, which meant ANY update anywhere in the app (another candidate's
   // note, a phase change, even this candidate's own note being saved) re-ran it and silently
@@ -346,21 +409,9 @@ export const CandidateDetailModal: React.FC = () => {
       if (c) {
         setEvalTargetPhase(c.phase);
         syncEvalAuthorToPhase(c.phase, c);
-        setOnboardingJoiningDate(c.joiningDate || '');
-        setOnboardingDinnerStatus(c.preJoinDinnerStatus || 'UNPLANNED');
-        setOnboardingDinnerDate(c.preJoinDinnerDate || '');
-        setOnboardingResignationStatus(c.resignationNegotiationStatus || 'NOT_STARTED');
-        setOnboardingNotesText(c.onboardingNotes || '');
-        setOnboardingBaseMonthlySalary(c.baseMonthlySalary != null ? String(c.baseMonthlySalary) : '');
-        setOnboardingSalaryMonths(String(salaryMonthsOf(c)));
-        setOnboardingHasBonusGuarantee(!!c.hasBonusGuarantee);
-        setOnboardingBonusGuaranteeInstallments(
-          c.bonusGuaranteeInstallments && c.bonusGuaranteeInstallments.length > 0
-            ? c.bonusGuaranteeInstallments.map((i) => ({ amount: String(i.amount), paymentMonth: i.paymentMonth }))
-            : []
-        );
-        setOnboardingHasSignOnBonus(!!c.hasSignOnBonus);
-        setOnboardingSignOnBonusAmount(c.signOnBonusAmount != null ? String(c.signOnBonusAmount) : '');
+        const onboardingForm = onboardingFormFromCandidate(c);
+        onboardingBaselineRef.current = onboardingForm;
+        applyOnboardingForm(onboardingForm);
         setNewInterviewRating(c.interviewRating || undefined);
         setNewDesiredDepartment(c.bcaDesiredDepartment || undefined);
         setNewLRating(c.lRating || undefined);
@@ -377,6 +428,24 @@ export const CandidateDetailModal: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCandidateId]);
+
+  // When this candidate's onboarding data changes underneath the open form (Drive restore/poll,
+  // another member's save), take the new values into every field the user hasn't edited.
+  const openCandidateForOnboarding = candidates.find((cand) => cand.id === selectedCandidateId);
+  const onboardingSourceJson = openCandidateForOnboarding ? JSON.stringify(onboardingFormFromCandidate(openCandidateForOnboarding)) : '';
+  useEffect(() => {
+    const base = onboardingBaselineRef.current;
+    if (!onboardingSourceJson || !base) return;
+    const fresh: OnboardingForm = JSON.parse(onboardingSourceJson);
+    const current = currentOnboardingForm();
+    const keys = (Object.keys(fresh) as (keyof OnboardingForm)[]).filter(
+      (k) => !sameValue(fresh[k], base[k]) && sameValue(current[k], base[k])
+    );
+    if (keys.length === 0) return;
+    applyOnboardingForm(fresh, keys);
+    onboardingBaselineRef.current = { ...base, ...Object.fromEntries(keys.map((k) => [k, fresh[k]])) } as OnboardingForm;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardingSourceJson]);
 
   // Best-effort background refresh: if this candidate's Drive folder now holds files the app
   // hasn't recorded yet (e.g. an old Drive-sync import from before every file in a folder was
@@ -453,39 +522,52 @@ export const CandidateDetailModal: React.FC = () => {
   const handleSaveOnboarding = (e: React.FormEvent) => {
     e.preventDefault();
     if (!candidate) return;
+    const base = onboardingBaselineRef.current || onboardingFormFromCandidate(candidate);
+    const form = currentOnboardingForm();
+    const changed = new Set((Object.keys(form) as (keyof OnboardingForm)[]).filter((k) => !sameValue(form[k], base[k])));
+    if (changed.size === 0) {
+      showToast('変更された項目はありません', 'info');
+      return;
+    }
     // 年収に関わる金額は、保存済みの値を入力欄の空欄で誤って消してしまわないよう確認を挟む。
     // （内定者台帳のDrive蓄積には消える前の値が残るが、アプリ上の値は消えるため）
     const clearing: string[] = [];
-    if (candidate.baseMonthlySalary && !onboardingBaseMonthlySalary) clearing.push('基本月給');
-    if (candidate.hasSignOnBonus && candidate.signOnBonusAmount && (!onboardingHasSignOnBonus || !onboardingSignOnBonusAmount)) clearing.push('サインオンボーナス');
+    if (changed.has('baseSalary') && candidate.baseMonthlySalary && !form.baseSalary) clearing.push('基本月給');
+    if ((changed.has('hasSignOn') || changed.has('signOnAmount')) && candidate.hasSignOnBonus && candidate.signOnBonusAmount && (!form.hasSignOn || !form.signOnAmount)) {
+      clearing.push('サインオンボーナス');
+    }
     if (
+      (changed.has('hasBonus') || changed.has('bonusRows')) &&
       candidate.hasBonusGuarantee &&
       sumBonusGuaranteeAmount(candidate) > 0 &&
-      (!onboardingHasBonusGuarantee || !onboardingBonusGuaranteeInstallments.some((i) => i.amount))
+      (!form.hasBonus || !form.bonusRows.some((i) => i.amount))
     ) {
       clearing.push('賞与保証');
     }
     if (clearing.length > 0 && !window.confirm(`保存済みの「${clearing.join('・')}」が空欄（またはなし）になります。本当に消してよろしいですか？`)) {
       return;
     }
-    updateOnboardingInfo(candidate.id, {
-      joiningDate: onboardingJoiningDate || undefined,
-      preJoinDinnerStatus: onboardingDinnerStatus,
-      preJoinDinnerDate: onboardingDinnerDate || undefined,
-      resignationNegotiationStatus: onboardingResignationStatus,
-      onboardingNotes: onboardingNotesText,
-      baseMonthlySalary: onboardingBaseMonthlySalary ? Number(onboardingBaseMonthlySalary) : undefined,
-      salaryMonths: Number(onboardingSalaryMonths) > 0 ? Number(onboardingSalaryMonths) : DEFAULT_SALARY_MONTHS,
-      hasBonusGuarantee: onboardingHasBonusGuarantee,
-      bonusGuaranteeInstallments: onboardingHasBonusGuarantee
-        ? onboardingBonusGuaranteeInstallments
-            .filter((i) => i.amount)
-            .map((i) => ({ amount: Number(i.amount), paymentMonth: i.paymentMonth }))
-        : undefined,
-      hasSignOnBonus: onboardingHasSignOnBonus,
-      signOnBonusAmount: onboardingHasSignOnBonus && onboardingSignOnBonusAmount ? Number(onboardingSignOnBonusAmount) : undefined
-    });
-    showToast('入社・フォロー情報を更新しました', 'success');
+    // Only what was edited in this form — everything else stays whatever the candidate has now.
+    const patch: Parameters<typeof updateOnboardingInfo>[1] = {};
+    if (changed.has('joiningDate')) patch.joiningDate = form.joiningDate || undefined;
+    if (changed.has('dinnerStatus')) patch.preJoinDinnerStatus = form.dinnerStatus;
+    if (changed.has('dinnerDate')) patch.preJoinDinnerDate = form.dinnerDate || undefined;
+    if (changed.has('resignationStatus')) patch.resignationNegotiationStatus = form.resignationStatus;
+    if (changed.has('notes')) patch.onboardingNotes = form.notes;
+    if (changed.has('baseSalary')) patch.baseMonthlySalary = form.baseSalary ? Number(form.baseSalary) : undefined;
+    if (changed.has('salaryMonths')) patch.salaryMonths = Number(form.salaryMonths) > 0 ? Number(form.salaryMonths) : DEFAULT_SALARY_MONTHS;
+    if (changed.has('hasBonus') || changed.has('bonusRows')) {
+      patch.hasBonusGuarantee = form.hasBonus;
+      patch.bonusGuaranteeInstallments = form.hasBonus
+        ? form.bonusRows.filter((i) => i.amount).map((i) => ({ amount: Number(i.amount), paymentMonth: i.paymentMonth }))
+        : undefined;
+    }
+    if (changed.has('hasSignOn') || changed.has('signOnAmount')) {
+      patch.hasSignOnBonus = form.hasSignOn;
+      patch.signOnBonusAmount = form.hasSignOn && form.signOnAmount ? Number(form.signOnAmount) : undefined;
+    }
+    updateOnboardingInfo(candidate.id, patch);
+    onboardingBaselineRef.current = form;
   };
 
   const handleAddBonusGuaranteeInstallment = () => {

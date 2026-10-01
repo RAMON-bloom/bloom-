@@ -4,6 +4,7 @@ import { Candidate, SelectionPhase } from '../types';
 import { isJoiningScheduled, countCheckedOnboardingItems, ONBOARDING_CHECKLIST_ITEMS } from '../lib/onboardingUtils';
 import { buildOfferLedgerRows } from '../lib/offerLedger';
 import { saveOfferLedger } from '../lib/driveApi';
+import { OfferLedgerRestoreModal } from './OfferLedgerRestoreModal';
 import { computeAgencyPaymentAmount, sumBonusGuaranteeAmount, salaryMonthsOf, annualBaseSalary } from '../lib/agencyPayment';
 import { 
   Sparkles, 
@@ -23,7 +24,8 @@ import {
   Filter,
   Check,
   ArrowUpRight,
-  Download
+  Download,
+  History
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<SelectionPhase, { label: string; bg: string; text: string; border: string }> = {
@@ -50,6 +52,7 @@ interface CalendarEvent {
 export const OnboardingView: React.FC = () => {
   const { candidates, agencies, setSelectedCandidateId, showToast, driveAccessToken } = useATS();
   const [isSavingLedger, setIsSavingLedger] = useState(false);
+  const [isLedgerRestoreOpen, setIsLedgerRestoreOpen] = useState(false);
 
   // 内定者台帳（Drive）へ今すぐ保存し、閲覧用CSVを開く。通常は変更の数秒後に自動で保存される。
   const openOfferLedger = async () => {
@@ -414,6 +417,14 @@ export const OnboardingView: React.FC = () => {
           >
             <Download className="w-3.5 h-3.5" />
             {isSavingLedger ? '保存中…' : '内定者台帳(Drive)'}
+          </button>
+          <button
+            onClick={() => setIsLedgerRestoreOpen(true)}
+            title="アプリから消えた入社・フォロー情報を、Driveの内定者台帳に最後に記録された内容から戻す"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+          >
+            <History className="w-3.5 h-3.5" />
+            台帳から復元
           </button>
         </div>
       </div>
@@ -1077,6 +1088,7 @@ export const OnboardingView: React.FC = () => {
           </div>
         </div>
       )}
+      {isLedgerRestoreOpen && <OfferLedgerRestoreModal onClose={() => setIsLedgerRestoreOpen(false)} />}
     </div>
   );
 };

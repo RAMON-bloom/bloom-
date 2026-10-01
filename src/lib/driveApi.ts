@@ -101,21 +101,105 @@ export async function findGmailMeetingNotes(
   return postJson('/api/gmail/find-meeting-notes', { accessToken, date: dateStr, titleKeyword });
 }
 
+// The shared backup (bloom_ats_backup.json) is read and written by the browser directly against the
+// Drive API instead of through /api/drive/backup|restore: Vercel functions reject request/response
+// bodies over 4.5MB, and once the backup (photos included) grew past that every write failed with a
+// 413 — resumes still uploaded (small separate requests), so new candidates showed up in the Drive
+// folders but never in the shared backup the rest of the team reads from. Only the small "where is
+// the file" lookup still goes through the server (backup-locate.ts).
+const DRIVE_API = 'https://www.googleapis.com/drive/v3';
+const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
+
+let backupFileIdCache: string | null = null;
+
+async function driveDirect(accessToken: string, url: string, init?: RequestInit): Promise<Response> {
+  const sep = url.includes('?') ? '&' : '?';
+  const res = await fetch(`${url}${sep}supportsAllDrives=true`, {
+    ...init,
+    headers: { Authorization: `Bearer ${accessToken}`, ...(init?.headers || {}) }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const err: any = new Error(
+      res.status === 401
+        ? 'Googleアクセストークンの有効期限が切れています。再度ログインしてください。'
+        : `Drive APIエラー (HTTP ${res.status}): ${text.slice(0, 200)}`
+    );
+    err.status = res.status;
+    throw err;
+  }
+  return res;
+}
+
+// Current id + version of the backup file, or null when nobody has backed up yet. The id is cached
+// for the session; the version is always fetched fresh (it is what the conflict check compares).
+async function locateBackupFile(accessToken: string): Promise<{ fileId: string; version?: string } | null> {
+  if (backupFileIdCache) {
+    try {
+      const res = await driveDirect(accessToken, `${DRIVE_API}/files/${backupFileIdCache}?fields=version,trashed`);
+      const meta = await res.json();
+      if (!meta.trashed) return { fileId: backupFileIdCache, version: meta.version };
+    } catch (err: any) {
+      if (err.status !== 404) throw err;
+    }
+    backupFileIdCache = null;
+  }
+  try {
+    const res = await postJson<{ fileId: string; version?: string }>('/api/drive/backup-locate', {
+      accessToken,
+      folderId: RECRUITMENT_DRIVE_FOLDER_ID
+    });
+    backupFileIdCache = res.fileId;
+    return { fileId: res.fileId, version: res.version };
+  } catch (err: any) {
+    if (err.status === 404) return null;
+    throw err;
+  }
+}
+
+// Cheap check for the background poll: the backup's current Drive version without downloading it.
+export async function getBackupVersion(accessToken: string): Promise<string | undefined> {
+  return (await locateBackupFile(accessToken))?.version;
+}
+
 // `expectedVersion` is the Drive file version this payload was merged against (from the
-// restoreFromDrive read just before). The server refuses the write with a 409 if anyone else has
-// written since, so the caller can re-read and re-merge instead of overwriting their change.
+// restoreFromDrive read just before). The write is refused with a 409 if anyone else has written
+// since, so the caller can re-read and re-merge instead of overwriting their change.
 export async function backupToDrive(
   accessToken: string,
   data: object,
   expectedVersion?: string
 ): Promise<{ backedUpAt?: string; version?: string }> {
-  const res = await postJson<{ backedUpAt?: string; version?: string }>('/api/drive/backup', {
+  const located = await locateBackupFile(accessToken);
+  if (!located) {
+    // Very first backup ever: let the server create the folder/file (tiny at that point).
+    const res = await postJson<{ backedUpAt?: string; version?: string }>('/api/drive/backup', {
+      accessToken,
+      folderId: RECRUITMENT_DRIVE_FOLDER_ID,
+      data,
+      expectedVersion
+    });
+    return { backedUpAt: res.backedUpAt, version: res.version };
+  }
+  if (expectedVersion && located.version && located.version !== expectedVersion) {
+    const err: any = new Error('バックアップが他の端末で更新されていたため、再読込してから保存し直します。');
+    err.status = 409;
+    throw err;
+  }
+  // Only ever compared for equality ("has anyone written since I last read/wrote?"), never for
+  // order, so the browser's own clock is fine here.
+  const backedUpAt = new Date().toISOString();
+  const res = await driveDirect(
     accessToken,
-    folderId: RECRUITMENT_DRIVE_FOLDER_ID,
-    data,
-    expectedVersion
-  });
-  return { backedUpAt: res.backedUpAt, version: res.version };
+    `${DRIVE_UPLOAD_API}/files/${located.fileId}?uploadType=media&fields=id,version`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify({ ...data, backedUpAt })
+    }
+  );
+  const file = await res.json();
+  return { backedUpAt, version: file.version };
 }
 
 // 内定者台帳（Drive上の「内定者台帳」フォルダ）へ内定者の行を追記・更新する。台帳側は削除せず蓄積
@@ -129,12 +213,19 @@ export async function saveOfferLedger(
 
 // The backup JSON plus `driveFileVersion` — the Drive version of the file this content came from,
 // to hand back to backupToDrive as its expectedVersion.
+// Read straight from Drive (see the note above backupToDrive). The version is read *before* the
+// content: if a write lands in between, we hold newer content under an older version and the next
+// write merely gets a harmless 409 — the reverse order could let a stale write through.
 export async function restoreFromDrive<T = any>(accessToken: string): Promise<T & { driveFileVersion?: string }> {
-  const res = await postJson<{ data: T; version?: string }>('/api/drive/restore', {
-    accessToken,
-    folderId: RECRUITMENT_DRIVE_FOLDER_ID
-  });
-  return { ...(res.data as any), driveFileVersion: res.version };
+  const located = await locateBackupFile(accessToken);
+  if (!located) {
+    const err: any = new Error('Drive上にバックアップファイルが見つかりませんでした。');
+    err.status = 404;
+    throw err;
+  }
+  const res = await driveDirect(accessToken, `${DRIVE_API}/files/${located.fileId}?alt=media`, { cache: 'no-store' });
+  const data = JSON.parse(await res.text());
+  return { ...data, driveFileVersion: located.version };
 }
 
 export interface DriveResumeFile {

@@ -34,6 +34,7 @@ import {
   backupToDrive as backupToDriveApi,
   saveOfferLedger,
   restoreFromDrive as restoreFromDriveApi,
+  getBackupVersion as getBackupVersionApi,
   moveResumeToPhaseFolder as moveResumeToPhaseFolderApi,
   scanDriveResumes as scanDriveResumesApi,
   importDriveResume as importDriveResumeApi,
@@ -63,6 +64,7 @@ import {
   stampLocalChanges
 } from '../lib/syncMerge';
 import { buildOfferLedgerRows } from '../lib/offerLedger';
+import { shrinkAvatarDataUrl } from '../lib/photoCrop';
 import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
 
 // localStorage.setItem can throw (most commonly QuotaExceededError, likely here given candidates
@@ -860,8 +862,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw err;
       }
 
-      // Server-issued timestamp: every tab compares these against each other, so they must come
-      // from one clock (a device whose clock ran ahead used to ignore everyone else's updates).
+      // Tabs only ever compare these for equality (see the poll), so whose clock stamped it doesn't matter.
       if (result.backedUpAt) setLastAppliedBackupAt(result.backedUpAt);
       updateSyncBase(merged);
       syncedInquiriesJsonRef.current = JSON.stringify(localAtMergeTime.inquiries);
@@ -968,6 +969,29 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timer);
   }, [candidates, agencies, driveAccessToken, isBootstrapping]);
 
+  // One-time shrink of oversized résumé photos already stored in the shared backup (they used to be
+  // saved at full crop resolution, which is what pushed the backup past the size the sync could
+  // carry). Waits until a Drive read has filled in the photos (they're absent from localStorage),
+  // and only replaces a photo that is still the one it shrank, so a concurrent re-crop wins.
+  const avatarShrinkStartedRef = useRef(false);
+  useEffect(() => {
+    if (!driveAccessToken || avatarShrinkStartedRef.current || heavyFieldsUnloadedIdsRef.current.size > 0) return;
+    avatarShrinkStartedRef.current = true;
+    (async () => {
+      const shrunkByOriginal = new Map<string, string>();
+      for (const c of latestBackupStateRef.current.candidates) {
+        if (!c.avatarUrl || shrunkByOriginal.has(c.avatarUrl)) continue;
+        const shrunk = await shrinkAvatarDataUrl(c.avatarUrl).catch(() => null);
+        if (shrunk) shrunkByOriginal.set(c.avatarUrl, shrunk);
+      }
+      if (shrunkByOriginal.size === 0) return;
+      setCandidates((prev) =>
+        prev.map((c) => (c.avatarUrl && shrunkByOriginal.has(c.avatarUrl) ? { ...c, avatarUrl: shrunkByOriginal.get(c.avatarUrl) } : c))
+      );
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveAccessToken, candidates]);
+
   // Applies a Drive snapshot (login restore, background poll, manual 復元) by merging it into this
   // tab's state — never by overwriting, so edits Drive doesn't have yet survive. If the merge shows
   // this tab holds something Drive lacks, a write is scheduled to put it back.
@@ -1014,6 +1038,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // regains focus, re-reads Drive and merges it in if anyone has written since this tab last wrote
   // or applied. Skipped while the tab is hidden, and while this tab's own write is pending.
   const DRIVE_POLL_INTERVAL_MS = 10000;
+  const lastPolledVersionRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!driveAccessToken) return;
@@ -1023,12 +1048,17 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (document.visibilityState !== 'visible') return;
       if (pendingLocalWriteRef.current) return;
       try {
+        // Version first (a few hundred bytes) so an idle team isn't each downloading the whole
+        // backup every 10 seconds; the full read only happens when someone actually wrote.
+        const version = await getBackupVersionApi(driveAccessToken);
+        if (version && version === lastPolledVersionRef.current) return;
         const data = await restoreFromDriveApi(driveAccessToken);
         if (cancelled || pendingLocalWriteRef.current) return;
+        lastPolledVersionRef.current = data.driveFileVersion;
         if (!data.backedUpAt) return;
-        // Equality, not "<=": backedUpAt is stamped by the server, and any different value means
-        // someone else wrote. (Comparing against a client-clock value used to make a device whose
-        // clock ran ahead ignore other people's changes until its clock caught up.)
+        // Equality, not "<=": any different value means someone else wrote. (Comparing timestamps
+        // from different devices' clocks used to make a device whose clock ran ahead ignore other
+        // people's changes until its clock caught up.)
         if (data.backedUpAt === lastAppliedBackupAtRef.current) return;
         applyDriveSnapshotMerged(data);
       } catch (err: any) {

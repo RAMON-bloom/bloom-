@@ -1,5 +1,13 @@
 import { PhotoCropBox } from './driveApi';
 
+// Avatars are only ever shown as small thumbnails (a few rem across), but every candidate's photo is
+// stored inline in the shared Drive backup that every member downloads. Full-resolution crops at
+// JPEG 0.92 made that file balloon past what the sync could carry, so they are capped here.
+const AVATAR_MAX_W = 240;
+const AVATAR_MAX_H = 320;
+const AVATAR_JPEG_QUALITY = 0.85;
+const AVATAR_SHRINK_THRESHOLD_CHARS = 40_000;
+
 // Renders an arbitrary image (base64, no data: prefix) onto an offscreen canvas at its
 // native resolution so we can crop pixels out of it afterwards.
 export async function renderImageToCanvas(base64: string, mimeType: string): Promise<HTMLCanvasElement> {
@@ -66,8 +74,8 @@ export async function bakeAdjustedCrop(
   img.src = dataUrl;
   await loaded;
 
-  const outW = 480;
-  const outH = aspectRatio === '3:4' ? 640 : 480;
+  const outW = AVATAR_MAX_W;
+  const outH = aspectRatio === '3:4' ? AVATAR_MAX_H : AVATAR_MAX_W;
 
   const canvas = document.createElement('canvas');
   canvas.width = outW;
@@ -85,7 +93,7 @@ export async function bakeAdjustedCrop(
   ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
   ctx.restore();
 
-  return canvas.toDataURL('image/jpeg', 0.92);
+  return canvas.toDataURL('image/jpeg', AVATAR_JPEG_QUALITY);
 }
 
 // Renders the source file and crops out the normalized (0-1) box Gemini identified, returning the
@@ -103,9 +111,34 @@ export async function renderAndCrop(fileBase64: string, mimeType: string, box: P
   const cropW = Math.max(1, Math.min(sw - sx, (box.xMax - box.xMin) * sw));
   const cropH = Math.max(1, Math.min(sh - sy, (box.yMax - box.yMin) * sh));
 
+  const scale = Math.min(1, AVATAR_MAX_W / cropW, AVATAR_MAX_H / cropH);
   const out = document.createElement('canvas');
-  out.width = cropW;
-  out.height = cropH;
-  out.getContext('2d')!.drawImage(sourceCanvas, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
-  return out.toDataURL('image/jpeg', 0.92);
+  out.width = Math.max(1, Math.round(cropW * scale));
+  out.height = Math.max(1, Math.round(cropH * scale));
+  out.getContext('2d')!.drawImage(sourceCanvas, sx, sy, cropW, cropH, 0, 0, out.width, out.height);
+  return out.toDataURL('image/jpeg', AVATAR_JPEG_QUALITY);
+}
+
+// Re-encodes an existing (data: URL) avatar at the size above when it is noticeably larger.
+// Returns null when there is nothing worth shrinking (already small, not a data: URL, or unreadable).
+export async function shrinkAvatarDataUrl(dataUrl: string): Promise<string | null> {
+  if (!dataUrl.startsWith('data:image/') || dataUrl.length <= AVATAR_SHRINK_THRESHOLD_CHARS) return null;
+  const img = new Image();
+  const loaded = new Promise<boolean>((resolve) => {
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+  });
+  img.src = dataUrl;
+  if (!(await loaded) || !img.naturalWidth || !img.naturalHeight) return null;
+  const scale = Math.min(1, AVATAR_MAX_W / img.naturalWidth, AVATAR_MAX_H / img.naturalHeight);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const ctx = canvas.getContext('2d')!;
+  // JPEG has no alpha — paint white first so transparent PNG regions don't turn black.
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const shrunk = canvas.toDataURL('image/jpeg', AVATAR_JPEG_QUALITY);
+  return shrunk.length < dataUrl.length * 0.8 ? shrunk : null;
 }

@@ -11,6 +11,7 @@ import parseResume from './api/parse-resume';
 import driveSummarizeLog from './api/drive/summarize-log';
 import driveBackup from './api/drive/backup';
 import driveRestore from './api/drive/restore';
+import driveBackupLocate from './api/drive/backup-locate';
 import driveUploadResume from './api/drive/upload-resume';
 import driveMoveResumeFolder from './api/drive/move-resume-folder';
 import driveMoveFileToFolder from './api/drive/move-file-to-folder';
@@ -43,6 +44,7 @@ async function startServer() {
   app.post('/api/drive/summarize-log', driveSummarizeLog);
   app.post('/api/drive/backup', driveBackup);
   app.post('/api/drive/restore', driveRestore);
+  app.post('/api/drive/backup-locate', driveBackupLocate);
   app.post('/api/drive/upload-resume', driveUploadResume);
   app.post('/api/drive/move-resume-folder', driveMoveResumeFolder);
   app.post('/api/drive/move-file-to-folder', driveMoveFileToFolder);

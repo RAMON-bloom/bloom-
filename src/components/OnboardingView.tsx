@@ -4,7 +4,7 @@ import { Candidate, SelectionPhase } from '../types';
 import { isJoiningScheduled, countCheckedOnboardingItems, ONBOARDING_CHECKLIST_ITEMS } from '../lib/onboardingUtils';
 import { buildOfferLedgerRows } from '../lib/offerLedger';
 import { saveOfferLedger } from '../lib/driveApi';
-import { computeAgencyPaymentAmount, sumBonusGuaranteeAmount } from '../lib/agencyPayment';
+import { computeAgencyPaymentAmount, sumBonusGuaranteeAmount, salaryMonthsOf, annualBaseSalary } from '../lib/agencyPayment';
 import { 
   Sparkles, 
   Calendar as CalendarIcon, 
@@ -293,7 +293,7 @@ export const OnboardingView: React.FC = () => {
   const exportOnboardingCSV = () => {
     const headers = [
       '候補者ID', '名前', '選考ポジション', 'エージェント名', '入社予定日',
-      '基本月給', '年収換算(基本月給×12)',
+      '基本月給', '支給月数', '年収換算(基本月給×支給月数)',
       '賞与保証有無', '賞与保証合計額', '賞与保証支給内訳(金額:年月)',
       'サインオンボーナス有無', 'サインオンボーナス金額',
       'エージェント手数料率(%)', '手数料率-賞与保証対象', '手数料率-サインオンボーナス対象',
@@ -313,7 +313,8 @@ export const OnboardingView: React.FC = () => {
         c.agencyName,
         c.joiningDate || '',
         c.baseMonthlySalary != null ? String(c.baseMonthlySalary) : '',
-        c.baseMonthlySalary != null ? String(c.baseMonthlySalary * 12) : '',
+        String(salaryMonthsOf(c)),
+        c.baseMonthlySalary != null ? String(annualBaseSalary(c)) : '',
         c.hasBonusGuarantee ? 'あり' : 'なし',
         c.hasBonusGuarantee ? String(sumBonusGuaranteeAmount(c)) : '0',
         installmentsText,
@@ -972,7 +973,15 @@ export const OnboardingView: React.FC = () => {
                             </span>
                           </td>
                           <td className="py-2 px-2.5 whitespace-nowrap font-mono">
-                            {c.baseMonthlySalary ? `¥${c.baseMonthlySalary.toLocaleString('ja-JP')}` : '未設定'}
+                            {c.baseMonthlySalary ? (
+                              <>
+                                ¥{c.baseMonthlySalary.toLocaleString('ja-JP')}
+                                <span className="text-slate-400"> ×{salaryMonthsOf(c)}か月</span>
+                                <div className="text-[10px] text-slate-400">年収 ¥{annualBaseSalary(c).toLocaleString('ja-JP')}</div>
+                              </>
+                            ) : (
+                              '未設定'
+                            )}
                           </td>
                           <td className="py-2 px-2.5 whitespace-nowrap">
                             {c.hasBonusGuarantee ? (

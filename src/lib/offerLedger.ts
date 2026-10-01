@@ -1,6 +1,6 @@
 import { Agency, Candidate } from '../types';
 import { isJoiningScheduled } from './onboardingUtils';
-import { computeAgencyPaymentAmount, sumBonusGuaranteeAmount } from './agencyPayment';
+import { annualBaseSalary, computeAgencyPaymentAmount, sumBonusGuaranteeAmount } from './agencyPayment';
 
 // Driveの「内定者台帳」に蓄積する1人分の行。api/drive/offer-ledger.ts と同じ形（api/とsrc/は別
 // デプロイターゲットなので型は複製している。項目を変える時は両方直すこと）。
@@ -14,7 +14,7 @@ export interface OfferLedgerRow {
   phaseLabel: string;
   joiningDate?: string;
   baseMonthlySalary?: number;
-  annualSalary?: number; // 基本月給×12
+  annualSalary?: number; // 基本月給×月数（salaryMonths、既定12）
   bonusGuaranteeAmount?: number;
   signOnBonusAmount?: number;
   commissionRate?: number;
@@ -46,7 +46,7 @@ export function buildOfferLedgerRows(candidates: Candidate[], agencies: Agency[]
         phaseLabel: PHASE_LABEL[c.phase] || c.phase,
         joiningDate: c.joiningDate,
         baseMonthlySalary: c.baseMonthlySalary || undefined,
-        annualSalary: c.baseMonthlySalary ? c.baseMonthlySalary * 12 : undefined,
+        annualSalary: annualBaseSalary(c) || undefined,
         bonusGuaranteeAmount: bonus || undefined,
         signOnBonusAmount: c.hasSignOnBonus && c.signOnBonusAmount ? c.signOnBonusAmount : undefined,
         commissionRate: agency?.commissionRate,

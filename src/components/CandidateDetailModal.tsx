@@ -11,7 +11,7 @@ import { getNextPhase, PHASE_SEQUENCE, SKIPPABLE_PHASES } from '../lib/phaseUtil
 import { OnboardingChecklist } from './OnboardingChecklist';
 import { AptitudeTestStatusBadge } from './AptitudeTestStatusBadge';
 import { isAptitudeTestRelevantPhase } from '../lib/aptitudeTestStatus';
-import { sumBonusGuaranteeAmount } from '../lib/agencyPayment';
+import { sumBonusGuaranteeAmount, salaryMonthsOf, annualBaseSalary, DEFAULT_SALARY_MONTHS } from '../lib/agencyPayment';
 import { computeAnnualSalaryText } from '../lib/salaryUtils';
 import { 
   X, 
@@ -322,6 +322,7 @@ export const CandidateDetailModal: React.FC = () => {
   const [onboardingResignationStatus, setOnboardingResignationStatus] = useState<ResignationNegotiationStatus>('NOT_STARTED');
   const [onboardingNotesText, setOnboardingNotesText] = useState<string>('');
   const [onboardingBaseMonthlySalary, setOnboardingBaseMonthlySalary] = useState<string>('');
+  const [onboardingSalaryMonths, setOnboardingSalaryMonths] = useState<string>('12');
   const [onboardingHasBonusGuarantee, setOnboardingHasBonusGuarantee] = useState<boolean>(false);
   // 賞与保証は複数回に分けて支給されることがあるため、行の配列として保持する（金額は入力中の
   // 半端な値をNaNにせず保持できるよう文字列で持ち、保存時にNumberへ変換する）。
@@ -351,6 +352,7 @@ export const CandidateDetailModal: React.FC = () => {
         setOnboardingResignationStatus(c.resignationNegotiationStatus || 'NOT_STARTED');
         setOnboardingNotesText(c.onboardingNotes || '');
         setOnboardingBaseMonthlySalary(c.baseMonthlySalary != null ? String(c.baseMonthlySalary) : '');
+        setOnboardingSalaryMonths(String(salaryMonthsOf(c)));
         setOnboardingHasBonusGuarantee(!!c.hasBonusGuarantee);
         setOnboardingBonusGuaranteeInstallments(
           c.bonusGuaranteeInstallments && c.bonusGuaranteeInstallments.length > 0
@@ -473,6 +475,7 @@ export const CandidateDetailModal: React.FC = () => {
       resignationNegotiationStatus: onboardingResignationStatus,
       onboardingNotes: onboardingNotesText,
       baseMonthlySalary: onboardingBaseMonthlySalary ? Number(onboardingBaseMonthlySalary) : undefined,
+      salaryMonths: Number(onboardingSalaryMonths) > 0 ? Number(onboardingSalaryMonths) : DEFAULT_SALARY_MONTHS,
       hasBonusGuarantee: onboardingHasBonusGuarantee,
       bonusGuaranteeInstallments: onboardingHasBonusGuarantee
         ? onboardingBonusGuaranteeInstallments
@@ -3118,15 +3121,38 @@ export const CandidateDetailModal: React.FC = () => {
 
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div>
-                              <span className="block text-slate-500 text-[11px] mb-1">基本月給（円）</span>
-                              <input
-                                type="number"
-                                min="0"
-                                value={onboardingBaseMonthlySalary}
-                                onChange={(e) => setOnboardingBaseMonthlySalary(e.target.value)}
-                                placeholder="例: 300000"
-                                className="w-full bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
-                              />
+                              <span className="block text-slate-500 text-[11px] mb-1">基本月給（円） × 支給月数</span>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={onboardingBaseMonthlySalary}
+                                  onChange={(e) => setOnboardingBaseMonthlySalary(e.target.value)}
+                                  placeholder="例: 300000"
+                                  className="w-full min-w-0 bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                                <span className="text-slate-500 text-xs shrink-0">×</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="24"
+                                  step="0.5"
+                                  value={onboardingSalaryMonths}
+                                  onChange={(e) => setOnboardingSalaryMonths(e.target.value)}
+                                  title="何か月分で提示するか（年収換算の月数）"
+                                  className="w-16 shrink-0 bg-white border border-slate-300 text-slate-900 font-bold rounded-lg px-2 py-2 text-xs text-right focus:outline-none focus:border-indigo-500"
+                                />
+                                <span className="text-slate-500 text-xs shrink-0">か月</span>
+                              </div>
+                              {Number(onboardingBaseMonthlySalary) > 0 && (
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  年収換算: ¥
+                                  {annualBaseSalary({
+                                    baseMonthlySalary: Number(onboardingBaseMonthlySalary),
+                                    salaryMonths: Number(onboardingSalaryMonths)
+                                  }).toLocaleString('ja-JP')}
+                                </p>
+                              )}
                             </div>
 
                             <div>

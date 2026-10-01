@@ -165,6 +165,7 @@ interface ATSContextType {
       resignationNegotiationStatus?: ResignationNegotiationStatus;
       onboardingNotes?: string;
       baseMonthlySalary?: number;
+      salaryMonths?: number;
       hasBonusGuarantee?: boolean;
       bonusGuaranteeInstallments?: BonusGuaranteeInstallment[];
       hasSignOnBonus?: boolean;
@@ -1742,6 +1743,7 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       resignationNegotiationStatus?: ResignationNegotiationStatus;
       onboardingNotes?: string;
       baseMonthlySalary?: number;
+      salaryMonths?: number;
       hasBonusGuarantee?: boolean;
       bonusGuaranteeInstallments?: BonusGuaranteeInstallment[];
       hasSignOnBonus?: boolean;

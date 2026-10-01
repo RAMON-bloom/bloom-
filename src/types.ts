@@ -179,7 +179,8 @@ export interface Candidate {
   // 既知の制限）を回避する。Webhookごと（＝Chatスペースごと）にスレッド実体が別れるためURL単位で保持。
   chatThreadNames?: Record<string, string>;
   salaryExpectation?: string;
-  baseMonthlySalary?: number; // 基本月給（円）。エージェント支払額の計算基準（年収換算=×12）
+  baseMonthlySalary?: number; // 基本月給（円）。エージェント支払額の計算基準（年収換算=基本月給×salaryMonths）
+  salaryMonths?: number; // 年収換算の月数（何か月分で提示するか。例: 12, 14）。未設定は12か月として扱う
   hasBonusGuarantee?: boolean; // 賞与保証の有無
   bonusGuaranteeInstallments?: BonusGuaranteeInstallment[]; // 賞与保証の支給内訳（複数回に分けて支給される場合は複数件）。hasBonusGuaranteeがtrueの場合のみ有効
   hasSignOnBonus?: boolean; // サインオンボーナスの有無

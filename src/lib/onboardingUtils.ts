@@ -11,7 +11,8 @@ export function isJoiningScheduled(candidate: Candidate): boolean {
 
 // 入社手続きチェックリストの項目定義（表示順）。項目を増やす/並べ替える場合はここだけ直せばよい。
 // idは保存データ(Candidate.onboardingChecklist)のキーなので、既存項目のidは変更しないこと。
-export const ONBOARDING_CHECKLIST_ITEMS: { id: string; label: string; notePlaceholder?: string }[] = [
+// wideNote: 備考欄を項目名の下に全幅・複数行で表示する（面談記録など長文を書く項目）。
+export const ONBOARDING_CHECKLIST_ITEMS: { id: string; label: string; notePlaceholder?: string; wideNote?: boolean }[] = [
   { id: 'employment_contract', label: '雇用契約書' },
   { id: 'pledge', label: '誓約書' },
   { id: 'guarantor', label: '身元保証書' },
@@ -23,7 +24,8 @@ export const ONBOARDING_CHECKLIST_ITEMS: { id: string; label: string; notePlaceh
   { id: 'onboarding_sent', label: 'オンボーディング送付' },
   { id: 'joining_form_checked', label: '入社フォーム確認' },
   { id: 'health_check', label: '健康診断書' },
-  { id: 'residence_certificate', label: '住民票(引っ越しのある方)' }
+  { id: 'residence_certificate', label: '住民票(引っ越しのある方)' },
+  { id: 'pre_joining_interview', label: '入社前面談', notePlaceholder: '実施日・面談者・話した内容・懸念点など（改行できます）', wideNote: true }
 ];
 
 export function getChecklistEntry(candidate: Candidate, itemId: string): { checked: boolean; note: string } {

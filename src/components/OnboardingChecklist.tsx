@@ -1,23 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { ClipboardCheck } from 'lucide-react';
 import { useATS } from '../context/ATSContext';
 import { Candidate } from '../types';
 import { ONBOARDING_CHECKLIST_ITEMS, getChecklistEntry, countCheckedOnboardingItems } from '../lib/onboardingUtils';
 
 // 備考は入力ごとではなく、欄を離れた時に保存する（1文字ごとにDrive同期が走らないように）。
-const NoteInput: React.FC<{ value: string; placeholder?: string; onCommit: (v: string) => void }> = ({ value, placeholder, onCommit }) => {
+// 改行できる複数行の欄で、内容に合わせて高さが伸びる（wideは長文向けに最初から広め）。
+const NoteInput: React.FC<{ value: string; placeholder?: string; wide?: boolean; onCommit: (v: string) => void }> = ({
+  value,
+  placeholder,
+  wide,
+  onCommit
+}) => {
   const [text, setText] = useState(value);
+  const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => setText(value), [value]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [text]);
   return (
-    <input
-      type="text"
+    <textarea
+      ref={ref}
       value={text}
+      rows={wide ? 4 : 1}
       placeholder={placeholder || '備考'}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
         if (text !== value) onCommit(text);
       }}
-      className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500"
+      className={`w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1.5 text-xs leading-relaxed resize-y focus:outline-none focus:border-indigo-500 ${
+        wide ? 'min-h-[6rem]' : ''
+      }`}
     />
   );
 };
@@ -48,8 +64,11 @@ export const OnboardingChecklist: React.FC<{ candidate: Candidate }> = ({ candid
           {ONBOARDING_CHECKLIST_ITEMS.map((item) => {
             const entry = getChecklistEntry(candidate, item.id);
             return (
-              <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-2 py-2">
-                <label className="flex items-center gap-2 sm:w-72 shrink-0 cursor-pointer">
+              <div
+                key={item.id}
+                className={`flex flex-col gap-2 py-2 ${item.wideNote ? '' : 'sm:flex-row sm:items-start'}`}
+              >
+                <label className={`flex items-center gap-2 shrink-0 cursor-pointer ${item.wideNote ? '' : 'sm:w-72 sm:pt-1.5'}`}>
                   <input
                     type="checkbox"
                     checked={entry.checked}
@@ -62,6 +81,7 @@ export const OnboardingChecklist: React.FC<{ candidate: Candidate }> = ({ candid
                   <NoteInput
                     value={entry.note}
                     placeholder={item.notePlaceholder}
+                    wide={item.wideNote}
                     onCommit={(v) => updateOnboardingChecklistItem(candidate.id, item.id, { note: v })}
                   />
                 </div>

@@ -65,6 +65,7 @@ import {
 } from '../lib/syncMerge';
 import { buildOfferLedgerRows } from '../lib/offerLedger';
 import { shrinkAvatarDataUrl } from '../lib/photoCrop';
+import { agencyNameFromFolderName, findAgencyByLooseName } from '../lib/agencyMatch';
 import { computeYieldMetrics, computeYieldMetricsByPosition } from '../lib/yieldMetrics';
 
 // localStorage.setItem can throw (most commonly QuotaExceededError, likely here given candidates
@@ -2672,6 +2673,29 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const folderIdToEntry = new Map(entries.filter((e) => e.folderId).map((e) => [e.folderId as string, e]));
       const fileIdToEntry = new Map(entries.filter((e) => !e.folderId).map((e) => [e.file.id, e]));
 
+      // Candidates imported via this sync before the agency could be read from the folder name (or
+      // whose folder name didn't exactly match the master) were saved as 直接応募 under an id that
+      // isn't in the agency master at all. Their folder ("氏名_エージェント名") still says who referred
+      // them, so fill that in automatically — this also runs in the silent login-time check. Only
+      // touches off-master ids, never an agency someone chose explicitly.
+      const agencyFixes = new Map<string, { id: string; name: string }>();
+      latestBackupStateRef.current.candidates.forEach((c) => {
+        if (!c.resumeDriveFolderId || agencies.some((a) => a.id === c.agencyId)) return;
+        const folderAgency = agencyNameFromFolderName(folderIdToEntry.get(c.resumeDriveFolderId)?.folderName);
+        const match = folderAgency ? findAgencyByLooseName(agencies, folderAgency) : undefined;
+        if (match) agencyFixes.set(c.id, { id: match.id, name: match.name });
+      });
+      if (agencyFixes.size > 0) {
+        setCandidates((prev) =>
+          prev.map((c) => {
+            const fix = agencyFixes.get(c.id);
+            if (!fix || agencies.some((a) => a.id === c.agencyId)) return c;
+            return { ...c, agencyId: fix.id, agencyName: fix.name };
+          })
+        );
+        showToast(`${agencyFixes.size}名の応募経路をDriveフォルダ名のエージェントに合わせて補正しました`, 'info');
+      }
+
       const pendingMoves = readPendingDriveMoves();
       const phaseMoves: DriveSyncPhaseMove[] = [];
       candidates.forEach((c) => {
@@ -2997,10 +3021,12 @@ export const ATSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const detail = selection.importDetails?.[entry.key];
           // Drive folders are named "氏名" or "氏名_エージェント名" (buildCandidateFolderName), so the
           // agency can be recovered from the name when the review modal didn't set one explicitly.
-          const folderAgencyName = entry.displayName.includes('_') ? entry.displayName.split('_').slice(1).join('_').trim() : '';
+          const folderAgencyName = agencyNameFromFolderName(entry.displayName);
           const agency =
             agencies.find((a) => a.id === detail?.agencyId) ||
-            (folderAgencyName ? agencies.find((a) => a.name === folderAgencyName) : undefined);
+            (folderAgencyName ? findAgencyByLooseName(agencies, folderAgencyName) : undefined) ||
+            // Prefer a real master entry for direct applications over the off-master 'ag-direct' id.
+            agencies.find((a) => a.name.includes('直接応募'));
           const agencyAssignees = agency?.assignedStaffNames && agency.assignedStaffNames.length > 0 ? agency.assignedStaffNames : null;
           addCandidate({
             name: parsed.name,

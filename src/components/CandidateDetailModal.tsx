@@ -1372,14 +1372,19 @@ export const CandidateDetailModal: React.FC = () => {
                     value={candidate.agencyId}
                     onChange={(e) => {
                       const selectedAgency = agencies.find((ag) => ag.id === e.target.value);
-                      updateCandidate({
-                        ...candidate,
-                        agencyId: e.target.value,
-                        agencyName: selectedAgency ? selectedAgency.name : candidate.agencyName
-                      });
+                      if (!selectedAgency) return;
+                      patchCandidate(candidate.id, { agencyId: selectedAgency.id, agencyName: selectedAgency.name });
                     }}
                     className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                   >
+                    {/* Candidates imported via「Driveと同期」without a route carry an id that isn't in
+                        the agency master (e.g. ag-direct). Without this option the browser silently
+                        showed the first agency as selected, and picking that one fired no change. */}
+                    {!agencies.some((ag) => ag.id === candidate.agencyId) && (
+                      <option value={candidate.agencyId} disabled>
+                        {candidate.agencyName || '未設定'}（マスタ未登録・選び直してください）
+                      </option>
+                    )}
                     {agencies.map((ag) => (
                       <option key={ag.id} value={ag.id}>
                         {ag.name}
